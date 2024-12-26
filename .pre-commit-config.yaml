@@ -1,30 +1,26 @@
 repos:
   - repo: https://github.com/psf/black
-    rev: 23.9.1
+    rev: 24.10.0
     hooks:
       - id: black
-        exclude: ^(dreamerv3/|embodied/|src/actuation/dynamixel_sdk/|src/gui/TkDial/)
         language_version: python3.10
 
   - repo: https://github.com/PyCQA/flake8
-    rev: 7.0.0
+    rev: 7.1.1
     hooks:
       - id: flake8
-        exclude: ^(dreamerv3/|embodied/|src/actuation/dynamixel_sdk/|src/gui/TkDial/)
         args: [--max-line-length=90,--extend-ignore=E203]
 
   - repo: https://github.com/pre-commit/mirrors-isort
     rev: v5.10.1
     hooks:
       - id: isort
-        exclude: ^(dreamerv3/|embodied/|src/actuation/dynamixel_sdk/|src/gui/TkDial/)
         args: ["--profile", "black"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v5.0.0
     hooks:
       - id: check-yaml
-        exclude: ^(dreamerv3/|embodied/|src/actuation/dynamixel_sdk/|src/gui/TkDial/)
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
@@ -32,5 +28,5 @@ repos:
     rev: 6.3.0
     hooks:
       - id: pydocstyle
-        exclude: ^(dreamerv3/|embodied/|src/actuation/dynamixel_sdk/|src/gui/TkDial/)
+        additional_dependencies: [snowballstemmer]
         args: ["--convention=google"]

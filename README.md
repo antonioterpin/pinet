@@ -118,12 +118,18 @@ We follow a [Git feature branch](https://www.atlassian.com/git/tutorials/compari
 - We open a PR to `main` only for milestones.
 
 ### Testing a feature
-TODO
+To test a new feature, simply add a `test_<feature_to_test>` inside the folder `src/test`. For this, refer to the [`pytest` documentation](https://docs.pytest.org/en/stable/).
+
+To run the tests,
+```bash
+PYTHONPATH=src pytest
+```
 
 ### Code organization
 We structure the codebase as follows:
-- `flax` contains the API to include the project as part of the [flax](https://flax.readthedocs.io) library.
-- `hcnn` contains the different features of the project.
+- `src/hcnn/` contains the different features of the project.
+- `src/hcnn/flax_project.py` contains the `nn.Module` extension to include the project as part of the [flax](https://flax.readthedocs.io) library.
+- `src/test/` contains the tests.
 
 ### Preparing for a PR
 Before opening a PR to `dev`, you need to `squash` your commits into a single one. First, review your commit history to identify how many commits need to be squashed:
