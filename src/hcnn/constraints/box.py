@@ -51,7 +51,11 @@ class BoxConstraint(Constraint):
         checkify.check(mask.dtype == jnp.bool_, "Mask must be a boolean array.")
 
     def project(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Project the input to the feasible region."""
-        return x.at[self.mask].set(
-            jnp.clip(x[self.mask], self.lower_bound, self.upper_bound)
+        """Project the input to the feasible region.
+
+        Args:
+            x: Input to be projected. jnp.ndarray with shape (n, d).
+        """
+        return x.at[:, self.mask].set(
+            jnp.clip(x[:, self.mask], self.lower_bound, self.upper_bound)
         )
