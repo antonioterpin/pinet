@@ -18,7 +18,9 @@ class Project(nn.Module):
     def __call__(self, x: jnp.ndarray, step: int = 0) -> jnp.ndarray:
         """Project the input to the feasible region."""
         y = x
+        y = jnp.expand_dims(y, axis=2)
         for constraint in self.constraints:
             y = constraint.project(y)
         interpolation_value = self.schedule(step)
+        y = y.reshape(x.shape)
         return interpolation_value * x + (1 - interpolation_value) * y
