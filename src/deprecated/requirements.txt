@@ -1,0 +1,6 @@
+cvxpy==1.6.0
+jax==0.4.30
+jaxopt==0.8.3
+numpy==2.0.2
+scipy==1.13.1
+tqdm==4.67.0
