@@ -52,6 +52,7 @@ class EqualityConstraint(Constraint):
 
         # TODO: Maybe include checks on if the chosen method
         # is applicable.
+        # TODO: Add None as a method, to do no initialization.
         if method == "pinv":
             # Compute pseudo-inverse
             self.Apinv = jnp.linalg.pinv(self.A)

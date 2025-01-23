@@ -29,11 +29,13 @@ class BoxConstraint(Constraint):
             lower_bound: Lower bound of the box.
             upper_bound: Upper bound of the box.
             mask: Mask to apply the constraint only to some dimensions.
+                The same mask is applied to the entire batch.
+                TODO: Make the mask batch-dependent?
         """
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
         if mask is None:
-            mask = jnp.ones_like(lower_bound, dtype=jnp.bool_)
+            mask = jnp.ones(shape=(self.lower_bound.shape[1]), dtype=jnp.bool_)
         self.mask = mask
 
         checkify.check(
@@ -41,7 +43,7 @@ class BoxConstraint(Constraint):
             "Lower and upper bounds must have the same shape.",
         )
         checkify.check(
-            lower_bound.shape[0] == jnp.sum(mask),
+            lower_bound.shape[1] == jnp.sum(mask),
             "Number of active entries must be the same of the bounds.",
         )
         checkify.check(
