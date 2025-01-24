@@ -39,8 +39,15 @@ class BoxConstraint(Constraint):
         self.mask = mask
 
         checkify.check(
-            lower_bound.shape == upper_bound.shape,
+            lower_bound.shape[1] == upper_bound.shape[1],
             "Lower and upper bounds must have the same shape.",
+        )
+        # Check batch size consistency
+        checkify.check(
+            lower_bound.shape[0] == upper_bound.shape[0]
+            or lower_bound.shape[0] == 1
+            or upper_bound.shape[0] == 1,
+            "Batch sizes of lower and upper bounds must be the same.",
         )
         checkify.check(
             lower_bound.shape[1] == jnp.sum(mask),

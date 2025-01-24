@@ -1,6 +1,10 @@
 """Tests for the box constraint."""
 
+from itertools import product
+
+import jax
 import jax.numpy as jnp
+import pytest
 
 from hcnn.constraints.box import BoxConstraint
 
@@ -64,3 +68,43 @@ def test_mask():
 
     assert y[0, 0, 0] == 1, "The first element should be clipped to 1."
     assert y[0, 1, 0] == 2, "The second element should not be clipped."
+
+
+DIM = 100
+N_BATCH = [1, 10]
+SEED = [24, 42]
+
+
+@pytest.mark.parametrize(
+    "n_batch_l, n_batch_u, n_batch_x, seed", product(N_BATCH, N_BATCH, N_BATCH, SEED)
+)
+def test_box_parametrized(n_batch_l, n_batch_u, n_batch_x, seed):
+    if n_batch_l > n_batch_x or n_batch_u > n_batch_x:
+        return
+    key = jax.random.PRNGKey(seed)
+    key = jax.random.split(key, num=4)
+    mask = jax.random.bernoulli(key[0], shape=(DIM)).astype(jnp.bool_)
+    active_entries = mask.sum().item()
+    lb = jax.random.uniform(
+        key[1], shape=(n_batch_l, active_entries, 1), minval=0, maxval=1
+    )
+    ub = jax.random.uniform(
+        key[2], shape=(n_batch_u, active_entries, 1), minval=lb.max(axis=0), maxval=1
+    )
+    x = jax.random.uniform(key[3], shape=(n_batch_x, DIM, 1), minval=-2, maxval=2)
+
+    box_constraint = BoxConstraint(lb, ub, mask)
+    z = box_constraint.project(x)
+
+    # Compute projectino with for loop
+    y = x.copy()
+    for ii in range(n_batch_x):
+        y = y.at[ii, mask, :].set(
+            jnp.clip(
+                x[ii, mask, :],
+                min=lb[min(ii, n_batch_l), :, :],
+                max=ub[min(ii, n_batch_u), :, :],
+            )
+        )
+
+    assert jnp.allclose(y, z), "Projection should be the same as the for loop."

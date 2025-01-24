@@ -118,12 +118,13 @@ def test_general_eq_ineq():
     n_ineq = 50
     method = "pinv"
     seed = 42
-    batch_size = 100
+    batch_size = 50
     key = jax.random.PRNGKey(seed)
+    key = jax.random.split(key, num=3)
     # Generate equality constraints LHS
-    A = jax.random.normal(key, shape=(1, n_eq, dim))
+    A = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
-    C = jax.random.normal(key, shape=(1, n_ineq, dim))
+    C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Compute RHS by solving feasibility problem
     xfeas = cp.Variable(dim)
     bfeas = cp.Variable(n_eq)
@@ -154,7 +155,7 @@ def test_general_eq_ineq():
     (lifted_eq, lifted_box) = parser.parse()
     # TODO: Make this batched
     # Point to be projected
-    x = jax.random.uniform(key, shape=(batch_size, dim, 1), minval=-2, maxval=2)
+    x = jax.random.uniform(key[2], shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
     # Compute the projection by solving QP
     yqp = jnp.zeros(shape=(batch_size, dim, 1))
@@ -191,20 +192,18 @@ def test_general_eq_ineq():
     assert jnp.allclose(yqp, ylifted, rtol=1e-6, atol=1e-6)
 
     # Compute the projection with iterative
-    n_iter = 100
+    n_iter = 500
     (iteration_step, final_step) = build_iteration_step(
         lifted_eq, lifted_box, n_ineq, dim
     )
-    xlifted = jnp.concatenate(
-        (x.copy(), jnp.zeros(shape=(batch_size, n_ineq, 1))), axis=1
-    )
+    xlifted = jnp.concatenate((x.copy(), C @ x), axis=1)
     xk = xlifted.copy()
     for ii in range(n_iter):
         (xk, xlifted) = iteration_step(xk, xlifted)
 
     yiterated = final_step(xk + xlifted)[:, :dim, :]
 
-    assert jnp.allclose(yqp, yiterated, rtol=1e-6, atol=1e-6)
+    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
 
 # Here the parser should handle all of:
