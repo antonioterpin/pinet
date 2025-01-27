@@ -3,6 +3,7 @@
 from typing import Tuple
 
 import jax.numpy as jnp
+from jax.experimental import checkify
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
@@ -38,6 +39,30 @@ class ConstraintParser:
         self.n_ineq = ineq_constraint.C.shape[1]
         self.box_constraint = box_constraint
 
+        # Batch consistency checks
+        checkify.check(
+            self.eq_constraint.A.shape[0] == self.ineq_constraint.C.shape[0]
+            or self.eq_constraint.A.shape[0] == 1
+            or self.ineq_constraint.C.shape[0] == 1,
+            "Batch sizes of A and C must be consistent.",
+        )
+        if self.box_constraint is not None:
+            checkify.check(
+                self.ineq_constraint.lb.shape[0]
+                == self.box_constraint.lower_bound.shape[0]
+                or self.ineq_constraint.lb.shape[0] == 1
+                or self.box_constraint.lower_bound.shape[0] == 1,
+                "Batch sizes of lb and lower_bound must be consistent.",
+            )
+
+            checkify.check(
+                self.ineq_constraint.ub.shape[0]
+                == self.box_constraint.upper_bound.shape[0]
+                or self.ineq_constraint.ub.shape[0] == 1
+                or self.box_constraint.upper_bound.shape[0] == 1,
+                "Batch sizes of ub and upper_bound must be consistent.",
+            )
+
     def parse(self, method="pinv") -> Tuple[EqualityConstraint, BoxConstraint]:
         """Parse the constraints into a lifted representation.
 
@@ -52,17 +77,36 @@ class ConstraintParser:
         # have pinved/factored A. This should only be done for the lifted here.
         # Build lifted A matrix.
         # TODO: Be careful of batch sizes. Have tests for this
-        A_lifted = jnp.block(
-            [
-                [self.eq_constraint.A, jnp.zeros(shape=(1, self.n_eq, self.n_ineq))],
+        # Maximum batch size between A and C
+        mbAC = max(self.eq_constraint.A.shape[0], self.ineq_constraint.C.shape[0])
+        first_row_batched = jnp.tile(
+            jnp.concatenate(
+                [
+                    self.eq_constraint.A,
+                    jnp.zeros(
+                        shape=(self.eq_constraint.A.shape[0], self.n_eq, self.n_ineq)
+                    ),
+                ],
+                axis=2,
+            ),
+            (mbAC // self.eq_constraint.A.shape[0], 1, 1),
+        )
+        second_row_batched = jnp.tile(
+            jnp.concatenate(
                 [
                     self.ineq_constraint.C,
-                    -jnp.expand_dims(jnp.eye(self.n_ineq), axis=0),
+                    -jnp.tile(
+                        jnp.eye(self.n_ineq).reshape(1, self.n_ineq, self.n_ineq),
+                        (self.ineq_constraint.C.shape[0], 1, 1),
+                    ),
                 ],
-            ]
+                axis=2,
+            ),
+            (mbAC // self.ineq_constraint.C.shape[0], 1, 1),
         )
+        A_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
         b_lifted = jnp.concatenate(
-            [self.eq_constraint.b, jnp.zeros(shape=(1, self.n_ineq, 1))], axis=1
+            [self.eq_constraint.b, jnp.zeros(shape=(mbAC, self.n_ineq, 1))], axis=1
         )
         eq_lifted = EqualityConstraint(A=A_lifted, b=b_lifted, method=method)
         # TODO: Memory management? After building the lifted
@@ -86,17 +130,39 @@ class ConstraintParser:
                     jnp.ones(self.n_ineq, dtype=bool),
                 ]
             )
+            # Maximum batch dimension for lower bound
+            mblb = max(
+                self.box_constraint.lower_bound.shape[0],
+                self.ineq_constraint.lb.shape[0],
+            )
             lifted_lb = jnp.concatenate(
                 [
-                    self.box_constraint.lower_bound,
-                    self.ineq_constraint.lb,
+                    jnp.tile(
+                        self.box_constraint.lower_bound,
+                        (mblb // self.box_constraint.lower_bound.shape[0], 1, 1),
+                    ),
+                    jnp.tile(
+                        self.ineq_constraint.lb,
+                        (mblb // self.ineq_constraint.lb.shape[0], 1, 1),
+                    ),
                 ],
                 axis=1,
             )
+            # Maximum batch dimension for upper bound
+            mbub = max(
+                self.box_constraint.upper_bound.shape[0],
+                self.ineq_constraint.ub.shape[0],
+            )
             lifted_ub = jnp.concatenate(
                 [
-                    self.box_constraint.upper_bound,
-                    self.ineq_constraint.ub,
+                    jnp.tile(
+                        self.box_constraint.upper_bound,
+                        (mbub // self.box_constraint.upper_bound.shape[0], 1, 1),
+                    ),
+                    jnp.tile(
+                        self.ineq_constraint.ub,
+                        (mbub // self.ineq_constraint.ub.shape[0], 1, 1),
+                    ),
                 ],
                 axis=1,
             )

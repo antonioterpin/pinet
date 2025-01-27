@@ -1,8 +1,11 @@
 """Tests for the parser and affine inequality constraints."""
 
+from itertools import product
+
 import cvxpy as cp
 import jax
 import jax.numpy as jnp
+import pytest
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
@@ -28,14 +31,19 @@ def build_iteration_step(lifted_eq, lifted_box, n_ineq, dim):
     return (jax.jit(iteration_step), jax.jit(lifted_box.project))
 
 
-def test_simple_2d():
+VALID_METHODS = ["pinv", "cholesky"]
+SEEDS = [24, 42]
+BATCH_SIZE = [1, 10]
+
+
+@pytest.mark.parametrize(
+    "method, seed, batch_size", product(VALID_METHODS, SEEDS, BATCH_SIZE)
+)
+def test_simple_2d(method, seed, batch_size):
     # We consider a simple 2D polytope:
     # { x | x_1 = 0, 0<= x_1 + x_2 <= 1 }
     dim = 2
     n_ineq = 1
-    method = "pinv"
-    batch_size = 10
-    seed = 42
     key = jax.random.PRNGKey(seed)
     # Equality constraint: A @ x = b
     A = jnp.array([[[1, 0]]])
@@ -115,14 +123,20 @@ def test_simple_2d():
     assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
 
 
-# TODO: Parametrize some test parameters with pytest (seed, pytest, ..).
-def test_general_eq_ineq():
+VALID_METHODS = ["pinv", "cholesky"]
+SEEDS = [24, 42]
+# Note that here batch_size only affects number of projected points
+# The same constraints hold throughout the batch
+BATCH_SIZE = [1, 10]
+
+
+@pytest.mark.parametrize(
+    "method, seed, batch_size", product(VALID_METHODS, SEEDS, BATCH_SIZE)
+)
+def test_general_eq_ineq(method, seed, batch_size):
     dim = 100
     n_eq = 50
-    n_ineq = 50
-    method = "pinv"
-    seed = 42
-    batch_size = 50
+    n_ineq = 40
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=3)
     # Generate equality constraints LHS
@@ -156,7 +170,7 @@ def test_general_eq_ineq():
     parser = ConstraintParser(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    (lifted_eq, lifted_box) = parser.parse()
+    (lifted_eq, lifted_box) = parser.parse(method=method)
     # Point to be projected
     x = jax.random.uniform(key[2], shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
@@ -209,6 +223,10 @@ def test_general_eq_ineq():
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
 
+# TODO: Make A, C, and bounds be batched.
+# But all batched items have the same batch_size.
+# TODO: Extend to the same where some of the problem primitives
+# have to be broadcasted.
 def test_general_eq_ineq_box():
     dim = 100
     n_eq = 50
@@ -216,43 +234,54 @@ def test_general_eq_ineq_box():
     n_box = 50
     method = "pinv"
     seed = 6
-    batch_size = 1
+    batch_size = 10
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=4)
     # Generate equality constraints LHS
-    A = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    A = jax.random.normal(key[0], shape=(batch_size, n_eq, dim))
     # Generate inequality constraints LHS
-    C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    C = jax.random.normal(key[1], shape=(batch_size, n_ineq, dim))
     # Randomly generate mask for box constraints
     indices = jnp.concatenate([jnp.ones(n_box), jnp.zeros(dim - n_box)])
     mask = jax.random.permutation(key[2], indices).astype(bool)
+    # Initialize parameters per batch
+    b = jnp.zeros(shape=(batch_size, n_eq, 1))
+    lb = jnp.zeros(shape=(batch_size, n_ineq, 1))
+    ub = jnp.ones(shape=(batch_size, n_ineq, 1))
+    box_lower = jnp.zeros(shape=(batch_size, n_box, 1))
+    box_upper = jnp.ones(shape=(batch_size, n_box, 1))
     # Compute RHS by solving feasibility problem
-    xfeas = cp.Variable(dim)
-    bfeas = cp.Variable(n_eq)
-    lfeas = cp.Variable(n_ineq)
-    ufeas = cp.Variable(n_ineq)
-    lbox = cp.Variable(n_box)
-    ubox = cp.Variable(n_box)
-    constraints = [
-        A[0, :, :] @ xfeas == bfeas,
-        lfeas <= C[0, :, :] @ xfeas,
-        C[0, :, :] @ xfeas <= ufeas,
-        -1 <= lbox,
-        ubox <= 1,
-        lbox <= xfeas[mask],
-        xfeas[mask] <= ubox,
-        xfeas <= 2,
-        -2 <= xfeas,
-    ]
-    objective = cp.Minimize(jnp.ones(shape=(dim)) @ xfeas)
-    problem = cp.Problem(objective=objective, constraints=constraints)
-    problem.solve(verbose=False)
-    # Extract RHS parameters
-    b = jnp.tile(jnp.array(bfeas.value).reshape((1, n_eq, 1)), (1, 1, 1))
-    lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
-    ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
-    box_lower = jnp.tile(jnp.array(lbox.value).reshape((1, n_box, 1)), (1, 1, 1))
-    box_upper = jnp.tile(jnp.array(ubox.value).reshape((1, n_box, 1)), (1, 1, 1))
+    for ii in range(batch_size):
+        xfeas = cp.Variable(dim)
+        bfeas = cp.Variable(n_eq)
+        lfeas = cp.Variable(n_ineq)
+        ufeas = cp.Variable(n_ineq)
+        lbox = cp.Variable(n_box)
+        ubox = cp.Variable(n_box)
+        constraints = [
+            A[ii, :, :] @ xfeas == bfeas,
+            lfeas <= C[ii, :, :] @ xfeas,
+            C[ii, :, :] @ xfeas <= ufeas,
+            -1 <= lbox,
+            ubox <= 1,
+            lbox <= xfeas[mask],
+            xfeas[mask] <= ubox,
+            xfeas <= 2,
+            -2 <= xfeas,
+        ]
+        objective = cp.Minimize(jnp.ones(shape=(dim)) @ xfeas)
+        problem = cp.Problem(objective=objective, constraints=constraints)
+        problem.solve(verbose=False)
+        # Extract RHS parameters
+        b = b.at[ii, :, :].set(jnp.array(bfeas.value).reshape((n_eq, 1)))
+        lb = lb.at[ii, :, :].set(jnp.array(lfeas.value).reshape((n_ineq, 1)))
+        ub = ub.at[ii, :, :].set(jnp.array(ufeas.value).reshape((n_ineq, 1)))
+        box_lower = box_lower.at[ii, :, :].set(
+            jnp.array(lbox.value).reshape((n_box, 1))
+        )
+        box_upper = box_upper.at[ii, :, :].set(
+            jnp.array(ubox.value).reshape((n_box, 1))
+        )
 
     eq_constraint = EqualityConstraint(A=A, b=b, method=method)
     ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
@@ -266,7 +295,7 @@ def test_general_eq_ineq_box():
         ineq_constraint=ineq_constraint,
         box_constraint=box_constraint,
     )
-    (lifted_eq, lifted_box) = parser.parse()
+    (lifted_eq, lifted_box) = parser.parse(method=method)
 
     # Point to be projected
     x = jax.random.uniform(key[3], shape=(batch_size, dim, 1), minval=-3, maxval=3)
@@ -276,15 +305,15 @@ def test_general_eq_ineq_box():
     for ii in range(batch_size):
         yproj = cp.Variable(dim)
         constraints = [
-            A[0, :, :] @ yproj == b[0, :, 0],
-            lb[0, :, 0] <= C[0, :, :] @ yproj,
-            C[0, :, :] @ yproj <= ub[0, :, 0],
-            box_lower[0, :, 0] <= yproj[mask],
-            yproj[mask] <= box_upper[0, :, 0],
+            A[ii, :, :] @ yproj == b[ii, :, 0],
+            lb[ii, :, 0] <= C[ii, :, :] @ yproj,
+            C[ii, :, :] @ yproj <= ub[ii, :, 0],
+            box_lower[ii, :, 0] <= yproj[mask],
+            yproj[mask] <= box_upper[ii, :, 0],
         ]
         objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :, 0]))
         problem_qp = cp.Problem(objective=objective, constraints=constraints)
-        problem_qp.solve()
+        problem_qp.solve(solver=cp.OSQP, eps_abs=1e-7, eps_rel=1e-7, verbose=False)
         yqp = yqp.at[ii, :, :].set(jnp.array(yproj.value).reshape((dim, 1)))
 
     # Compute the projection with QP, but in lifted form
@@ -292,20 +321,21 @@ def test_general_eq_ineq_box():
     for ii in range(batch_size):
         yliftedproj = cp.Variable(dim + n_ineq)
         constraints_lifted = [
-            lifted_eq.A[0, :, :] @ yliftedproj == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedproj[lifted_box.mask],
-            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_eq.A[ii, :, :] @ yliftedproj == lifted_eq.b[ii, :, 0],
+            lifted_box.lower_bound[ii, :, 0] <= yliftedproj[lifted_box.mask],
+            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[ii, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedproj[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
             objective=objective_lifted, constraints=constraints_lifted
         )
-        problem_lifted.solve()
+        problem_lifted.solve(solver=cp.OSQP, eps_abs=1e-7, eps_rel=1e-7, verbose=False)
         ylifted = ylifted.at[ii, :, :].set(
             jnp.array(yliftedproj.value[:dim]).reshape((dim, 1))
         )
 
-    assert jnp.allclose(yqp, ylifted, rtol=1e-6, atol=1e-6)
+    assert jnp.allclose(yqp, ylifted, rtol=1e-5, atol=1e-5)
+    # %%
     # Compute with iterative using lifting of:
     # Equality + Inequality + Box
     n_iter = 1000
@@ -323,10 +353,28 @@ def test_general_eq_ineq_box():
     # Compute with iterative using lifting of:
     # Equality + Inequality
     # Write box constraints as affine inequality constraints
-    Caug = jnp.concatenate((C, jnp.eye(dim)[mask, :].reshape(1, n_box, dim)), axis=1)
+    Caug = jnp.concatenate(
+        (C, jnp.tile(jnp.eye(dim)[mask, :].reshape(1, n_box, dim), (C.shape[0], 1, 1))),
+        axis=1,
+    )
     # Adapt lower and upper bounds accordingly
-    lbaug = jnp.concatenate((lb, box_lower), axis=1)
-    ubaug = jnp.concatenate((ub, box_upper), axis=1)
+    # Maximum batch size of lower and upper bound
+    mblb = max(lb.shape[0], box_lower.shape[0])
+    mbub = max(ub.shape[0], box_upper.shape[0])
+    lbaug = jnp.concatenate(
+        (
+            jnp.tile(lb, (mblb // lb.shape[0])),
+            jnp.tile(box_lower, (mblb // box_lower.shape[0])),
+        ),
+        axis=1,
+    )
+    ubaug = jnp.concatenate(
+        (
+            jnp.tile(ub, (mbub // ub.shape[0])),
+            jnp.tile(box_upper, (mbub // box_upper.shape[0])),
+        ),
+        axis=1,
+    )
     n_ineq_aug = n_ineq + n_box
     ineq_constraint_aug = AffineInequalityConstraint(C=Caug, lb=lbaug, ub=ubaug)
 
