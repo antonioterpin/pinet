@@ -1,7 +1,5 @@
-# For now, this should receive an equality and an inequality
-# constraint (without box component) and return
-# an equality and a box constraint.
 """Parser of constraints to lifted representation module."""
+
 from typing import Tuple
 
 import jax.numpy as jnp
@@ -24,18 +22,21 @@ class ConstraintParser:
         self,
         eq_constraint: EqualityConstraint,
         ineq_constraint: AffineInequalityConstraint,
+        box_constraint: BoxConstraint = None,
     ):
         """Initiaze the constraint parser.
 
         Args:
             eq_constraint: An equality constraint.
             ineq_constraint: An inequality constraint.
+            box_constraint: A box constraint.
         """
         self.eq_constraint = eq_constraint
         self.dim = eq_constraint.A.shape[2]
         self.n_eq = eq_constraint.A.shape[1]
         self.ineq_constraint = ineq_constraint
         self.n_ineq = ineq_constraint.C.shape[1]
+        self.box_constraint = box_constraint
 
     def parse(self, method="pinv") -> Tuple[EqualityConstraint, BoxConstraint]:
         """Parse the constraints into a lifted representation.
@@ -67,13 +68,41 @@ class ConstraintParser:
         # TODO: Memory management? After building the lifted
         # matrix we could probably discard the original one.
 
-        # We only project the lifted part.
-        box_mask = jnp.concatenate(
-            [jnp.zeros(self.dim, dtype=bool), jnp.ones(self.n_ineq, dtype=bool)]
-        )
-        box_lifted = BoxConstraint(
-            lower_bound=self.ineq_constraint.lb,
-            upper_bound=self.ineq_constraint.ub,
-            mask=box_mask,
-        )
+        if self.box_constraint is None:
+            # We only project the lifted part.
+            box_mask = jnp.concatenate(
+                [jnp.zeros(self.dim, dtype=bool), jnp.ones(self.n_ineq, dtype=bool)]
+            )
+            box_lifted = BoxConstraint(
+                lower_bound=self.ineq_constraint.lb,
+                upper_bound=self.ineq_constraint.ub,
+                mask=box_mask,
+            )
+        else:
+            # We project both the lifted and the initial box
+            box_mask = jnp.concatenate(
+                [
+                    self.box_constraint.mask,
+                    jnp.ones(self.n_ineq, dtype=bool),
+                ]
+            )
+            lifted_lb = jnp.concatenate(
+                [
+                    self.box_constraint.lower_bound,
+                    self.ineq_constraint.lb,
+                ],
+                axis=1,
+            )
+            lifted_ub = jnp.concatenate(
+                [
+                    self.box_constraint.upper_bound,
+                    self.ineq_constraint.ub,
+                ],
+                axis=1,
+            )
+            box_lifted = BoxConstraint(
+                lower_bound=lifted_lb,
+                upper_bound=lifted_ub,
+                mask=box_mask,
+            )
         return (eq_lifted, box_lifted)

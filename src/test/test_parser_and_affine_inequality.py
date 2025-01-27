@@ -1,9 +1,12 @@
+"""Tests for the parser and affine inequality constraints."""
+
 import cvxpy as cp
 import jax
 import jax.numpy as jnp
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
+from hcnn.constraints.box import BoxConstraint
 from hcnn.constraints.constraint_parser import ConstraintParser
 
 jax.config.update("jax_enable_x64", True)
@@ -112,6 +115,7 @@ def test_simple_2d():
     assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
 
 
+# TODO: Parametrize some test parameters with pytest (seed, pytest, ..).
 def test_general_eq_ineq():
     dim = 100
     n_eq = 50
@@ -153,7 +157,6 @@ def test_general_eq_ineq():
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
     (lifted_eq, lifted_box) = parser.parse()
-    # TODO: Make this batched
     # Point to be projected
     x = jax.random.uniform(key[2], shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
@@ -206,7 +209,142 @@ def test_general_eq_ineq():
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
 
-# Here the parser should handle all of:
-# Equality, Inequality and Box constraint
 def test_general_eq_ineq_box():
-    return
+    dim = 100
+    n_eq = 50
+    n_ineq = 50
+    n_box = 50
+    method = "pinv"
+    seed = 6
+    batch_size = 1
+    key = jax.random.PRNGKey(seed)
+    key = jax.random.split(key, num=4)
+    # Generate equality constraints LHS
+    A = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    # Generate inequality constraints LHS
+    C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    # Randomly generate mask for box constraints
+    indices = jnp.concatenate([jnp.ones(n_box), jnp.zeros(dim - n_box)])
+    mask = jax.random.permutation(key[2], indices).astype(bool)
+    # Compute RHS by solving feasibility problem
+    xfeas = cp.Variable(dim)
+    bfeas = cp.Variable(n_eq)
+    lfeas = cp.Variable(n_ineq)
+    ufeas = cp.Variable(n_ineq)
+    lbox = cp.Variable(n_box)
+    ubox = cp.Variable(n_box)
+    constraints = [
+        A[0, :, :] @ xfeas == bfeas,
+        lfeas <= C[0, :, :] @ xfeas,
+        C[0, :, :] @ xfeas <= ufeas,
+        -1 <= lbox,
+        ubox <= 1,
+        lbox <= xfeas[mask],
+        xfeas[mask] <= ubox,
+        xfeas <= 2,
+        -2 <= xfeas,
+    ]
+    objective = cp.Minimize(jnp.ones(shape=(dim)) @ xfeas)
+    problem = cp.Problem(objective=objective, constraints=constraints)
+    problem.solve(verbose=False)
+    # Extract RHS parameters
+    b = jnp.tile(jnp.array(bfeas.value).reshape((1, n_eq, 1)), (1, 1, 1))
+    lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
+    ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
+    box_lower = jnp.tile(jnp.array(lbox.value).reshape((1, n_box, 1)), (1, 1, 1))
+    box_upper = jnp.tile(jnp.array(ubox.value).reshape((1, n_box, 1)), (1, 1, 1))
+
+    eq_constraint = EqualityConstraint(A=A, b=b, method=method)
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    box_constraint = BoxConstraint(
+        lower_bound=box_lower, upper_bound=box_upper, mask=mask
+    )
+
+    # Parse constraints
+    parser = ConstraintParser(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=box_constraint,
+    )
+    (lifted_eq, lifted_box) = parser.parse()
+
+    # Point to be projected
+    x = jax.random.uniform(key[3], shape=(batch_size, dim, 1), minval=-3, maxval=3)
+
+    # Compute the projection by solving QP
+    yqp = jnp.zeros(shape=(batch_size, dim, 1))
+    for ii in range(batch_size):
+        yproj = cp.Variable(dim)
+        constraints = [
+            A[0, :, :] @ yproj == b[0, :, 0],
+            lb[0, :, 0] <= C[0, :, :] @ yproj,
+            C[0, :, :] @ yproj <= ub[0, :, 0],
+            box_lower[0, :, 0] <= yproj[mask],
+            yproj[mask] <= box_upper[0, :, 0],
+        ]
+        objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :, 0]))
+        problem_qp = cp.Problem(objective=objective, constraints=constraints)
+        problem_qp.solve()
+        yqp = yqp.at[ii, :, :].set(jnp.array(yproj.value).reshape((dim, 1)))
+
+    # Compute the projection with QP, but in lifted form
+    ylifted = jnp.zeros(shape=(batch_size, dim, 1))
+    for ii in range(batch_size):
+        yliftedproj = cp.Variable(dim + n_ineq)
+        constraints_lifted = [
+            lifted_eq.A[0, :, :] @ yliftedproj == lifted_eq.b[0, :, 0],
+            lifted_box.lower_bound[0, :, 0] <= yliftedproj[lifted_box.mask],
+            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+        ]
+        objective_lifted = cp.Minimize(cp.sum_squares(yliftedproj[:dim] - x[ii, :, 0]))
+        problem_lifted = cp.Problem(
+            objective=objective_lifted, constraints=constraints_lifted
+        )
+        problem_lifted.solve()
+        ylifted = ylifted.at[ii, :, :].set(
+            jnp.array(yliftedproj.value[:dim]).reshape((dim, 1))
+        )
+
+    assert jnp.allclose(yqp, ylifted, rtol=1e-6, atol=1e-6)
+    # Compute with iterative using lifting of:
+    # Equality + Inequality + Box
+    n_iter = 1000
+    (iteration_step, final_step) = build_iteration_step(
+        lifted_eq, lifted_box, n_ineq, dim
+    )
+    xlifted = jnp.concatenate((x.copy(), C @ x), axis=1)
+    xk = xlifted.copy()
+    for ii in range(n_iter):
+        (xk, xlifted) = iteration_step(xk, xlifted)
+
+    yiterated = final_step(xk + xlifted)[:, :dim, :]
+
+    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
+    # Compute with iterative using lifting of:
+    # Equality + Inequality
+    # Write box constraints as affine inequality constraints
+    Caug = jnp.concatenate((C, jnp.eye(dim)[mask, :].reshape(1, n_box, dim)), axis=1)
+    # Adapt lower and upper bounds accordingly
+    lbaug = jnp.concatenate((lb, box_lower), axis=1)
+    ubaug = jnp.concatenate((ub, box_upper), axis=1)
+    n_ineq_aug = n_ineq + n_box
+    ineq_constraint_aug = AffineInequalityConstraint(C=Caug, lb=lbaug, ub=ubaug)
+
+    parser_aug = ConstraintParser(
+        eq_constraint=eq_constraint, ineq_constraint=ineq_constraint_aug
+    )
+
+    (lifted_eq_aug, lifted_box_aug) = parser_aug.parse()
+
+    n_iter = 1000
+    (iteration_step_aug, final_step_aug) = build_iteration_step(
+        lifted_eq_aug, lifted_box_aug, n_ineq_aug, dim
+    )
+    xlifted = jnp.concatenate((x.copy(), Caug @ x), axis=1)
+    xk = xlifted.copy()
+    for ii in range(n_iter):
+        (xk, xlifted) = iteration_step_aug(xk, xlifted)
+
+    yiterated_aug = final_step_aug(xk + xlifted)[:, :dim, :]
+
+    assert jnp.allclose(yqp, yiterated_aug, rtol=1e-3, atol=1e-3)
