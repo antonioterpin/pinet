@@ -63,7 +63,7 @@ class ConstraintParser:
                 "Batch sizes of ub and upper_bound must be consistent.",
             )
 
-    def parse(self, method="pinv") -> Tuple[EqualityConstraint, BoxConstraint]:
+    def parse(self, method: str = "pinv") -> Tuple[EqualityConstraint, BoxConstraint]:
         """Parse the constraints into a lifted representation.
 
         Args:
@@ -106,7 +106,11 @@ class ConstraintParser:
         )
         A_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
         b_lifted = jnp.concatenate(
-            [self.eq_constraint.b, jnp.zeros(shape=(mbAC, self.n_ineq, 1))], axis=1
+            [
+                self.eq_constraint.b,
+                jnp.zeros(shape=(self.eq_constraint.b.shape[0], self.n_ineq, 1)),
+            ],
+            axis=1,
         )
         eq_lifted = EqualityConstraint(A=A_lifted, b=b_lifted, method=method)
         # TODO: Memory management? After building the lifted
