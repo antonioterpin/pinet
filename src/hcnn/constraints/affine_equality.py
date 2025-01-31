@@ -4,7 +4,6 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
-from jax.experimental import checkify
 
 from hcnn.constraints.base import Constraint
 
@@ -33,34 +32,29 @@ class EqualityConstraint(Constraint):
             method: A string that specifies the method used to solve
                 linear systems. Valid method "pinv", "cholesky".
         """
+        assert A is not None, "Matrix A must be provided."
+        assert b is not None, "Vector b must be provided."
+
         self.A = A
         self.b = b
 
-        checkify.check(
-            A.ndim == 3,
-            "A is a matrix with shape (n_batch, n_constraints, dimension).",
-        )
-        checkify.check(
-            b.ndim == 3,
-            "b is a matrix with shape (n_batch, n_constraints, 1).",
-        )
-        checkify.check(
-            b.shape[2] == 1,
-            "b must have shape (n_batch, n_constraints, 1).",
-        )
+        assert (
+            A.ndim == 3
+        ), "A is a matrix with shape (n_batch, n_constraints, dimension)."
+        assert b.ndim == 3, "b is a matrix with shape (n_batch, n_constraints, 1)."
+        assert b.shape[2] == 1, "b must have shape (n_batch, n_constraints, 1)."
 
         # Check if batch sizes are consistent.
         # They should either be the same, or one of them should be 1.
-        checkify.check(
+        assert (
             self.A.shape[0] == self.b.shape[0]
             or self.A.shape[0] == 1
-            or self.b.shape[0] == 1,
-            f"Batch sizes are inconsistent: A{self.A.shape}, b{self.b.shape}",
-        )
+            or self.b.shape[0] == 1
+        ), f"Batch sizes are inconsistent: A{self.A.shape}, b{self.b.shape}"
 
-        checkify.check(
-            self.A.shape[1] == b.shape[1], "Number of rows in A must equal size of b."
-        )
+        assert (
+            self.A.shape[1] == b.shape[1]
+        ), "Number of rows in A must equal size of b."
 
         # List of valid methods
         valid_methods = ["pinv", "cholesky", None]
@@ -93,7 +87,7 @@ class EqualityConstraint(Constraint):
 
             self.project = lambda _: raise_not_implemented_error()
         else:
-            raise ValueError(
+            raise Exception(
                 f"Invalid method {method}. Valid methods are: {valid_methods}"
             )
 

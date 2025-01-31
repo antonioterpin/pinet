@@ -3,7 +3,6 @@
 from typing import Optional
 
 from jax import numpy as jnp
-from jax.experimental import checkify
 
 from hcnn.constraints.base import Constraint
 
@@ -32,32 +31,30 @@ class BoxConstraint(Constraint):
                 The same mask is applied to the entire batch.
                 TODO: Make the mask batch-dependent?
         """
+        assert lower_bound is not None, "Lower bound must be provided."
+        assert upper_bound is not None, "Upper bound must be provided."
+        assert (
+            lower_bound.shape[1] == upper_bound.shape[1]
+        ), "Lower and upper bounds must have the same shape."
+        # Check batch size consistency
+        assert (
+            lower_bound.shape[0] == upper_bound.shape[0]
+            or lower_bound.shape[0] == 1
+            or upper_bound.shape[0] == 1
+        ), "Batch sizes of lower and upper bounds must be the same."
+        assert mask is None or lower_bound.shape[1] == jnp.sum(
+            mask
+        ), "Number of active entries must be the same of the bounds."
+        assert jnp.all(
+            lower_bound <= upper_bound
+        ), "Lower bound must be less than or equal to the upper bound."
+        assert mask is None or mask.dtype == jnp.bool_, "Mask must be a boolean array."
+
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
         if mask is None:
             mask = jnp.ones(shape=(self.lower_bound.shape[1]), dtype=jnp.bool_)
         self.mask = mask
-
-        checkify.check(
-            lower_bound.shape[1] == upper_bound.shape[1],
-            "Lower and upper bounds must have the same shape.",
-        )
-        # Check batch size consistency
-        checkify.check(
-            lower_bound.shape[0] == upper_bound.shape[0]
-            or lower_bound.shape[0] == 1
-            or upper_bound.shape[0] == 1,
-            "Batch sizes of lower and upper bounds must be the same.",
-        )
-        checkify.check(
-            lower_bound.shape[1] == jnp.sum(mask),
-            "Number of active entries must be the same of the bounds.",
-        )
-        checkify.check(
-            jnp.all(lower_bound <= upper_bound),
-            "Lower bound must be less than or equal to the upper bound.",
-        )
-        checkify.check(mask.dtype == jnp.bool_, "Mask must be a boolean array.")
 
     def project(self, x: jnp.ndarray) -> jnp.ndarray:
         """Project the input to the feasible region.

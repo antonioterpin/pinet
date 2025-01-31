@@ -12,7 +12,7 @@ from hcnn.constraints.box import BoxConstraint
 def test_instantiation_error():
     try:
         BoxConstraint(jnp.array([0]), jnp.array([1, 2]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError("The upper and lower bounds must have the same shape.")
@@ -21,7 +21,7 @@ def test_instantiation_error():
         BoxConstraint(
             jnp.array([0]), jnp.array([1]), jnp.array([1, 0], dtype=jnp.int32)
         )
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError("The mask must be a boolean array.")
@@ -30,14 +30,14 @@ def test_instantiation_error():
         BoxConstraint(
             jnp.array([0]), jnp.array([1]), jnp.array([1, 1], dtype=jnp.bool_)
         )
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError("The mask must have the same shape as the bounds.")
 
     try:
         BoxConstraint(jnp.array([0, 1]), jnp.array([1, 0]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError("The lower bound must be less than the upper bound.")

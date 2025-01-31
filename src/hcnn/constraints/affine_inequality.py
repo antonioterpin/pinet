@@ -1,7 +1,5 @@
 """Affine inequality constraint module."""
 
-from jax.experimental import checkify
-
 from hcnn.constraints.base import Constraint
 
 
@@ -27,30 +25,26 @@ class AffineInequalityConstraint(Constraint):
 
         # Check if batch sizes for C and l are consistent.
         # They should either be the same, or one of them should be 1.
-        checkify.check(
+        assert (
             self.C.shape[0] == self.lb.shape[0]
             or self.C.shape[0] == 1
-            or self.lb.shape[0] == 1,
-            f"Batch sizes are inconsistent: C{self.C.shape}, l{self.lb.shape}",
-        )
+            or self.lb.shape[0] == 1
+        ), f"Batch sizes are inconsistent: C{self.C.shape}, l{self.lb.shape}"
 
         # Check if batch sizes for C and u are consistent.
         # They should either be the same, or one of them should be 1.
-        checkify.check(
+        assert (
             self.C.shape[0] == self.ub.shape[0]
             or self.C.shape[0] == 1
-            or self.ub.shape[0] == 1,
-            f"Batch sizes are inconsistent: C{self.C.shape}, ub{self.ub.shape}",
-        )
+            or self.ub.shape[0] == 1
+        ), f"Batch sizes are inconsistent: C{self.C.shape}, ub{self.ub.shape}"
 
-        checkify.check(
-            self.C.shape[1] == self.lb.shape[1],
-            "Number of rows in C must equal size of l.",
-        )
-        checkify.check(
-            self.C.shape[1] == self.ub.shape[1],
-            "Number of rows in C must equal size of u.",
-        )
+        assert (
+            self.C.shape[1] == self.lb.shape[1]
+        ), "Number of rows in C must equal size of l."
+        assert (
+            self.C.shape[1] == self.ub.shape[1]
+        ), "Number of rows in C must equal size of u."
 
     def project(self, x):
         """Project x onto the affine inequality constraint set.

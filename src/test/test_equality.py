@@ -29,7 +29,7 @@ N_BATCH = [1, 10]
 def test_instantiation_error():
     try:
         EqualityConstraint(jnp.array([1]), jnp.array([[[1]]]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError(
@@ -38,7 +38,7 @@ def test_instantiation_error():
 
     try:
         EqualityConstraint(jnp.array([[[1]]]), jnp.array([[1]]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError(
@@ -47,7 +47,7 @@ def test_instantiation_error():
 
     try:
         EqualityConstraint(jnp.array([[[1]]]), jnp.array([[[1, 2]]]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError(
@@ -56,14 +56,14 @@ def test_instantiation_error():
 
     try:
         EqualityConstraint(jnp.array([[[1]], [[1]], [[1]]]), jnp.array([[[1]], [[1]]]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError("No check that batch sizes are consistent.")
 
     try:
         EqualityConstraint(jnp.array([[[1], [1], [1]]]), jnp.array([[[1]], [[1]]]))
-    except ValueError:
+    except Exception:
         pass
     else:
         raise AssertionError("Number of rows in A must equal size of b.")

@@ -3,7 +3,6 @@
 from typing import Tuple
 
 import jax.numpy as jnp
-from jax.experimental import checkify
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
@@ -52,28 +51,25 @@ class ConstraintParser:
         self.box_constraint = box_constraint
 
         # Batch consistency checks
-        checkify.check(
+        assert (
             self.eq_constraint.A.shape[0] == self.ineq_constraint.C.shape[0]
             or self.eq_constraint.A.shape[0] == 1
-            or self.ineq_constraint.C.shape[0] == 1,
-            "Batch sizes of A and C must be consistent.",
-        )
+            or self.ineq_constraint.C.shape[0] == 1
+        ), "Batch sizes of A and C must be consistent."
         if self.box_constraint is not None:
-            checkify.check(
+            assert (
                 self.ineq_constraint.lb.shape[0]
                 == self.box_constraint.lower_bound.shape[0]
                 or self.ineq_constraint.lb.shape[0] == 1
-                or self.box_constraint.lower_bound.shape[0] == 1,
-                "Batch sizes of lb and lower_bound must be consistent.",
-            )
+                or self.box_constraint.lower_bound.shape[0] == 1
+            ), "Batch sizes of lb and lower_bound must be consistent."
 
-            checkify.check(
+            assert (
                 self.ineq_constraint.ub.shape[0]
                 == self.box_constraint.upper_bound.shape[0]
                 or self.ineq_constraint.ub.shape[0] == 1
-                or self.box_constraint.upper_bound.shape[0] == 1,
-                "Batch sizes of ub and upper_bound must be consistent.",
-            )
+                or self.box_constraint.upper_bound.shape[0] == 1
+            ), "Batch sizes of ub and upper_bound must be consistent."
 
     def parse(self, method: str = "pinv") -> Tuple[EqualityConstraint, BoxConstraint]:
         """Parse the constraints into a lifted representation.
