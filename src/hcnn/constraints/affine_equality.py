@@ -36,6 +36,19 @@ class EqualityConstraint(Constraint):
         self.A = A
         self.b = b
 
+        checkify.check(
+            A.ndim == 3,
+            "A is a matrix with shape (n_batch, n_constraints, dimension).",
+        )
+        checkify.check(
+            b.ndim == 3,
+            "b is a matrix with shape (n_batch, n_constraints, 1).",
+        )
+        checkify.check(
+            b.shape[2] == 1,
+            "b must have shape (n_batch, n_constraints, 1).",
+        )
+
         # Check if batch sizes are consistent.
         # They should either be the same, or one of them should be 1.
         checkify.check(
@@ -54,7 +67,6 @@ class EqualityConstraint(Constraint):
 
         # TODO: Maybe include checks on if the chosen method
         # is applicable.
-        # TODO: Add None as a method, to do no initialization.
         if method == "pinv":
             # Compute pseudo-inverse
             self.Apinv = jnp.linalg.pinv(self.A)
