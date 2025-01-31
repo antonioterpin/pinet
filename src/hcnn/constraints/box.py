@@ -68,3 +68,13 @@ class BoxConstraint(Constraint):
         return x.at[:, self.mask].set(
             jnp.clip(x[:, self.mask], self.lower_bound, self.upper_bound)
         )
+
+    @property
+    def dim(self):
+        """Return the dimension of the constraint set."""
+        return self.mask.shape[-1]
+
+    @property
+    def n_constraints(self) -> int:
+        """Return the number of constraints."""
+        return self.lower_bound.shape[1]

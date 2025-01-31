@@ -61,3 +61,13 @@ class AffineInequalityConstraint(Constraint):
         raise NotImplementedError(
             "The 'project' method is not implemented and should not be called."
         )
+
+    @property
+    def dim(self):
+        """Return the dimension of the constraint set."""
+        return self.C.shape[-1]
+
+    @property
+    def n_constraints(self) -> int:
+        """Return the number of constraints."""
+        return self.C.shape[1]

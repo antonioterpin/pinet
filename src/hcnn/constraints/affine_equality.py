@@ -1,5 +1,7 @@
 """Equality constraint module."""
 
+from typing import Optional
+
 import jax
 import jax.numpy as jnp
 from jax.experimental import checkify
@@ -21,7 +23,7 @@ class EqualityConstraint(Constraint):
         self,
         A: jnp.ndarray,
         b: jnp.ndarray,
-        method: str = "pinv",
+        method: Optional[str] = "pinv",
     ):
         """Initialize the equality constraint.
 
@@ -48,7 +50,7 @@ class EqualityConstraint(Constraint):
         )
 
         # List of valid methods
-        valid_methods = ["pinv", "cholesky"]
+        valid_methods = ["pinv", "cholesky", None]
 
         # TODO: Maybe include checks on if the chosen method
         # is applicable.
@@ -72,7 +74,12 @@ class EqualityConstraint(Constraint):
                 self.cho_solve = lambda x: jax.scipy.linalg.cho_solve(cfac, x)
             # Instantiate projection method
             self.project = self.project_cholesky
+        elif method is None:
 
+            def raise_not_implemented_error():
+                raise NotImplementedError("No projection method set.")
+
+            self.project = lambda _: raise_not_implemented_error()
         else:
             raise ValueError(
                 f"Invalid method {method}. Valid methods are: {valid_methods}"
@@ -93,3 +100,13 @@ class EqualityConstraint(Constraint):
             x: Point to be projected. Shape (n_batch, dimension, 1)
         """
         return x - jnp.matrix_transpose(self.A) @ self.cho_solve(self.A @ x - self.b)
+
+    @property
+    def dim(self) -> int:
+        """Return the dimension of the constraint set."""
+        return self.A.shape[-1]
+
+    @property
+    def n_constraints(self) -> int:
+        """Return the number of constraints."""
+        return self.A.shape[1]

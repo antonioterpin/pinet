@@ -469,3 +469,76 @@ def test_general_eq_ineq_box(
     yiterated_aug = final_step_aug(xk + xlifted)[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated_aug, rtol=1e-3, atol=1e-3)
+
+
+SEEDS = [24, 42]
+BATCH_SIZE = [1, 10]
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
+def test_simple_no_equality(seed, batch_size):
+    # We consider a simple 2D polytope:
+    # { x | 0 <= x_1 + x_2 <= 1 }
+    dim = 2
+    n_ineq = 1
+    key = jax.random.PRNGKey(seed)
+    # Inequality constraint: l <= C @ x <= u
+    C = jnp.array([[[1, 1]]])
+    lb = jnp.zeros(shape=(1, 1, 1))
+    ub = jnp.ones(shape=(1, 1, 1))
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    # Parse constraints
+    parser = ConstraintParser(eq_constraint=None, ineq_constraint=ineq_constraint)
+    (lifted_eq, lifted_box) = parser.parse()
+
+    # Point to be projected
+    x = jax.random.uniform(key, shape=(batch_size, dim, 1), minval=-2, maxval=2)
+
+    # Compute the projection with iterative
+    (lifted_eq, lifted_box) = parser.parse()
+
+    n_iter = 500
+    (iteration_step, final_step) = build_iteration_step(
+        lifted_eq, lifted_box, n_ineq, dim
+    )
+    # Lifted point-to-projected
+    xlifted = jnp.concatenate((x.copy(), C @ x), axis=1)
+    xk = xlifted.copy()
+    for ii in range(n_iter):
+        (xk, xlifted) = iteration_step(xk, xlifted)
+
+    yiterated = final_step(xk + xlifted)[:, :dim, :]
+
+    # Compute the projection with QP
+    for ii in range(batch_size):
+        ycp = cp.Variable(dim)
+        constraints = [
+            lb[0, :, 0] <= C[0, :, :] @ ycp,
+            C[0, :, :] @ ycp <= ub[0, :, 0],
+        ]
+        objective = cp.Minimize(cp.sum_squares(ycp - x[ii, :, 0]))
+        problem_exact = cp.Problem(objective=objective, constraints=constraints)
+        problem_exact.solve()
+        # Extract true projection
+        y_qp = jnp.reshape(jnp.array(ycp.value), shape=(1, 2, 1))
+
+        # Compute the projection with QP, but in lifted form
+        # Last n_ineq variables corresponding to inequality lifting
+        yliftedcp = cp.Variable(dim + n_ineq)
+        constraints_lifted = [
+            lifted_eq.A[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
+            lifted_box.lower_bound[0, :, 0] <= yliftedcp[lifted_box.mask],
+            yliftedcp[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+        ]
+        objective_lifted = cp.Minimize(cp.sum_squares(yliftedcp[:dim] - x[ii, :, 0]))
+        problem_lifted = cp.Problem(
+            objective=objective_lifted, constraints=constraints_lifted
+        )
+        problem_lifted.solve()
+        # Extract lifted projection
+        ylifted = jnp.expand_dims(jnp.array(yliftedcp.value[:dim]), axis=1)
+
+        # Check the projections match
+        assert jnp.allclose(ylifted, y_qp[0, :, :])
+        assert jnp.allclose(y_qp[0, :, :], yiterated[ii, :, :], rtol=1e-6, atol=1e-6)

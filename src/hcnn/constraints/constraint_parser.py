@@ -32,11 +32,23 @@ class ConstraintParser:
             ineq_constraint: An inequality constraint.
             box_constraint: A box constraint.
         """
+        if ineq_constraint is None:
+            # The constraints do not need lifting.
+            self.parse = lambda _: (eq_constraint, box_constraint)
+            return
+
+        self.dim = ineq_constraint.dim
+        if eq_constraint is None:
+            eq_constraint = EqualityConstraint(
+                A=jnp.empty((1, 0, self.dim)),
+                b=jnp.empty((1, 0, 1)),
+                method=None,
+            )
+
         self.eq_constraint = eq_constraint
-        self.dim = eq_constraint.A.shape[2]
-        self.n_eq = eq_constraint.A.shape[1]
+        self.n_eq = eq_constraint.n_constraints
         self.ineq_constraint = ineq_constraint
-        self.n_ineq = ineq_constraint.C.shape[1]
+        self.n_ineq = ineq_constraint.n_constraints
         self.box_constraint = box_constraint
 
         # Batch consistency checks
