@@ -9,6 +9,40 @@ import pytest
 from hcnn.constraints.box import BoxConstraint
 
 
+def test_instantiation_error():
+    try:
+        BoxConstraint(jnp.array([0]), jnp.array([1, 2]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError("The upper and lower bounds must have the same shape.")
+
+    try:
+        BoxConstraint(
+            jnp.array([0]), jnp.array([1]), jnp.array([1, 0], dtype=jnp.int32)
+        )
+    except Exception:
+        pass
+    else:
+        raise AssertionError("The mask must be a boolean array.")
+
+    try:
+        BoxConstraint(
+            jnp.array([0]), jnp.array([1]), jnp.array([1, 1], dtype=jnp.bool_)
+        )
+    except Exception:
+        pass
+    else:
+        raise AssertionError("The mask must have the same shape as the bounds.")
+
+    try:
+        BoxConstraint(jnp.array([0, 1]), jnp.array([1, 0]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError("The lower bound must be less than the upper bound.")
+
+
 def test_box():
     lower_bounds = [
         jnp.array([0, 0]).reshape((1, 2, 1)),

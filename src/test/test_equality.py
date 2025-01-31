@@ -26,6 +26,49 @@ N_EQ = 50
 N_BATCH = [1, 10]
 
 
+def test_instantiation_error():
+    try:
+        EqualityConstraint(jnp.array([1]), jnp.array([[[1]]]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError(
+            "No check that A is a matrix with shape (n_batch, n_constraints, dimension)."
+        )
+
+    try:
+        EqualityConstraint(jnp.array([[[1]]]), jnp.array([[1]]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError(
+            "No check that b must have shape (n_batch, n_constraints, 1)."
+        )
+
+    try:
+        EqualityConstraint(jnp.array([[[1]]]), jnp.array([[[1, 2]]]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError(
+            "No check that b must have shape (n_batch, n_constraints, 1)."
+        )
+
+    try:
+        EqualityConstraint(jnp.array([[[1]], [[1]], [[1]]]), jnp.array([[[1]], [[1]]]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError("No check that batch sizes are consistent.")
+
+    try:
+        EqualityConstraint(jnp.array([[[1], [1], [1]]]), jnp.array([[[1]], [[1]]]))
+    except Exception:
+        pass
+    else:
+        raise AssertionError("Number of rows in A must equal size of b.")
+
+
 @pytest.mark.parametrize(
     "method, seed, n_batch_A, n_batch_b, n_batch_x",
     product(VALID_METHODS, SEEDS, N_BATCH, N_BATCH, N_BATCH),
