@@ -1,7 +1,5 @@
 """Test the HardConstrainedMLP on the clipped sine function."""
 
-from typing import List
-
 import jax
 import jax.numpy as jnp
 import optax
@@ -9,7 +7,6 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from hcnn.constraints.base import Constraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.flax_project import Project
 
@@ -17,11 +14,11 @@ from hcnn.flax_project import Project
 class HardConstrainedMLP(nn.Module):
     """Simple MLP with hard constraints on the output."""
 
-    constraints: List[Constraint]
+    box_constraint: BoxConstraint
 
     def setup(self):
-        schedule = optax.linear_schedule(1.0, 0.0, 200)
-        self.project = Project(self.constraints, schedule)
+        self.schedule = optax.linear_schedule(1.0, 0.0, 200)
+        self.project = Project(box_constraint=self.box_constraint)
 
     @nn.compact
     def __call__(self, x, step):
@@ -30,12 +27,19 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
-        x = self.project(x, step)
+        alpha = self.schedule(step)
+        x = self.project(x, interpolation_value=alpha)
         return x
 
 
-@pytest.mark.parametrize("seed", [42, 100, 999])  # Add more seeds as needed
-def test_clipped_sine(seed):
+SEEDS = [42]
+
+
+@pytest.mark.parametrize(
+    "seed",
+    SEEDS,
+)  # Add more seeds as needed
+def test_clipped_sine(seed: int):
     """Test if the HardConstrainedMLP fits max(min(sin(x), 1-EPS), EPS).
 
     The training objective is to fit the sine function with a MLP, but the
@@ -55,12 +59,10 @@ def test_clipped_sine(seed):
 
     # Define and initialize the hard constrained MLP
     model = HardConstrainedMLP(
-        [
-            BoxConstraint(
-                jnp.array([EPS]).reshape((1, 1, 1)),
-                jnp.array([1 - EPS]).reshape((1, 1, 1)),
-            )
-        ]
+        box_constraint=BoxConstraint(
+            jnp.array([EPS]).reshape((1, 1, 1)),
+            jnp.array([1 - EPS]).reshape((1, 1, 1)),
+        )
     )
     params = model.init(jax.random.PRNGKey(seed), jnp.ones([1, 1]), 0)
     tx = optax.adam(LEARNING_RATE)

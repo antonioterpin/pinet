@@ -1,7 +1,6 @@
 """Test the HardConstrainedMLP on 2d with 1 equality constraint."""
 
 from itertools import product
-from typing import List
 
 import jax
 import jax.numpy as jnp
@@ -12,7 +11,6 @@ from flax import linen as nn
 from flax.training import train_state
 
 from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.base import Constraint
 from hcnn.flax_project import Project
 
 jax.config.update("jax_enable_x64", True)
@@ -25,11 +23,11 @@ VALID_METHODS = ["pinv", "cholesky"]
 class HardConstrainedMLP(nn.Module):
     """Simple MLP with hard constraints on the output."""
 
-    constraints: List[Constraint]
+    eq_constraint: EqualityConstraint
 
     def setup(self):
-        schedule = optax.linear_schedule(0.0, 0.0, 200)
-        self.project = Project(self.constraints, schedule)
+        self.schedule = optax.linear_schedule(0.0, 0.0, 200)
+        self.project = Project(eq_constraint=self.eq_constraint)
 
     @nn.compact
     def __call__(self, x, step):
@@ -38,7 +36,8 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(2)(x)
-        x = self.project(x, step)
+        alpha = self.schedule(step)
+        x = self.project(x, interpolation_value=alpha)
         return x
 
 
@@ -65,7 +64,7 @@ def test_equality_constraint_2d(method, seed):
     b = jnp.zeros(shape=(1, 1, 1))
     # Instantiate equality constraint
     eq_constraint = EqualityConstraint(A=A, b=b, method=method)
-    model = HardConstrainedMLP([eq_constraint])
+    model = HardConstrainedMLP(eq_constraint)
     params = model.init(jax.random.PRNGKey(seed=seed), jnp.ones((1, 1)), 0)
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(

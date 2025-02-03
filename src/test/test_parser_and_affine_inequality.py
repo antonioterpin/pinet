@@ -11,25 +11,9 @@ from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.constraints.constraint_parser import ConstraintParser
+from hcnn.solver.admm import build_iteration_step
 
 jax.config.update("jax_enable_x64", True)
-
-
-# One iteration of the iterated projection
-# TODO: Replace this with a structured implementation,
-# that probably consumes the output of the parser.
-def build_iteration_step(lifted_eq, lifted_box, n_ineq, dim):
-    def iteration_step(xk, xlifted, alpha=0.9, beta=0.8):
-        qktilde = lifted_box.project(xk + xlifted)
-        xlifted = xlifted.at[:, -n_ineq:, :].set(qktilde[:, dim:, :])
-        qk = 2 * beta * (qktilde - xlifted) - xk
-        pk = 2 * beta * (lifted_eq.project(qk + xlifted) - xlifted) - qk
-        xk = (1 - alpha) * xk + alpha * pk
-        return (xk, xlifted)
-
-    # The second element is used to extract the projection from the auxiliary
-    return (jax.jit(iteration_step), jax.jit(lifted_box.project))
-
 
 VALID_METHODS = ["pinv", "cholesky"]
 SEEDS = [24, 42]
@@ -107,18 +91,15 @@ def test_simple_2d(method, seed, batch_size):
         assert jnp.allclose(ylifted, yclosed[ii, :])
 
     # Compute the projection with iterative
-    n_iter = 100
+    n_iter = 200
     (iteration_step, final_step) = build_iteration_step(
-        lifted_eq, lifted_box, n_ineq, dim
+        lifted_eq, lifted_box, dim, sigma=0.1, omega=1.0
     )
-    xlifted = jnp.concatenate(
-        (x.copy(), jnp.zeros(shape=(batch_size, n_ineq, 1))), axis=1
-    )
-    xk = xlifted.copy()
+    xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
     for ii in range(n_iter):
-        (xk, xlifted) = iteration_step(xk, xlifted)
+        xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk + xlifted)[:, :dim, :]
+    yiterated = final_step(xk)
 
     assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
 
@@ -211,15 +192,13 @@ def test_general_eq_ineq(method, seed, batch_size):
     # Compute the projection with iterative
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(
-        lifted_eq, lifted_box, n_ineq, dim
+        lifted_eq, lifted_box, dim, sigma=1.0, omega=1.0
     )
-    # Lifted point-to-projected
-    xlifted = jnp.concatenate((x.copy(), C @ x), axis=1)
-    xk = xlifted.copy()
+    xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
     for ii in range(n_iter):
-        (xk, xlifted) = iteration_step(xk, xlifted)
+        xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk + xlifted)[:, :dim, :]
+    yiterated = final_step(xk)
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
@@ -413,14 +392,13 @@ def test_general_eq_ineq_box(
     # Equality + Inequality + Box
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(
-        lifted_eq, lifted_box, n_ineq, dim
+        lifted_eq, lifted_box, dim, sigma=1.0, omega=1.0
     )
-    xlifted = jnp.concatenate((x.copy(), C @ x), axis=1)
-    xk = xlifted.copy()
+    xk = jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1))
     for ii in range(n_iter):
-        (xk, xlifted) = iteration_step(xk, xlifted)
+        xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk + xlifted)[:, :dim, :]
+    yiterated = final_step(xk)
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
     # Compute with iterative using lifting of:
@@ -455,20 +433,19 @@ def test_general_eq_ineq_box(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint_aug
     )
 
-    (lifted_eq_aug, lifted_box_aug) = parser_aug.parse()
+    (lifted_eq, lifted_box) = parser_aug.parse()
 
     n_iter = 5000
-    (iteration_step_aug, final_step_aug) = build_iteration_step(
-        lifted_eq_aug, lifted_box_aug, n_ineq_aug, dim
+    (iteration_step, final_step) = build_iteration_step(
+        lifted_eq, lifted_box, dim, sigma=1.0, omega=1.0
     )
-    xlifted = jnp.concatenate((x.copy(), Caug @ x), axis=1)
-    xk = xlifted.copy()
+    xk = jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1))
     for ii in range(n_iter):
-        (xk, xlifted) = iteration_step_aug(xk, xlifted)
+        xk = iteration_step(xk, x)
 
-    yiterated_aug = final_step_aug(xk + xlifted)[:, :dim, :]
+    yiterated = final_step(xk)
 
-    assert jnp.allclose(yqp, yiterated_aug, rtol=1e-3, atol=1e-3)
+    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
 
 SEEDS = [24, 42]
@@ -500,15 +477,13 @@ def test_simple_no_equality(seed, batch_size):
 
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(
-        lifted_eq, lifted_box, n_ineq, dim
+        lifted_eq, lifted_box, dim, sigma=0.1, omega=1.0
     )
-    # Lifted point-to-projected
-    xlifted = jnp.concatenate((x.copy(), C @ x), axis=1)
-    xk = xlifted.copy()
+    xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
     for ii in range(n_iter):
-        (xk, xlifted) = iteration_step(xk, xlifted)
+        xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk + xlifted)[:, :dim, :]
+    yiterated = final_step(xk)
 
     # Compute the projection with QP
     for ii in range(batch_size):

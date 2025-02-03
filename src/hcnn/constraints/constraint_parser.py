@@ -3,6 +3,7 @@
 from typing import Tuple
 
 import jax.numpy as jnp
+import numpy as np
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
@@ -126,8 +127,8 @@ class ConstraintParser:
 
         if self.box_constraint is None:
             # We only project the lifted part.
-            box_mask = jnp.concatenate(
-                [jnp.zeros(self.dim, dtype=bool), jnp.ones(self.n_ineq, dtype=bool)]
+            box_mask = np.concatenate(
+                [np.zeros(self.dim, dtype=bool), np.ones(self.n_ineq, dtype=bool)]
             )
             box_lifted = BoxConstraint(
                 lower_bound=self.ineq_constraint.lb,
