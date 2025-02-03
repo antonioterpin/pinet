@@ -54,7 +54,14 @@ def test_clipped_sine(seed):
     y = jnp.sin(x)
 
     # Define and initialize the hard constrained MLP
-    model = HardConstrainedMLP([BoxConstraint(jnp.array([EPS]), jnp.array([1 - EPS]))])
+    model = HardConstrainedMLP(
+        [
+            BoxConstraint(
+                jnp.array([EPS]).reshape((1, 1, 1)),
+                jnp.array([1 - EPS]).reshape((1, 1, 1)),
+            )
+        ]
+    )
     params = model.init(jax.random.PRNGKey(seed), jnp.ones([1, 1]), 0)
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(
