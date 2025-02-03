@@ -1,5 +1,6 @@
 """Flax implementation of the projection layer."""
 
+import jax
 from flax import linen as nn
 from jax import numpy as jnp
 
@@ -28,7 +29,7 @@ class Project(nn.Module):
         assert n_constraints > 0, "At least one constraint must be provided."
         self.dim = constraints[0].dim
         if self.ineq_constraint is not None or n_constraints > 1:
-            self.dim_lifted = self.dim + self.ineq_constraint.shape[-1]
+            self.dim_lifted = self.dim + self.ineq_constraint.dim
             parser = ConstraintParser(
                 eq_constraint=self.eq_constraint,
                 ineq_constraint=self.ineq_constraint,
@@ -38,21 +39,24 @@ class Project(nn.Module):
             self.step_iteration, self.step_final = build_iteration_step(
                 self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
             )
-            self._project = self._project_general
+            self._project = jax.jit(self._project_general, static_argnums=1)
         else:
             self.single_constraint = constraints[0]
-            self._project = self._project_single
+            self._project = jax.jit(self._project_single, static_argnums=1)
+
+        # jit correctly the call method
+        self.__call__ = jax.jit(self.__call__, static_argnums=[1, 2])
 
     def _project_general(self, x: jnp.ndarray, n_iter: int) -> jnp.ndarray:
         y = jnp.zeros(shape=(x.shape[0], self.dim_lifted, 1))
-        for _ in range(n_iter):
-            y = self.step_iteration(y, x)
+        y, _ = jax.lax.scan(
+            lambda y, _: (self.step_iteration(y, x), None), y, None, length=n_iter
+        )
         y = self.step_final(y)
         return y
 
     def _project_single(self, x: jnp.ndarray, _: int) -> jnp.ndarray:
-        y = jnp.expand_dims(x, axis=2)
-        y = self.single_constraint.project(y)
+        y = self.single_constraint.project(x)
         return y.reshape(x.shape)
 
     @nn.compact
@@ -67,5 +71,8 @@ class Project(nn.Module):
                 Interpolation value between the input and the projection.
             n_iter (int, optional): Number of iterations for the projection.
         """
-        y = self._project(x, n_iter)
+        # Make sure x is of shape (batch_size, n_dims, 1)
+        y = self._project(x.reshape((x.shape[0], x.shape[1], 1)), n_iter).reshape(
+            x.shape
+        )
         return interpolation_value * x + (1 - interpolation_value) * y

@@ -1,5 +1,7 @@
 """Affine inequality constraint module."""
 
+from jax import numpy as jnp
+
 from hcnn.constraints.base import Constraint
 
 
@@ -11,13 +13,13 @@ class AffineInequalityConstraint(Constraint):
     where the matrix C and the vectors l and u are the parameters.
     """
 
-    def __init__(self, C, lb, ub):
+    def __init__(self, C: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray):
         """Initialize the affine inequality constraint.
 
         Args:
-            C (numpy.ndarray): The matrix C in the inequality.
-            lb (numpy.ndarray): The lower bound in the inequality.
-            ub (numpy.ndarray): The upper bound in the inequality.
+            C (jnp.ndarray): The matrix C in the inequality.
+            lb (jnp.ndarray): The lower bound in the inequality.
+            ub (jnp.ndarray): The upper bound in the inequality.
         """
         self.C = C
         self.lb = lb

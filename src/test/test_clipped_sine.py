@@ -1,7 +1,5 @@
 """Test the HardConstrainedMLP on the clipped sine function."""
 
-from typing import Literal
-
 import jax
 import jax.numpy as jnp
 import optax
@@ -34,13 +32,14 @@ class HardConstrainedMLP(nn.Module):
         return x
 
 
+SEEDS = [42]
+
+
 @pytest.mark.parametrize(
     "seed",
-    [
-        42,
-    ],
+    SEEDS,
 )  # Add more seeds as needed
-def test_clipped_sine(seed: Literal[42] | Literal[100] | Literal[999]):
+def test_clipped_sine(seed: int):
     """Test if the HardConstrainedMLP fits max(min(sin(x), 1-EPS), EPS).
 
     The training objective is to fit the sine function with a MLP, but the
