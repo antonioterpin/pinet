@@ -1,0 +1,89 @@
+"""Flax implementation of the projection layer."""
+
+import jax
+from jax import numpy as jnp
+
+from hcnn.constraints.affine_equality import EqualityConstraint
+from hcnn.constraints.affine_inequality import AffineInequalityConstraint
+from hcnn.constraints.box import BoxConstraint
+from hcnn.constraints.constraint_parser import ConstraintParser
+from hcnn.solver.admm import build_iteration_step
+
+
+class Project:
+    """Projection layer implemented via iterative projections."""
+
+    eq_constraint: EqualityConstraint = None
+    ineq_constraint: AffineInequalityConstraint = None
+    box_constraint: BoxConstraint = None
+
+    def __init__(
+        self,
+        eq_constraint: EqualityConstraint = None,
+        ineq_constraint: AffineInequalityConstraint = None,
+        box_constraint: BoxConstraint = None,
+    ):
+        """Initialize projection layer."""
+        self.eq_constraint = eq_constraint
+        self.ineq_constraint = ineq_constraint
+        self.box_constraint = box_constraint
+
+    def setup(self):
+        """Setup the projection layer."""
+        print("Setting up")
+        constraints = [
+            c
+            for c in (self.eq_constraint, self.box_constraint, self.ineq_constraint)
+            if c
+        ]
+        n_constraints = len(constraints)
+        assert n_constraints > 0, "At least one constraint must be provided."
+        self.dim = constraints[0].dim
+        if self.ineq_constraint is not None or n_constraints > 1:
+            self.dim_lifted = self.dim + self.ineq_constraint.n_constraints
+            parser = ConstraintParser(
+                eq_constraint=self.eq_constraint,
+                ineq_constraint=self.ineq_constraint,
+                box_constraint=self.box_constraint,
+            )
+            self.lifted_eq_constraint, self.lifted_ineq_constraint = parser.parse()
+            self.step_iteration, self.step_final = build_iteration_step(
+                self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
+            )
+            # TODO: Is it useful to jit this?
+            self._project = jax.jit(self._project_general, static_argnums=1)
+        else:
+            self.single_constraint = constraints[0]
+            self._project = jax.jit(self._project_single, static_argnums=1)
+
+        # jit correctly the call method
+        self.call = jax.jit(self.__call__, static_argnums=[2])
+
+    def _project_general(self, x: jnp.ndarray, n_iter: int) -> jnp.ndarray:
+        y = jnp.zeros(shape=(x.shape[0], self.dim_lifted, 1))
+        y, _ = jax.lax.scan(
+            lambda y, _: (self.step_iteration(y, x), None), y, None, length=n_iter
+        )
+        y = self.step_final(y)
+        return y
+
+    def _project_single(self, x: jnp.ndarray, _: int) -> jnp.ndarray:
+        y = self.single_constraint.project(x)
+        return y.reshape(x.shape)
+
+    def __call__(
+        self, x: jnp.ndarray, interpolation_value: float = 0, n_iter: int = 0
+    ) -> jnp.ndarray:
+        """Project the input to the feasible region.
+
+        Args:
+            x (jnp.ndarray): Input tensor.
+            interpolation_value (float, optional):
+                Interpolation value between the input and the projection.
+            n_iter (int, optional): Number of iterations for the projection.
+        """
+        # Make sure x is of shape (batch_size, n_dims, 1)
+        y = self._project(x.reshape((x.shape[0], x.shape[1], 1)), n_iter).reshape(
+            x.shape
+        )
+        return interpolation_value * x + (1 - interpolation_value) * y
