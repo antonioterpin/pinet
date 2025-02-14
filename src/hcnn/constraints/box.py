@@ -35,7 +35,6 @@ class BoxConstraint(Constraint):
             mask (np.ndarray): Mask to apply the constraint only to some dimensions.
                 The same mask is applied to the entire batch.
                 Must be a np.ndarray to be compatible with jit.
-                TODO: Make the mask batch-dependent?
         """
         if mask is None:
             mask = np.ones(shape=(lower_bound.shape[1]), dtype=jnp.bool_)
