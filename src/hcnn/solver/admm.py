@@ -12,7 +12,7 @@ def build_iteration_step(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
-    sigma: float = 0.1,
+    sigma: float = 1.0,
     omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
@@ -69,7 +69,7 @@ def build_iteration_step_vb(
     box_constraint: BoxConstraint,
     dim: int,
     sigma: float = 1.0,
-    omega: float = 1.0,
+    omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
@@ -127,7 +127,7 @@ def build_iteration_step_vAb(
     box_constraint: BoxConstraint,
     dim: int,
     sigma: float = 1.0,
-    omega: float = 1.0,
+    omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],

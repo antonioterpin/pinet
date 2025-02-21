@@ -22,12 +22,16 @@ class Project:
     eq_constraint: EqualityConstraint = None
     ineq_constraint: AffineInequalityConstraint = None
     box_constraint: BoxConstraint = None
+    sigma: float = 1.0
+    omega: float = 1.7
 
     def __init__(
         self,
         eq_constraint: EqualityConstraint = None,
         ineq_constraint: AffineInequalityConstraint = None,
         box_constraint: BoxConstraint = None,
+        sigma: float = 1.0,
+        omega: float = 1.7,
     ):
         """Initialize projection layer.
 
@@ -36,10 +40,14 @@ class Project:
             ineq_constraint (AffineInequalityConstraint): Inequality
                 constraint.
             box_constraint (BoxConstraint): Box constraint.
+            sigma (float): ADMM scaling parameter.
+            omega (float): ADMM relaxation parameter.
         """
         self.eq_constraint = eq_constraint
         self.ineq_constraint = ineq_constraint
         self.box_constraint = box_constraint
+        self.sigma = sigma
+        self.omega = omega
         self.setup()
 
     def setup(self):
@@ -63,21 +71,33 @@ class Project:
             self.lifted_eq_constraint, self.lifted_ineq_constraint = parser.parse()
             if self.lifted_eq_constraint.var_A:
                 self.step_iteration, self.step_final = build_iteration_step_vAb(
-                    self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
+                    self.lifted_eq_constraint,
+                    self.lifted_ineq_constraint,
+                    self.dim,
+                    self.sigma,
+                    self.omega,
                 )
                 self._project = jax.jit(
                     self._project_general_vAb, static_argnames=["n_iter"]
                 )
             elif self.lifted_eq_constraint.var_b:
                 self.step_iteration, self.step_final = build_iteration_step_vb(
-                    self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
+                    self.lifted_eq_constraint,
+                    self.lifted_ineq_constraint,
+                    self.dim,
+                    self.sigma,
+                    self.omega,
                 )
                 self._project = jax.jit(
                     self._project_general_vb, static_argnames=["n_iter"]
                 )
             else:
                 self.step_iteration, self.step_final = build_iteration_step(
-                    self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
+                    self.lifted_eq_constraint,
+                    self.lifted_ineq_constraint,
+                    self.dim,
+                    self.sigma,
+                    self.omega,
                 )
                 self._project = jax.jit(
                     self._project_general, static_argnames=["n_iter"]
