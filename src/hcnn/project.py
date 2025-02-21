@@ -61,14 +61,14 @@ class Project:
                 box_constraint=self.box_constraint,
             )
             self.lifted_eq_constraint, self.lifted_ineq_constraint = parser.parse()
-            if self.eq_constraint.var_A:
+            if self.lifted_eq_constraint.var_A:
                 self.step_iteration, self.step_final = build_iteration_step_vAb(
                     self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
                 )
                 self._project = jax.jit(
                     self._project_general_vAb, static_argnames=["n_iter"]
                 )
-            elif self.eq_constraint.var_b:
+            elif self.lifted_eq_constraint.var_b:
                 self.step_iteration, self.step_final = build_iteration_step_vb(
                     self.lifted_eq_constraint, self.lifted_ineq_constraint, self.dim
                 )
@@ -92,6 +92,8 @@ class Project:
                     self._project = jax.jit(self._project_single_vb)
                 else:
                     self._project = jax.jit(self._project_single)
+            else:
+                self._project = jax.jit(self._project_single)
 
         # jit correctly the call method
         self.call = self._project

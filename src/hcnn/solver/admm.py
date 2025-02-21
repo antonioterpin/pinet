@@ -13,7 +13,7 @@ def build_iteration_step(
     box_constraint: BoxConstraint,
     dim: int,
     sigma: float = 0.1,
-    omega: float = 1.0,
+    omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],

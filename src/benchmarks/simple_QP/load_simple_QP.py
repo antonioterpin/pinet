@@ -1,9 +1,8 @@
 """Loading functionality for simple QP benchmark."""
 
+import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
-
-from benchmarks.simple_QP.generate_simple_QP import optimal_objectives
 
 
 # Load Instance Dataset
@@ -13,11 +12,13 @@ class SimpleQPDataset(Dataset):
     def __init__(self, filepath):
         """Initialize dataset."""
         data = jnp.load(filepath)
-        self.objectives = optimal_objectives(filepath)
         # Parameter values for each instance
         self.X = data["X"]
         # Constant problem ingredients
         self.const = (data["Q"], data["p"], data["A"], data["G"], data["h"])
+        # Optimal objectives and solutions for all problem instances
+        self.objectives = data["objectives"]
+        self.Ystar = data["Ystar"]
 
     def __len__(self):
         """Length of dataset."""
@@ -58,3 +59,51 @@ def create_dataloaders(
     )
 
     return train_loader, val_loader, test_loader
+
+
+class DC3Dataset(Dataset):
+    """Dataset for importing DC3 problems."""
+
+    def __init__(self, filepath):
+        """Initialize dataset."""
+        data = jnp.load(filepath)
+        # Parameter values for each instance
+        self.X = data["X"]
+        # Constant problem ingredients
+        self.const = (data["Q"], data["p"], data["A"], data["G"], data["h"])
+        # Problem solutions
+        self.Ystar = data["Ystar"]
+
+        # Compute objectives
+        def obj_fun(y):
+            return 0.5 * y.T @ data["Q"] @ y + data["p"][0, :, :].T @ jnp.sin(y)
+
+        self.obj_fun = jax.vmap(obj_fun, in_axes=[0])
+        self.objectives = self.obj_fun(self.Ystar[:, :, 0])
+
+    def __len__(self):
+        """Length of dataset."""
+        return self.X.shape[0]
+
+    def __getitem__(self, idx):
+        """Get item from dataset."""
+        return self.X[idx], self.objectives[idx]
+
+
+def dc3_dataloader(
+    filepath,
+    batch_size=512,
+    shuffle=True,
+):
+    """Dataset loader for training, or validation, or test."""
+    dataset = DC3Dataset(filepath)
+
+    def collate_fn(batch):
+        X, obj = zip(*batch)
+        return jnp.array(X), jnp.array(obj)
+
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn
+    )
+
+    return loader
