@@ -7,6 +7,8 @@ import jax.numpy as jnp
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.box import BoxConstraint
 
+# TODO: Adapt the final step of all versions.
+
 
 def build_iteration_step(
     eq_constraint: EqualityConstraint,
@@ -61,7 +63,7 @@ def build_iteration_step(
         return xk
 
     # The second element is used to extract the projection from the auxiliary
-    return (iteration_step, lambda y: eq_constraint.project(y)[:, :dim, :])
+    return (iteration_step, lambda y: eq_constraint.project(y))
 
 
 def build_iteration_step_vb(

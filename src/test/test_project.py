@@ -17,6 +17,7 @@ SEEDS = [24, 42]
 BATCH_SIZE = [1, 5]
 
 
+# TODO: Add another test where varA, varB are false.
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_project_eq_ineq_varA_varb(seed, batch_size):
     dim = 100

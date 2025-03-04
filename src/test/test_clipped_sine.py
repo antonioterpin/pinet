@@ -8,7 +8,7 @@ from flax import linen as nn
 from flax.training import train_state
 
 from hcnn.constraints.box import BoxConstraint
-from hcnn.flax_project import Project
+from hcnn.project import Project
 
 
 class HardConstrainedMLP(nn.Module):
