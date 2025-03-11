@@ -121,7 +121,7 @@ def build_iteration_step_vb(
         return xk
 
     # The second element is used to extract the projection from the auxiliary
-    return (iteration_step, lambda y, b: eq_constraint.project(y, b)[:, :dim, :])
+    return (iteration_step, lambda y, b: eq_constraint.project(y, b))
 
 
 def build_iteration_step_vAb(

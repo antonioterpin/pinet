@@ -1,6 +1,12 @@
 """Run HCNN on simple QP problem."""
 
 # TODO: Enable saving/serializing the trained network when saving results.
+# TODO: Run simuations and record results.
+# For different choices of the implicit differentiation.
+# And for different target tolerances, one for the mean of max,
+# and one for the max of max.
+# TODO: Do some ablations on the ADMM parameters.
+# TODO: Add the algorithm hyperparameters to the saved results.
 import argparse
 import datetime
 import os
@@ -40,7 +46,13 @@ def load_yaml(file_path: str) -> dict:
 
 
 def plotting(
-    train_loader, valid_loader, trainig_losses, validation_losses, eqcvs, ineqcvs
+    train_loader,
+    valid_loader,
+    trainig_losses,
+    validation_losses,
+    eqcvs,
+    ineqcvs,
+    eval_every,
 ):
     """Plot training curves."""
     opt_train_loss = []
@@ -67,7 +79,11 @@ def plotting(
         opt_valid_loss.append(obj_batch)
     opt_valid_loss = jnp.array(opt_valid_loss).mean()
     plt.subplot(1, 4, 2)
-    plt.plot(validation_losses, label="Validation Loss")
+    plt.plot(
+        jnp.arange(len(validation_losses), dtype=jnp.int32) * eval_every,
+        validation_losses,
+        label="Validation Loss",
+    )
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.axhline(
@@ -80,16 +96,22 @@ def plotting(
     plt.legend()
 
     plt.subplot(1, 4, 3)
-    plt.plot(eqcvs, label="Equality Constraint Violation")
+    plt.plot(
+        jnp.arange(len(validation_losses), dtype=jnp.int32) * eval_every,
+        eqcvs,
+        label="Equality Constraint Violation",
+    )
     plt.xlabel("Epoch")
     plt.ylabel("Max Equality Violation")
-    plt.legend()
 
     plt.subplot(1, 4, 4)
-    plt.plot(ineqcvs, label="Inequality Constraint Violation")
+    plt.plot(
+        jnp.arange(len(validation_losses), dtype=jnp.int32) * eval_every,
+        ineqcvs,
+        label="Inequality Constraint Violation",
+    )
     plt.xlabel("Epoch")
     plt.ylabel("Max Inequality Violation")
-    plt.legend()
 
     plt.tight_layout()
     plt.show()
@@ -288,9 +310,8 @@ def load_data(
     else:
         # Choose the filename here
         if use_convex:
-            raise NotImplementedError()
             filename = (
-                f"dc3_random_dataset_var{problem_var}_ineq{problem_nineq}"
+                f"dc3_random_simple_dataset_var{problem_var}_ineq{problem_nineq}"
                 f"_eq{problem_neq}_ex{problem_examples}"
             )
         else:
@@ -310,11 +331,13 @@ def load_data(
         dataset_path_test = os.path.join(
             os.path.dirname(__file__), "datasets", filename_test
         )
-        train_loader = dc3_dataloader(dataset_path_train, batch_size=2000)
+        train_loader = dc3_dataloader(dataset_path_train, use_convex, batch_size=2000)
         valid_loader = dc3_dataloader(
-            dataset_path_valid, batch_size=2000, shuffle=False
+            dataset_path_valid, use_convex, batch_size=2000, shuffle=False
         )
-        test_loader = dc3_dataloader(dataset_path_test, batch_size=2000, shuffle=False)
+        test_loader = dc3_dataloader(
+            dataset_path_test, use_convex, batch_size=2000, shuffle=False
+        )
         Q, p, A, G, h = train_loader.dataset.const
         p = p[0, :, :]
         X = train_loader.dataset.X
@@ -322,18 +345,13 @@ def load_data(
     return (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader)
 
 
-# %% Setup CLI
-# Inputs:
-# Problem parameters: Seed, Variables, # Ineq, # Eq, # Examples
-# Use DC3 dataset or not
-# Use convex problem or not
-# To save the results or not
-# HCNN hyperparameters: defaults to default.yaml, or provide your own yaml
-#   This includes train/test iterations, learning rate, scheduler?
-#       Epochs,
 # %%
-class HardConstrainedMLP(nn.Module):
-    """Simple MLP with hard constraints on the output."""
+class HardConstrainedMLP_unroll(nn.Module):
+    """Simple MLP with hard constraints on the output.
+
+    Assumes that unrolling is used for backpropagation.
+    This is defined in the projection layer.
+    """
 
     project: Project
 
@@ -344,7 +362,7 @@ class HardConstrainedMLP(nn.Module):
     # TODO: Try adding batch norm and dropout as in the DC3 paper.
     # A quick try with batch norm generated slightly worse results.
     @nn.compact
-    def __call__(self, x, b, step, n_iter=100):
+    def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -352,7 +370,42 @@ class HardConstrainedMLP(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(self.project.dim)(x)
         alpha = self.schedule(step)
-        x = self.project.call(x, b, interpolation_value=alpha, n_iter=n_iter)
+        x = self.project.call(x, b, interpolation_value=alpha, n_iter=n_iter)[0]
+        return x
+
+
+class HardConstrainedMLP_impl(nn.Module):
+    """Simple MLP with hard constraints on the output.
+
+    Assumes that implicit differentiation is used for backpropagation.
+    This is defined in the projection layer.
+    """
+
+    project: Project
+
+    def setup(self):
+        """Setup for each NN call."""
+        self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
+
+    # TODO: Try adding batch norm and dropout as in the DC3 paper.
+    # A quick try with batch norm generated slightly worse results.
+    @nn.compact
+    def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True):
+        """Call the NN."""
+        x = nn.Dense(200)(x)
+        x = nn.relu(x)
+        x = nn.Dense(200)(x)
+        x = nn.relu(x)
+        x = nn.Dense(self.project.dim)(x)
+        alpha = self.schedule(step)
+        x = self.project.call(
+            x,
+            b,
+            interpolation_value=alpha,
+            n_iter=n_iter,
+            n_iter_bwd=n_iter_bwd,
+            fpi=fpi,
+        )[0]
         return x
 
 
@@ -375,7 +428,8 @@ def main(
     """Main for running simple QP benchmarks."""
     # Load hyperparameter configuration
     hyperparameters = load_yaml(config_path)
-
+    unroll = hyperparameters["unroll"]
+    # %%
     # Load problem data
     (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader) = load_data(
         use_DC3_dataset,
@@ -402,6 +456,7 @@ def main(
         eq_constraint=eq_constraint,
         sigma=hyperparameters["sigma"],
         omega=hyperparameters["omega"],
+        unroll=unroll,
     )
 
     # Measure setup time
@@ -418,6 +473,7 @@ def main(
                 eq_constraint=eq_constraint,
                 sigma=hyperparameters["sigma"],
                 omega=hyperparameters["omega"],
+                unroll=unroll,
             )
         setup_time = (time.time() - start) / SETUP_REPS
 
@@ -426,7 +482,10 @@ def main(
         setup_time = -1
 
     # Define HCNN model
-    model = HardConstrainedMLP(project=projection_layer)
+    if unroll:
+        model = HardConstrainedMLP_unroll(project=projection_layer)
+    else:
+        model = HardConstrainedMLP_impl(project=projection_layer)
     params = model.init(
         jax.random.PRNGKey(SEED), x=X[:2, :, 0], b=X[:2], step=0, n_iter=2
     )
@@ -463,13 +522,13 @@ def main(
     # batched_penalty_form = jax.vmap(penalty_form, in_axes=[0])
 
     # Setup the MLP training routine
-    @partial(jax.jit, static_argnames=["n_iter"])
-    def train_step(state, x_batch, b_batch, step, n_iter):
+    @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
+    def train_step(state, x_batch, b_batch, step, n_iter, n_iter_bwd, fpi):
         """Run a single training step."""
 
         def loss_fn(params):
             predictions = state.apply_fn(
-                {"params": params}, x_batch, b_batch, step, n_iter
+                {"params": params}, x_batch, b_batch, step, n_iter, n_iter_bwd, fpi
             )
             return batched_objective(predictions).mean()
 
@@ -480,7 +539,7 @@ def main(
     for batch in train_loader:
         X_batch, _ = batch
     start = time.time()
-    _ = train_step.lower(state, X_batch[:, :, 0], X_batch, 0, 100).compile()
+    _ = train_step.lower(state, X_batch[:, :, 0], X_batch, 0, 100, 100, True).compile()
     # Note this also includes the time for one iteration
     compilation_time = time.time() - start
 
@@ -488,9 +547,12 @@ def main(
 
     # Train the MLP
     N_EPOCHS = hyperparameters["n_epochs"]
+    eval_every = 5
     start = time.time()
     n_iter_train = hyperparameters["n_iter_train"]
     n_iter_test = hyperparameters["n_iter_test"]
+    n_iter_bwd = hyperparameters["n_iter_bwd"]
+    fpi = hyperparameters["fpi"]
     trainig_losses = []
     validation_losses = []
     eqcvs = []
@@ -500,13 +562,13 @@ def main(
         for batch in train_loader:
             X_batch, _ = batch
             loss, state = train_step(
-                state, X_batch[:, :, 0], X_batch, step, n_iter_train
+                state, X_batch[:, :, 0], X_batch, step, n_iter_train, n_iter_bwd, fpi
             )
             epoch_loss.append(loss)
         pbar.set_description(f"Train Loss: {jnp.array(epoch_loss).mean():.5f}")
         trainig_losses.append(jnp.array(epoch_loss).mean())
 
-        if step % 5 == 0:
+        if step % eval_every == 0:
             for X_valid, _ in valid_loader:
                 predictions = state.apply_fn(
                     {"params": state.params},
@@ -542,6 +604,7 @@ def main(
             validation_losses,
             eqcvs,
             ineqcvs,
+            eval_every=eval_every,
         )
 
     # Evaluate validation performance
@@ -638,7 +701,7 @@ if __name__ == "__main__":
         parser.add_argument(
             "--config",
             type=str,
-            default="simple_QP.yaml",
+            default="simple_QP_fpi.yaml",
             help="Configuration file for HCNN hyperparameters.",
         )
         parser.add_argument(

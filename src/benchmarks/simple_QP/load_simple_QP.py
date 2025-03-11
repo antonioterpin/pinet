@@ -64,7 +64,7 @@ def create_dataloaders(
 class DC3Dataset(Dataset):
     """Dataset for importing DC3 problems."""
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, use_convex):
         """Initialize dataset."""
         data = jnp.load(filepath)
         # Parameter values for each instance
@@ -75,8 +75,15 @@ class DC3Dataset(Dataset):
         self.Ystar = data["Ystar"]
 
         # Compute objectives
-        def obj_fun(y):
-            return 0.5 * y.T @ data["Q"] @ y + data["p"][0, :, :].T @ jnp.sin(y)
+        if use_convex:
+
+            def obj_fun(y):
+                return 0.5 * y.T @ data["Q"] @ y + data["p"][0, :, :].T @ y
+
+        else:
+
+            def obj_fun(y):
+                return 0.5 * y.T @ data["Q"] @ y + data["p"][0, :, :].T @ jnp.sin(y)
 
         self.obj_fun = jax.vmap(obj_fun, in_axes=[0])
         self.objectives = self.obj_fun(self.Ystar[:, :, 0])
@@ -92,11 +99,12 @@ class DC3Dataset(Dataset):
 
 def dc3_dataloader(
     filepath,
+    use_convex,
     batch_size=512,
     shuffle=True,
 ):
     """Dataset loader for training, or validation, or test."""
-    dataset = DC3Dataset(filepath)
+    dataset = DC3Dataset(filepath, use_convex)
 
     def collate_fn(batch):
         X, obj = zip(*batch)
