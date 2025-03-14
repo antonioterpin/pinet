@@ -1,12 +1,7 @@
 """Run HCNN on simple QP problem."""
 
 # TODO: Enable saving/serializing the trained network when saving results.
-# TODO: Run simuations and record results.
-# For different choices of the implicit differentiation.
-# And for different target tolerances, one for the mean of max,
-# and one for the max of max.
 # TODO: Do some ablations on the ADMM parameters.
-# TODO: Add the algorithm hyperparameters to the saved results.
 import argparse
 import datetime
 import os
@@ -153,11 +148,14 @@ def evaluate_hcnn(
     eq_cv_mean = eq_cv.mean()
     eq_cv_max = eq_cv.max()
     # Average and max inequality constraint violation
-    ineq_cv = jnp.maximum(
-        G[0].reshape(1, G.shape[1], G.shape[2])
-        @ predictions.reshape(X.shape[0], G.shape[2], 1)
-        - h,
-        0,
+    ineq_cv = jnp.max(
+        jnp.maximum(
+            G[0].reshape(1, G.shape[1], G.shape[2])
+            @ predictions.reshape(X.shape[0], G.shape[2], 1)
+            - h,
+            0,
+        ),
+        axis=1,
     )
     ineq_cv_mean = ineq_cv.mean()
     ineq_cv_max = ineq_cv.max()
@@ -359,8 +357,6 @@ class HardConstrainedMLP_unroll(nn.Module):
         """Setup for each NN call."""
         self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
 
-    # TODO: Try adding batch norm and dropout as in the DC3 paper.
-    # A quick try with batch norm generated slightly worse results.
     @nn.compact
     def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True):
         """Call the NN."""
@@ -579,9 +575,9 @@ def main(
                 )
                 loss = batched_objective(predictions).mean()
                 eqcv = jnp.abs(A[0] @ predictions.reshape(-1, Y_DIM, 1) - X_valid).max()
-                ineqcv = jnp.maximum(
-                    G[0] @ predictions.reshape(-1, Y_DIM, 1) - h, 0
-                ).max()
+                ineqcv = jnp.max(
+                    jnp.maximum(G[0] @ predictions.reshape(-1, Y_DIM, 1) - h, 0), axis=1
+                ).mean()
                 eqcvs.append(eqcv)
                 ineqcvs.append(ineqcv)
                 validation_losses.append(loss)
@@ -679,6 +675,8 @@ def main(
             ineq_viol_test=ineq_viol_test,
             obj_fun_test=obj_fun_test,
             opt_obj_test=obj_test,
+            config_path=config_path,
+            **hyperparameters,
         )
 
     return state
@@ -708,7 +706,7 @@ if __name__ == "__main__":
             "--seed", type=int, default=42, help="Seed for training HCNN."
         )
         parser.add_argument(
-            "--plot_training", type=bool, default=True, help="Plot training curves."
+            "--plot_training", type=bool, default=False, help="Plot training curves."
         )
         parser.add_argument(
             "--save_results", action="store_true", help="Save the results."

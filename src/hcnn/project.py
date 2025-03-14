@@ -16,11 +16,11 @@ from hcnn.solver.admm import (
 )
 
 
+# TODO: During inference, it would be nice to
+#       implement some constraint violation checking to reduce runtime.
 # TODO: Make the output of project more consistent.
 #       For single constraints the output is an array.
 #       For parsed/multiple constraints the output is a tuple.
-# TODO: I am not sure that max_iter in gmres works as intended. We could
-#   consider another iterative linear system solver.
 # TODO: Remove the __call__ method, and maybe rename the currently
 #   used `call` method to something else, e.g., project.
 # TODO: Remove the interpolation value. This should be done on the NN layer.
