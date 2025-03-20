@@ -6,3 +6,4 @@ flax==0.10.2
 snowballstemmer==2.2.0
 cvxpy==1.6.0
 matplotlib==3.10.0
+wandb==0.19.8
