@@ -8,3 +8,4 @@ cvxpy==1.6.0
 matplotlib==3.10.0
 tqdm==4.67.1
 torch==2.6.0
+wandb==0.19.8
