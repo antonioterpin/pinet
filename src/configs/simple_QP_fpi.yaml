@@ -1,4 +1,4 @@
-n_epochs: 50
+n_epochs: 25
 n_iter_train: 100
 n_iter_test: 100
 learning_rate: 1.0e-2

@@ -25,6 +25,7 @@ from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.project import Project
 
+# TODO: Run experiments with new configurations.
 jax.config.update("jax_enable_x64", True)
 
 
@@ -305,10 +306,8 @@ def load_data(filepath):
 
 def generate_trajectories(state, n_iter_test, As, lbxs, ubxs, lbus, ubus, alpha):
     """Generates trajectories from HCNN and solver."""
-    ntraj = 5
-    xinit = jnp.array([[0, 0], [1, 2], [0, 4], [-4, -5], [9, -6]]).reshape(
-        ntraj, base_dim, 1
-    )
+    ntraj = 1
+    xinit = jnp.array([[-7, -5]]).reshape(ntraj, base_dim, 1)
     # Evaluate the network on these initial points
     Xinitfull = jnp.concatenate(
         (xinit, jnp.zeros((xinit.shape[0], As.shape[1] - xinit.shape[1], 1))), axis=1
