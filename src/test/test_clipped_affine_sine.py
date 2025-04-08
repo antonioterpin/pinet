@@ -9,7 +9,7 @@ from flax import linen as nn
 from flax.training import train_state
 
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.flax_project import Project
+from hcnn.project import Project
 
 jax.config.update("jax_enable_x64", True)
 
@@ -17,11 +17,10 @@ jax.config.update("jax_enable_x64", True)
 class HardConstrainedMLP(nn.Module):
     """Simple MLP with hard constraints on the output."""
 
-    ineq_constraint: AffineInequalityConstraint
+    project: Project
 
     def setup(self):
         self.schedule = optax.linear_schedule(1.0, 0, 100, 2500)
-        self.project = Project(ineq_constraint=self.ineq_constraint)
 
     @nn.compact
     def __call__(self, x, step):
@@ -31,7 +30,9 @@ class HardConstrainedMLP(nn.Module):
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
         alpha = self.schedule(step)
-        x = self.project(x, interpolation_value=alpha, n_iter=100)
+        x = self.project.call(
+            x, interpolation_value=alpha, n_iter=100, n_iter_bwd=50, fpi=False
+        )[0]
         return x
 
 
@@ -82,8 +83,9 @@ def test_clipped_sine(seed: int, C: float, lb: float, ub: float):
         lb=lower_bound.reshape((N_SAMPLES, x.shape[1], 1)),
         ub=upper_bound.reshape((N_SAMPLES, x.shape[1], 1)),
     )
+    projection_layer = Project(ineq_constraint=ineq_constraint, unroll=False)
     # Define and initialize the hard constrained MLP
-    model = HardConstrainedMLP(ineq_constraint=ineq_constraint)
+    model = HardConstrainedMLP(project=projection_layer)
     params = model.init(jax.random.PRNGKey(seed), x, 0)
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(

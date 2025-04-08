@@ -1,3 +1,6 @@
+# Wandb files
+wandb/
+
 # Byte-compiled / optimized / DLL files
 .vscode/
 __pycache__/

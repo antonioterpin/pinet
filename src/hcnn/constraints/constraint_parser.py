@@ -34,7 +34,7 @@ class ConstraintParser:
         """
         if ineq_constraint is None:
             # The constraints do not need lifting.
-            self.parse = lambda _: (eq_constraint, box_constraint)
+            self.parse = lambda: (eq_constraint, box_constraint)
             return
 
         self.dim = ineq_constraint.dim
@@ -43,6 +43,8 @@ class ConstraintParser:
                 A=jnp.empty((1, 0, self.dim)),
                 b=jnp.empty((1, 0, 1)),
                 method=None,
+                var_b=False,
+                var_A=False,
             )
 
         self.eq_constraint = eq_constraint
@@ -82,10 +84,7 @@ class ConstraintParser:
         Returns:
             A tuple of constraints: (eq_constraint, box_constraint)
         """
-        # TODO: The equality constraint given to the parser will
-        # have pinved/factored A. This should only be done for the lifted here.
         # Build lifted A matrix.
-        # TODO: Be careful of batch sizes. Have tests for this
         # Maximum batch size between A and C
         mbAC = max(self.eq_constraint.A.shape[0], self.ineq_constraint.C.shape[0])
         first_row_batched = jnp.tile(
@@ -121,7 +120,13 @@ class ConstraintParser:
             ],
             axis=1,
         )
-        eq_lifted = EqualityConstraint(A=A_lifted, b=b_lifted, method=method)
+        eq_lifted = EqualityConstraint(
+            A=A_lifted,
+            b=b_lifted,
+            method=method,
+            var_b=self.eq_constraint.var_b,
+            var_A=self.eq_constraint.var_A,
+        )
         # TODO: Memory management? After building the lifted
         # matrix we could probably discard the original one.
 
