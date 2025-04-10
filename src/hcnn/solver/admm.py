@@ -14,6 +14,7 @@ def build_iteration_step(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
+    scale: jnp.ndarray = 1.0,
     sigma: float = 1.0,
     omega: float = 1.7,
 ) -> Tuple[
@@ -27,6 +28,7 @@ def build_iteration_step(
         eq_constraint (EqualityConstraint): (Lifted) Equality constraint.
         box_constraint (BoxConstraint): (Lifted) Box constraint.
         dim (int): Dimension of the original problem.
+        scale (jnp.ndarray): Scaling of primal variables.
         sigma (float, optional): ADMM parameter.
         omega (float, optional): ADMM parameter.
 
@@ -53,7 +55,8 @@ def build_iteration_step(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (xproj + 1 / (2 * sigma) * reflect[:, :dim, :]) / (1 + 1 / (2 * sigma)),
+                (2 * sigma * scale * xproj + reflect[:, :dim, :])
+                / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),
             axis=1,
@@ -70,7 +73,7 @@ def build_iteration_step_vb(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
-    scale: jnp.ndarray,
+    scale: jnp.ndarray = 1.0,
     sigma: float = 1.0,
     omega: float = 1.7,
 ) -> Tuple[
@@ -113,8 +116,8 @@ def build_iteration_step_vb(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (scale * xproj + 1 / (2 * sigma) * reflect[:, :dim, :])
-                / (scale**2 + 1 / (2 * sigma)),
+                (2 * sigma * scale * xproj + reflect[:, :dim, :])
+                / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),
             axis=1,
@@ -180,7 +183,7 @@ def build_iteration_step_vAb(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (xproj + 1 / (2 * sigma) * reflect[:, :dim, :]) / (1 + 1 / (2 * sigma)),
+                (2 * sigma * xproj + reflect[:, :dim, :]) / (1 + 2 * sigma),
                 reflect[:, dim:, :],
             ),
             axis=1,

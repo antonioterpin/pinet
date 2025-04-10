@@ -72,126 +72,151 @@ def test_general_eq_ineq(seed, batch_size):
     lbox = jnp.tile(jnp.array(lboxfeas.value).reshape((1, n_box, 1)), (1, 1, 1))
     ubox = jnp.tile(jnp.array(uboxfeas.value).reshape((1, n_box, 1)), (1, 1, 1))
     # Define projection layer ingredients
-    eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
-    box_constraint = BoxConstraint(lower_bound=lbox, upper_bound=ubox, mask=mask)
+    for var_b in [False, True]:
+        eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=var_b)
+        ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+        box_constraint = BoxConstraint(lower_bound=lbox, upper_bound=ubox, mask=mask)
 
-    # Hyperparameters
-    sigma = 0.1
-    omega = 1.7
-    sigma_equil = 0.01
+        # Hyperparameters
+        sigma = 0.1
+        omega = 1.7
+        sigma_equil = 0.01
 
-    # Projection layer with unrolling no equilibration
-    pl_unroll = Project(
-        eq_constraint=eq_constraint,
-        ineq_constraint=ineq_constraint,
-        box_constraint=box_constraint,
-        unroll=True,
-        sigma=sigma,
-        omega=omega,
-        equilibrate={
-            "max_iter": 0,
-            "tol": 1e-3,
-            "ord": 2.0,
-            "col_scaling": False,
-            "update_mode": "Gauss",
-            "safeguard": False,
-        },
-    )
+        # Projection layer with unrolling no equilibration
+        pl_unroll = Project(
+            eq_constraint=eq_constraint,
+            ineq_constraint=ineq_constraint,
+            box_constraint=box_constraint,
+            unroll=True,
+            sigma=sigma,
+            omega=omega,
+            equilibrate={
+                "max_iter": 0,
+                "tol": 1e-3,
+                "ord": 2.0,
+                "col_scaling": False,
+                "update_mode": "Gauss",
+                "safeguard": False,
+            },
+        )
 
-    # Projection layer with unrolling plus equilibration
-    pl_unroll_equil = Project(
-        eq_constraint=eq_constraint,
-        ineq_constraint=ineq_constraint,
-        box_constraint=box_constraint,
-        unroll=True,
-        sigma=sigma_equil,
-        omega=omega,
-        equilibrate={
-            "max_iter": 25,
-            "tol": 1e-3,
-            "ord": 2.0,
-            "col_scaling": False,
-            "update_mode": "Gauss",
-            "safeguard": False,
-        },
-    )
+        # Projection layer with unrolling plus equilibration
+        pl_unroll_equil = Project(
+            eq_constraint=eq_constraint,
+            ineq_constraint=ineq_constraint,
+            box_constraint=box_constraint,
+            unroll=True,
+            sigma=sigma_equil,
+            omega=omega,
+            equilibrate={
+                "max_iter": 25,
+                "tol": 1e-3,
+                "ord": 2.0,
+                "col_scaling": False,
+                "update_mode": "Gauss",
+                "safeguard": False,
+            },
+        )
 
-    # Projection layer with implicit differentiation
-    pl_impl_equil = Project(
-        eq_constraint=eq_constraint,
-        ineq_constraint=ineq_constraint,
-        box_constraint=box_constraint,
-        unroll=False,
-        sigma=sigma_equil,
-        omega=omega,
-        equilibrate={
-            "max_iter": 25,
-            "tol": 1e-3,
-            "ord": 2.0,
-            "col_scaling": False,
-            "update_mode": "Gauss",
-            "safeguard": False,
-        },
-    )
-    # Point to be projected
-    x = jax.random.uniform(key[3], shape=(batch_size, dim), minval=-2, maxval=2)
+        # Projection layer with implicit differentiation
+        pl_impl_equil = Project(
+            eq_constraint=eq_constraint,
+            ineq_constraint=ineq_constraint,
+            box_constraint=box_constraint,
+            unroll=False,
+            sigma=sigma_equil,
+            omega=omega,
+            equilibrate={
+                "max_iter": 25,
+                "tol": 1e-3,
+                "ord": 2.0,
+                "col_scaling": False,
+                "update_mode": "Gauss",
+                "safeguard": False,
+            },
+        )
+        # Point to be projected
+        x = jax.random.uniform(key[3], shape=(batch_size, dim), minval=-2, maxval=2)
 
-    # Compute the projection by solving QP
-    yqp = jnp.zeros(shape=(batch_size, dim))
-    for ii in range(batch_size):
-        yproj = cp.Variable(dim)
-        constraints = [
-            A[0, :, :] @ yproj == b[ii, :, 0],
-            lb[0, :, 0] <= C[0, :, :] @ yproj,
-            C[0, :, :] @ yproj <= ub[0, :, 0],
-            lbox[0, :, 0] <= yproj[mask],
-            yproj[mask] <= ubox[0, :, 0],
-        ]
-        objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
-        problem_qp = cp.Problem(objective=objective, constraints=constraints)
-        problem_qp.solve()
-        yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
+        # Compute the projection by solving QP
+        yqp = jnp.zeros(shape=(batch_size, dim))
+        for ii in range(batch_size):
+            yproj = cp.Variable(dim)
+            constraints = [
+                A[0, :, :] @ yproj == b[ii, :, 0],
+                lb[0, :, 0] <= C[0, :, :] @ yproj,
+                C[0, :, :] @ yproj <= ub[0, :, 0],
+                lbox[0, :, 0] <= yproj[mask],
+                yproj[mask] <= ubox[0, :, 0],
+            ]
+            objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
+            problem_qp = cp.Problem(objective=objective, constraints=constraints)
+            problem_qp.solve()
+            yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
 
-    # Check that the projection is computed correctly
-    n_iter = 1000
-    y_unroll = pl_unroll.call(x, b, n_iter=n_iter)[0]
-    y_impl = pl_unroll_equil.call(x, b, n_iter=n_iter)[0]
-    y_impl_equil = pl_impl_equil.call(x, b, n_iter=n_iter)[0]
-    assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
-    assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
-    assert jnp.allclose(y_impl_equil, yqp, atol=1e-4, rtol=1e-4)
+        # Check that the projection is computed correctly
+        n_iter = 1000
+        if var_b:
+            y_unroll = pl_unroll.call(x, b, n_iter=n_iter)[0]
+            y_impl = pl_unroll_equil.call(x, b, n_iter=n_iter)[0]
+            y_impl_equil = pl_impl_equil.call(x, b, n_iter=n_iter)[0]
+        else:
+            y_unroll = pl_unroll.call(x, n_iter=n_iter)[0]
+            y_impl = pl_unroll_equil.call(x, n_iter=n_iter)[0]
+            y_impl_equil = pl_impl_equil.call(x, n_iter=n_iter)[0]
+        assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(y_impl_equil, yqp, atol=1e-4, rtol=1e-4)
 
-    # Check that the VJP is computed correctly
-    # Compure with loop unrolling
-    # Simple "loss" function as inner product
-    n_iter = 1000
-    vec = jnp.array(jax.random.normal(key[4], shape=(dim, batch_size)))
+        # Check that the VJP is computed correctly
+        # Compare with loop unrolling
+        # Simple "loss" function as inner product
+        n_iter = 1000
+        vec = jnp.array(jax.random.normal(key[4], shape=(dim, batch_size)))
 
-    def loss(x, v, mode, n_iter_bwd, fpi):
-        if mode == "unroll":
-            return (pl_unroll.call(x, b, n_iter=n_iter)[0] @ v).mean()
-        elif mode == "unroll_equil":
-            return (pl_unroll_equil.call(x, b, n_iter=n_iter)[0] @ v).mean()
-        elif mode == "impl_equil":
-            return (
-                pl_impl_equil.call(
-                    x,
-                    b,
-                    n_iter=n_iter,
-                    n_iter_bwd=n_iter_bwd,
-                    fpi=fpi,
-                )[0]
-                @ v
-            ).mean()
+        def loss(x, v, mode, n_iter_bwd, fpi):
+            if mode == "unroll":
+                if var_b:
+                    return (pl_unroll.call(x, b, n_iter=n_iter)[0] @ v).mean()
+                else:
+                    return (pl_unroll.call(x, n_iter=n_iter)[0] @ v).mean()
+            elif mode == "unroll_equil":
+                if var_b:
+                    return (pl_unroll_equil.call(x, b, n_iter=n_iter)[0] @ v).mean()
+                else:
+                    return (pl_unroll_equil.call(x, n_iter=n_iter)[0] @ v).mean()
+            elif mode == "impl_equil":
+                if var_b:
+                    return (
+                        pl_impl_equil.call(
+                            x,
+                            b,
+                            n_iter=n_iter,
+                            n_iter_bwd=n_iter_bwd,
+                            fpi=fpi,
+                        )[0]
+                        @ v
+                    ).mean()
+                else:
+                    return (
+                        pl_impl_equil.call(
+                            x,
+                            n_iter=n_iter,
+                            n_iter_bwd=n_iter_bwd,
+                            fpi=fpi,
+                        )[0]
+                        @ v
+                    ).mean()
 
-    grad_unroll = jax.grad(loss, argnums=0)(x, vec, "unroll", n_iter_bwd=-1, fpi=True)
-    grad_unroll_equil = jax.grad(loss, argnums=0)(
-        x, vec, "unroll_equil", n_iter_bwd=-1, fpi=True
-    )
-    grad_impl_equil = jax.grad(loss, argnums=0)(
-        x, vec, "impl_equil", n_iter_bwd=100, fpi=False
-    )
+        grad_unroll = jax.grad(loss, argnums=0)(
+            x, vec, "unroll", n_iter_bwd=-1, fpi=True
+        )
+        grad_unroll_equil = jax.grad(loss, argnums=0)(
+            x, vec, "unroll_equil", n_iter_bwd=-1, fpi=True
+        )
+        grad_impl_equil = jax.grad(loss, argnums=0)(
+            x, vec, "impl_equil", n_iter_bwd=100, fpi=False
+        )
 
-    assert jnp.allclose(grad_unroll, grad_unroll_equil, atol=1e-4, rtol=1e-4)
-    assert jnp.allclose(grad_unroll, grad_impl_equil, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(grad_unroll, grad_unroll_equil, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(grad_unroll, grad_impl_equil, atol=1e-4, rtol=1e-4)
