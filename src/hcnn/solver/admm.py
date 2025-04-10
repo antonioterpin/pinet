@@ -70,6 +70,7 @@ def build_iteration_step_vb(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
+    scale: jnp.ndarray,
     sigma: float = 1.0,
     omega: float = 1.7,
 ) -> Tuple[
@@ -85,6 +86,7 @@ def build_iteration_step_vb(
         box_constraint (BoxConstraint): (Lifted) Box constraint.
         b: Right-hand side vector for equality.
         dim (int): Dimension of the original problem.
+        scale (jnp.ndarray): Scaling of primal variables.
         sigma (float, optional): ADMM parameter.
         omega (float, optional): ADMM parameter.
 
@@ -111,7 +113,8 @@ def build_iteration_step_vb(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (xproj + 1 / (2 * sigma) * reflect[:, :dim, :]) / (1 + 1 / (2 * sigma)),
+                (scale * xproj + 1 / (2 * sigma) * reflect[:, :dim, :])
+                / (scale**2 + 1 / (2 * sigma)),
                 reflect[:, dim:, :],
             ),
             axis=1,

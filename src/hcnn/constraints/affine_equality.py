@@ -32,7 +32,7 @@ class EqualityConstraint(Constraint):
             A: Left hand side matrix.
             b: Right hand side vector.
             method: A string that specifies the method used to solve
-                linear systems. Valid method "pinv", "cholesky".
+                linear systems. Valid method "pinv", "cholesky", None.
             var_b: Boolean that indicates whether the b vector
                 changes or is constant.
             var_A: Boolean that indicates whether the A matrix

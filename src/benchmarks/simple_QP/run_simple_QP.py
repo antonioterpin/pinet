@@ -506,6 +506,7 @@ def main(
         sigma=hyperparameters["sigma"],
         omega=hyperparameters["omega"],
         unroll=unroll,
+        equilibrate=hyperparameters["equilibrate"],
     )
 
     # Measure setup time
@@ -517,12 +518,13 @@ def main(
             ineq_constraint = AffineInequalityConstraint(
                 C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
             )
-            projection_layer = Project(
+            _ = Project(
                 ineq_constraint=ineq_constraint,
                 eq_constraint=eq_constraint,
                 sigma=hyperparameters["sigma"],
                 omega=hyperparameters["omega"],
                 unroll=unroll,
+                equilibrate=hyperparameters["equilibrate"],
             )
         setup_time = (time.time() - start_setup_time) / SETUP_REPS
 

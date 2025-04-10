@@ -5,6 +5,7 @@ from functools import partial
 import jax
 from jax import numpy as jnp
 
+from equilibration import ruiz_equilibration
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
@@ -48,17 +49,25 @@ class Project:
         sigma: float = 1.0,
         omega: float = 1.7,
         unroll: bool = False,
+        equilibrate: dict = {
+            "max_iter": 0,
+            "tol": 1e-3,
+            "ord": 2.0,
+            "col_scaling": False,
+            "update_mode": "Gauss",
+            "safeguard": False,
+        },
     ):
         """Initialize projection layer.
 
         Args:
             eq_constraint (EqualityConstraint): Equality constraint.
-            ineq_constraint (AffineInequalityConstraint): Inequality
-                constraint.
+            ineq_constraint (AffineInequalityConstraint): Inequality constraint.
             box_constraint (BoxConstraint): Box constraint.
             sigma (float): ADMM scaling parameter.
             omega (float): ADMM relaxation parameter.
             unroll (bool): Use loop unrolling for backpropagation.
+            equilibrate (dict): Dictionary with equilibration parameters.
         """
         self.eq_constraint = eq_constraint
         self.ineq_constraint = ineq_constraint
@@ -66,6 +75,7 @@ class Project:
         self.sigma = sigma
         self.omega = omega
         self.unroll = unroll
+        self.equilibrate = equilibrate
         self.setup()
 
     def setup(self):
@@ -91,13 +101,57 @@ class Project:
                 box_constraint=self.box_constraint,
             )
             # TODO: Change lifted_ineq to lifted_box
-            self.lifted_eq_constraint, self.lifted_ineq_constraint = parser.parse()
+            self.lifted_eq_constraint, self.lifted_box_constraint = parser.parse(
+                method=None
+            )
+            if not self.lifted_eq_constraint.var_A:
+                scaled_A, d_r, d_c = ruiz_equilibration(
+                    self.lifted_eq_constraint.A[0],
+                    self.equilibrate["max_iter"],
+                    self.equilibrate["tol"],
+                    self.equilibrate["ord"],
+                    self.equilibrate["col_scaling"],
+                    self.equilibrate["update_mode"],
+                    self.equilibrate["safeguard"],
+                )
+                self.d_r = d_r.reshape(1, -1, 1)
+                self.d_c = d_c.reshape(1, -1, 1)
+                # Update A in lifted equality and setup projection
+                self.lifted_eq_constraint.A = scaled_A.reshape(
+                    1,
+                    self.lifted_eq_constraint.A.shape[1],
+                    self.lifted_eq_constraint.A.shape[2],
+                )
+                self.lifted_eq_constraint.method = "pinv"
+                self.lifted_eq_constraint.setup()
+                # Scale the equality RHS
+                self.lifted_eq_constraint.b = self.lifted_eq_constraint.b * self.d_r
+                # Scale the lifted box constraints
+                self.lifted_box_constraint.upper_bound = (
+                    self.lifted_box_constraint.upper_bound
+                    / self.d_c[:, self.lifted_box_constraint.mask, :]
+                )
+                self.lifted_box_constraint.lower_bound = (
+                    self.lifted_box_constraint.lower_bound
+                    / self.d_c[:, self.lifted_box_constraint.mask, :]
+                )
+            else:
+                # TODO: Think if it makes sense to do equilibration for variable A
+                n_ineq = (
+                    self.ineq_constraint.n_constraints
+                    if self.ineq_constraint is not None
+                    else 0
+                )
+                self.d_r = jnp.ones((1, self.eq_constraint.n_constraints + n_ineq, 1))
+                self.d_c = jnp.ones((1, self.dim_lifted, 1))
+                self.lifted_eq_constraint.method = "pinv"
+                self.lifted_eq_constraint.setup()
 
             # Equality constraint has variable A
             if self.lifted_eq_constraint.var_A:
                 self.step_iteration, self.step_final = build_iteration_step_vAb(
                     self.lifted_eq_constraint,
-                    self.lifted_ineq_constraint,
+                    self.lifted_box_constraint,
                     self.dim,
                     self.sigma,
                     self.omega,
@@ -109,8 +163,9 @@ class Project:
             elif self.lifted_eq_constraint.var_b:
                 self.step_iteration, self.step_final = build_iteration_step_vb(
                     self.lifted_eq_constraint,
-                    self.lifted_ineq_constraint,
+                    self.lifted_box_constraint,
                     self.dim,
+                    self.d_c[:, : self.dim, :],
                     self.sigma,
                     self.omega,
                 )
@@ -120,6 +175,8 @@ class Project:
                             self.step_iteration,
                             self.step_final,
                             self.dim_lifted,
+                            self.d_r,
+                            self.d_c,
                             x,
                             b,
                             interpolation_value,
@@ -134,6 +191,8 @@ class Project:
                             self.step_iteration,
                             self.step_final,
                             self.dim_lifted,
+                            self.d_r,
+                            self.d_c,
                         ),
                         static_argnames=["n_iter", "n_iter_bwd", "fpi"],
                     )
@@ -141,7 +200,7 @@ class Project:
             else:
                 self.step_iteration, self.step_final = build_iteration_step(
                     self.lifted_eq_constraint,
-                    self.lifted_ineq_constraint,
+                    self.lifted_box_constraint,
                     self.dim,
                     self.sigma,
                     self.omega,
@@ -391,6 +450,8 @@ def _project_general_vb(
     step_iteration,
     step_final,
     dim_lifted: int,
+    d_r: jnp.ndarray,
+    d_c: jnp.ndarray,
     x: jnp.ndarray,
     b: jnp.ndarray,
     interpolation_value: float = 0,
@@ -398,12 +459,15 @@ def _project_general_vb(
 ) -> jnp.ndarray:
     dim = x.shape[1]
     # First write in lifted formulation
-    b_lifted = jnp.concatenate(
-        [
-            b,
-            jnp.zeros(shape=(b.shape[0], dim_lifted - dim, 1)),
-        ],
-        axis=1,
+    b_lifted = (
+        jnp.concatenate(
+            [
+                b,
+                jnp.zeros(shape=(b.shape[0], dim_lifted - dim, 1)),
+            ],
+            axis=1,
+        )
+        * d_r
     )
     y = jnp.zeros(shape=(x.shape[0], dim_lifted, 1))
     y = y.at[:, :dim, 0].set(x)
@@ -417,15 +481,20 @@ def _project_general_vb(
         length=n_iter,
     )
     y_aux = y
-    y = step_final(y, b_lifted)[:, : x.shape[1], :].reshape(x.shape)
+    # Unscale and reshape the output
+    y = (step_final(y, b_lifted)[:, : x.shape[1], :] * d_c[:, : x.shape[1], :]).reshape(
+        x.shape
+    )
     return interpolation_value * x + (1 - interpolation_value) * y, y_aux
 
 
-@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 6, 7, 8])
+@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 8, 9, 10])
 def _project_general_vb_custom(
     step_iteration,
     step_final,
     dim_lifted: int,
+    d_r: jnp.ndarray,
+    d_c: jnp.ndarray,
     x: jnp.ndarray,
     b: jnp.ndarray,
     interpolation_value: float = 0,
@@ -434,7 +503,15 @@ def _project_general_vb_custom(
     fpi: bool = False,
 ):
     return _project_general_vb(
-        step_iteration, step_final, dim_lifted, x, b, interpolation_value, n_iter
+        step_iteration,
+        step_final,
+        dim_lifted,
+        d_r,
+        d_c,
+        x,
+        b,
+        interpolation_value,
+        n_iter,
     )
 
 
@@ -442,6 +519,8 @@ def _project_general_vb_fwd(
     step_iteration,
     step_final,
     dim_lifted: int,
+    d_r: jnp.ndarray,
+    d_c: jnp.ndarray,
     x: jnp.ndarray,
     b: jnp.ndarray,
     interpolation_value: float = 0,
@@ -451,17 +530,22 @@ def _project_general_vb_fwd(
 ):
     dim = x.shape[1]
     # First write in lifted formulation
-    b_lifted = jnp.concatenate(
-        [
-            b,
-            jnp.zeros(shape=(b.shape[0], dim_lifted - dim, 1)),
-        ],
-        axis=1,
+    b_lifted = (
+        jnp.concatenate(
+            [
+                b,
+                jnp.zeros(shape=(b.shape[0], dim_lifted - dim, 1)),
+            ],
+            axis=1,
+        )
+        * d_r
     )
     y, y_aux = _project_general_vb_custom(
         step_iteration,
         step_final,
         dim_lifted,
+        d_r,
+        d_c,
         x,
         b,
         interpolation_value,
@@ -469,24 +553,35 @@ def _project_general_vb_fwd(
         n_iter_bwd,
         fpi,
     )
-    return (y, y_aux), (y_aux, x.reshape((x.shape[0], x.shape[1], 1)), b_lifted)
+    return (y, y_aux), (
+        y_aux,
+        x.reshape((x.shape[0], x.shape[1], 1)),
+        b_lifted,
+        d_r,
+        d_c,
+    )
 
 
 def _project_general_vb_bwd(
     step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
 ):
-    aux_proj, xproj, b_lifted = res
+    aux_proj, xproj, b_lifted, d_r, d_c = res
     _, iteration_vjp = jax.vjp(lambda xx: step_iteration(xx, xproj, b_lifted), aux_proj)
     _, iteration_vjp2 = jax.vjp(
         lambda xx: step_iteration(aux_proj, xx, b_lifted), xproj
     )
     _, equality_vjp = jax.vjp(lambda xx: step_final(xx, b_lifted), aux_proj)
 
+    # Rescale the gradient
+    g_scaled = (
+        g[0].reshape(g[0].shape[0], g[0].shape[1], 1) * d_c[:, : xproj.shape[1], :]
+    )
+    # assert False
     # Compute VJP of cotangent with projection before auxiliary
     gg = equality_vjp(
         jnp.concatenate(
             [
-                g[0].reshape(g[0].shape[0], g[0].shape[1], 1),
+                g_scaled,
                 jnp.zeros((g[0].shape[0], dim_lifted - g[0].shape[1], 1)),
             ],
             axis=1,
@@ -508,7 +603,7 @@ def _project_general_vb_bwd(
 
         vjp_iter = jax.scipy.sparse.linalg.bicgstab(Aop, gg, maxiter=n_iter_bwd)[0]
     thevjp = iteration_vjp2(vjp_iter)[0].reshape((g[0].shape[0], g[0].shape[1]))
-    return (thevjp, None, None)
+    return (None, None, thevjp, None, None)
 
 
 _project_general_vb_custom.defvjp(_project_general_vb_fwd, _project_general_vb_bwd)

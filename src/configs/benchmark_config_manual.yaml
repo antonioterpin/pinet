@@ -7,3 +7,10 @@ omega: 1.7
 unroll: False
 fpi: False
 n_iter_bwd: 25
+equilibrate:
+  max_iter: 0
+  tol: 1.0e-3
+  ord: 2.0
+  col_scaling: False
+  update_mode: "Gauss"
+  safeguard: False
