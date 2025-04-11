@@ -80,15 +80,15 @@ class Project:
 
     def setup(self):
         """Setup the projection layer."""
-        constraints = [
+        self.constraints = [
             c
             for c in (self.eq_constraint, self.box_constraint, self.ineq_constraint)
             if c
         ]
-        n_constraints = len(constraints)
+        n_constraints = len(self.constraints)
         assert n_constraints > 0, "At least one constraint must be provided."
         self.n_constraints = n_constraints
-        self.dim = constraints[0].dim
+        self.dim = self.constraints[0].dim
         # Costraints need to be parsed
         if self.ineq_constraint is not None or self.n_constraints > 1:
             if self.ineq_constraint is not None:
@@ -103,7 +103,11 @@ class Project:
             self.lifted_eq_constraint, self.lifted_box_constraint = parser.parse(
                 method=None
             )
-            if not self.lifted_eq_constraint.var_A:
+            # Only equilibrate when we have a single A
+            if (
+                not self.lifted_eq_constraint.var_A
+                and self.lifted_eq_constraint.A.shape[0] == 1
+            ):
                 scaled_A, d_r, d_c = ruiz_equilibration(
                     self.lifted_eq_constraint.A[0],
                     self.equilibrate["max_iter"],
@@ -231,7 +235,7 @@ class Project:
                     )
 
         else:
-            self.single_constraint = constraints[0]
+            self.single_constraint = self.constraints[0]
             if self.eq_constraint is not None:
                 if self.eq_constraint.var_A:
                     self._project = jax.jit(self._project_single_vAb)
@@ -244,6 +248,23 @@ class Project:
 
         # jit correctly the call method
         self.call = self._project
+
+    def cv(self, x):
+        """Compute the constraint violation.
+
+        If there are equality constraints that have variable A or b,
+        then these should be changed accordingly before calling.
+
+        Args:
+            x (jnp.ndarray): Point to be evaluated.
+        """
+        x = x.reshape(x.shape[0], x.shape[1], 1)
+        cv = jnp.zeros((x.shape[0], 1, 1))
+        for c in self.constraints:
+            if c is not None:
+                cv = jnp.maximum(cv, c.cv(x))
+
+        return cv
 
     def _project_general_vAb(
         self,

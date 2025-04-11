@@ -13,6 +13,19 @@ class Constraint:
         """Project the input to the feasible region."""
         pass
 
+    @abstractmethod
+    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Compute the constraint violation.
+
+        Args:
+            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+
+        Returns:
+            jnp.ndarray: The constraint violation for each point in the batch.
+                Shape (batch_size, 1, 1).
+        """
+        pass
+
     @property
     @abstractmethod
     def dim(self) -> int:

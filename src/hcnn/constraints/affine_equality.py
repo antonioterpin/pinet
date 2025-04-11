@@ -162,3 +162,15 @@ class EqualityConstraint(Constraint):
     def n_constraints(self) -> int:
         """Return the number of constraints."""
         return self.A.shape[1]
+
+    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Compute the constraint violation.
+
+        Args:
+            x: Point to be evaluated. Shape (batch_size, dimension, 1).
+
+        Returns:
+            jnp.ndarray: The constraint violation for each point in the batch.
+                Shape (batch_size, 1, 1).
+        """
+        return jnp.linalg.norm(self.A @ x - self.b, ord=jnp.inf, axis=1, keepdims=True)
