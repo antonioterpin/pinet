@@ -99,7 +99,7 @@ def test_simple_2d(method, seed, batch_size):
     for ii in range(n_iter):
         xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk)
+    yiterated = final_step(xk)[:, :dim, :]
 
     assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
 
@@ -194,11 +194,12 @@ def test_general_eq_ineq(method, seed, batch_size):
     (iteration_step, final_step) = build_iteration_step(
         lifted_eq, lifted_box, dim, sigma=1.0, omega=1.0
     )
+    iteration_step = jax.jit(iteration_step)
     xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
     for ii in range(n_iter):
         xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk)
+    yiterated = final_step(xk)[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
@@ -394,11 +395,12 @@ def test_general_eq_ineq_box(
     (iteration_step, final_step) = build_iteration_step(
         lifted_eq, lifted_box, dim, sigma=1.0, omega=1.0
     )
+    iteration_step = jax.jit(iteration_step)
     xk = jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1))
     for ii in range(n_iter):
         xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk)
+    yiterated = final_step(xk)[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
     # Compute with iterative using lifting of:
@@ -439,11 +441,12 @@ def test_general_eq_ineq_box(
     (iteration_step, final_step) = build_iteration_step(
         lifted_eq, lifted_box, dim, sigma=1.0, omega=1.0
     )
+    iteration_step = jax.jit(iteration_step)
     xk = jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1))
     for ii in range(n_iter):
         xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk)
+    yiterated = final_step(xk)[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
@@ -483,7 +486,7 @@ def test_simple_no_equality(seed, batch_size):
     for ii in range(n_iter):
         xk = iteration_step(xk, x)
 
-    yiterated = final_step(xk)
+    yiterated = final_step(xk)[:, :dim, :]
 
     # Compute the projection with QP
     for ii in range(batch_size):

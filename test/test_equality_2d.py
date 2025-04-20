@@ -11,7 +11,7 @@ from flax import linen as nn
 from flax.training import train_state
 
 from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.flax_project import Project
+from hcnn.project import Project
 
 jax.config.update("jax_enable_x64", True)
 # Random seeds

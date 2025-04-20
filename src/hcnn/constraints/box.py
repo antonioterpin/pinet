@@ -77,7 +77,7 @@ class BoxConstraint(Constraint):
     @property
     def dim(self):
         """Return the dimension of the constraint set."""
-        return self.lower_bound.shape[-1]
+        return self.lower_bound.shape[1]
 
     @property
     def n_constraints(self) -> int:

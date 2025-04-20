@@ -14,29 +14,15 @@ from tqdm import tqdm
 jax.config.update("jax_enable_x64", True)
 
 
-def optimal_objectives(filename):
-    """Compute the optimal of objectives for filename."""
-    dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filename)
-
-    data = jnp.load(dataset_path)
-    Q = data["Q"]
-    p = data["p"][0, :, :]
-    A = data["A"]
-    X = data["X"]
-    G = data["G"]
-    h = data["h"]
+def solve_problems(Q, p, A, X, G, h, convex=True):
+    """Compute the optimal solutions for problem instances."""
     # Dimension of decision variable
     Y_DIM = Q.shape[2]
     N_SAMPLES = X.shape[0]
-    solution_path = os.path.join(
-        os.path.dirname(__file__), "datasets", filename.replace(".npz", "_solution.npz")
-    )
-    if os.path.exists(solution_path):
-        solution_data = jnp.load(solution_path)
-        objectives = solution_data["objectives"]
-    else:
+    if convex:
         print("Solving problem instances")
         objectives = jnp.zeros(N_SAMPLES)
+        Ystar = jnp.zeros((N_SAMPLES, Y_DIM, 1))
         for problem_idx in tqdm(range(N_SAMPLES)):
             ycp = cp.Variable(Y_DIM)
             constraints = [
@@ -47,22 +33,24 @@ def optimal_objectives(filename):
             problem = cp.Problem(objective=objective, constraints=constraints)
             problem.solve(solver=cp.OSQP)
             objectives = objectives.at[problem_idx].set(problem.value)
+            Ystar = Ystar.at[problem_idx, :, :].set(jnp.expand_dims(ycp.value, axis=1))
+    else:
+        raise NotImplementedError
 
-        jnp.savez(solution_path, objectives=objectives)
-
-    return objectives
+    return objectives, Ystar
 
 
 if __name__ == "__main__":
     # Save dataset flag
-    SAVE_DATASET = False
+    SAVE_DATASET = True
 
     # Parameters setup
     SEED = 42
-    NUM_VAR = 1000
-    NUM_INEQ = 500
-    NUM_EQ = 500
-    NUM_EXAMPLES = 2000
+    NUM_VAR = 100
+    NUM_INEQ = 50
+    NUM_EQ = 50
+    NUM_EXAMPLES = 200
+    CONVEX = True
 
     # Setup keys
     key = jax.random.PRNGKey(SEED)
@@ -85,14 +73,26 @@ if __name__ == "__main__":
         # Create the datasets directory if it doesn't exist
         datasets_dir = os.path.join(os.path.dirname(__file__), "datasets")
 
+        # Solve all the problem instances
+        objectives, Ystar = solve_problems(Q, p[0, :, :], A, X, G, h, CONVEX)
+
         # Define the filename and save the dataset
-        filename = os.path.join(
-            datasets_dir,
-            (
-                f"SimpleQP_seed{SEED}_var{NUM_VAR}_ineq{NUM_INEQ}"
-                f"_eq{NUM_EQ}_examples{NUM_EXAMPLES}.npz"
-            ),
+        if CONVEX:
+            filename = os.path.join(
+                datasets_dir,
+                (
+                    f"SimpleQP_seed{SEED}_var{NUM_VAR}_ineq{NUM_INEQ}"
+                    f"_eq{NUM_EQ}_examples{NUM_EXAMPLES}.npz"
+                ),
+            )
+        else:
+            filename = os.path.join(
+                datasets_dir,
+                (
+                    f"Simple_nonconvex_seed{SEED}_var{NUM_VAR}_ineq{NUM_INEQ}"
+                    f"_eq{NUM_EQ}_examples{NUM_EXAMPLES}.npz"
+                ),
+            )
+        jnp.savez(
+            filename, Q=Q, p=p, A=A, X=X, G=G, h=h, objectives=objectives, Ystar=Ystar
         )
-        jnp.savez(filename, Q=Q, p=p, A=A, X=X, G=G, h=h)
-        # Save also the optimal objectives for each problem
-        _ = optimal_objectives(filename)

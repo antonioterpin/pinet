@@ -7,13 +7,15 @@ import jax.numpy as jnp
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.box import BoxConstraint
 
+# TODO: Adapt the final step of all versions.
+
 
 def build_iteration_step(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
-    sigma: float = 0.1,
-    omega: float = 1.0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
@@ -61,7 +63,7 @@ def build_iteration_step(
         return xk
 
     # The second element is used to extract the projection from the auxiliary
-    return (iteration_step, lambda y: eq_constraint.project(y)[:, :dim, :])
+    return (iteration_step, lambda y: eq_constraint.project(y))
 
 
 def build_iteration_step_vb(
@@ -69,7 +71,7 @@ def build_iteration_step_vb(
     box_constraint: BoxConstraint,
     dim: int,
     sigma: float = 1.0,
-    omega: float = 1.0,
+    omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
@@ -119,7 +121,7 @@ def build_iteration_step_vb(
         return xk
 
     # The second element is used to extract the projection from the auxiliary
-    return (iteration_step, lambda y, b: eq_constraint.project(y, b)[:, :dim, :])
+    return (iteration_step, lambda y, b: eq_constraint.project(y, b))
 
 
 def build_iteration_step_vAb(
@@ -127,7 +129,7 @@ def build_iteration_step_vAb(
     box_constraint: BoxConstraint,
     dim: int,
     sigma: float = 1.0,
-    omega: float = 1.0,
+    omega: float = 1.7,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
