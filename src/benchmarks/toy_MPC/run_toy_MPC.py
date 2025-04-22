@@ -314,7 +314,9 @@ def load_data(filepath):
     )
 
 
-def generate_trajectories(state, sigma, omega, n_iter_test, As, lbxs, ubxs, lbus, ubus, alpha):
+def generate_trajectories(
+    state, sigma, omega, n_iter_test, As, lbxs, ubxs, lbus, ubus, alpha
+):
     """Generates trajectories from HCNN and solver."""
     ntraj = 1
     xinit = jnp.array([[-7, -5]]).reshape(ntraj, base_dim, 1)
@@ -400,7 +402,18 @@ class HardConstrainedMLP_unroll(nn.Module):
         self.schedule = optax.linear_schedule(0.0, 0.0, 70, 0)
 
     @nn.compact
-    def __call__(self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True, raw=False):
+    def __call__(
+        self,
+        x,
+        b,
+        step,
+        sigma=1.0,
+        omega=1.7,
+        n_iter=100,
+        n_iter_bwd=100,
+        fpi=True,
+        raw=False,
+    ):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -409,7 +422,15 @@ class HardConstrainedMLP_unroll(nn.Module):
         x = nn.Dense(self.project.dim)(x)
         alpha = self.schedule(step)
         if not raw:
-            x = self.project.call(x, b, interpolation_value=alpha, sigma=sigma, omega=omega, n_iter=n_iter)[0]
+            x = self.project.call(
+                self.project.get_init(x),
+                x,
+                b,
+                interpolation_value=alpha,
+                sigma=sigma,
+                omega=omega,
+                n_iter=n_iter,
+            )[0]
         return x
 
 
@@ -427,7 +448,18 @@ class HardConstrainedMLP_impl(nn.Module):
         self.schedule = optax.linear_schedule(0.0, 0.0, 70, 0)
 
     @nn.compact
-    def __call__(self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True, raw=False):
+    def __call__(
+        self,
+        x,
+        b,
+        step,
+        sigma=1.0,
+        omega=1.7,
+        n_iter=100,
+        n_iter_bwd=100,
+        fpi=True,
+        raw=False,
+    ):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -437,6 +469,7 @@ class HardConstrainedMLP_impl(nn.Module):
         alpha = self.schedule(step)
         if not raw:
             x = self.project.call(
+                self.project.get_init(x),
                 x,
                 b,
                 interpolation_value=alpha,
@@ -519,12 +552,22 @@ def main(
     batched_objective = jax.vmap(quadratic_form, in_axes=[0])
 
     @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
-    def train_step(state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi):
+    def train_step(
+        state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi
+    ):
         """Run a single training step."""
 
         def loss_fn(params):
             predictions = state.apply_fn(
-                {"params": params}, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi
+                {"params": params},
+                x_batch,
+                b_batch,
+                step,
+                sigma,
+                omega,
+                n_iter,
+                n_iter_bwd,
+                fpi,
             )
             return batched_objective(predictions).mean()
 
@@ -888,10 +931,16 @@ if __name__ == "__main__":
         )
 
         trajectories_pred, trajectories_cp = generate_trajectories(
-            state, 
+            state,
             hyperparameters["sigma"],
             hyperparameters["omega"],
-            hyperparameters["n_iter_test"], As, lbxs, ubxs, lbus, ubus, alpha
+            hyperparameters["n_iter_test"],
+            As,
+            lbxs,
+            ubxs,
+            lbus,
+            ubus,
+            alpha,
         )
 
         # Print results

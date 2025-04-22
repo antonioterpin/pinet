@@ -31,7 +31,14 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(1)(x)
         alpha = self.schedule(step)
         x = self.project.call(
-            x, interpolation_value=alpha, sigma=sigma, omega=omega, n_iter=100, n_iter_bwd=50, fpi=False
+            self.project.get_init(x),
+            x,
+            interpolation_value=alpha,
+            sigma=sigma,
+            omega=omega,
+            n_iter=100,
+            n_iter_bwd=50,
+            fpi=False,
         )[0]
         return x
 
