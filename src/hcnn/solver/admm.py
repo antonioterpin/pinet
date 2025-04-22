@@ -36,10 +36,11 @@ def build_iteration_step(
     """
 
     def iteration_step(
-        xk: jnp.ndarray, 
+        xk: jnp.ndarray,
         xproj: jnp.ndarray,
         sigma: float = 1.0,
-        omega: float = 1.7,):
+        omega: float = 1.7,
+    ):
         """One iteration of the ADMM solver.
 
         Args:
@@ -96,11 +97,11 @@ def build_iteration_step_vb(
     """
 
     def iteration_step(
-        xk: jnp.ndarray, 
-        xproj: jnp.ndarray, 
+        xk: jnp.ndarray,
+        xproj: jnp.ndarray,
         b: jnp.ndarray,
         sigma: float = 1.0,
-        omega: float = 1.7
+        omega: float = 1.7,
     ):
         """One iteration of the ADMM solver.
 
@@ -163,7 +164,7 @@ def build_iteration_step_vAb(
         A: jnp.ndarray,
         Apinv: jnp.ndarray,
         sigma: float = 1.0,
-        omega: float = 1.7
+        omega: float = 1.7,
     ):
         """One iteration of the ADMM solver.
 
