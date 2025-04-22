@@ -146,6 +146,8 @@ class LoggingDict:
 def evaluate_hcnn(
     loader,
     state,
+    sigma,
+    omega,
     n_iter,
     batched_objective,
     A,
@@ -166,6 +168,8 @@ def evaluate_hcnn(
             X[:, :, 0],
             X,
             100000,
+            sigma=sigma,
+            omega=omega,
             n_iter=n_iter,
         )
     opt_obj = obj.mean()
@@ -210,6 +214,8 @@ def evaluate_hcnn(
                         Xtime[:, :, 0],
                         Xtime,
                         100000,
+                        sigma=sigma,
+                        omega=omega,
                         n_iter=n_iter,
                     ).block_until_ready()
                     # Drop first time cause it includes setups
@@ -225,6 +231,8 @@ def evaluate_hcnn(
                     Xtime[:, :, 0],
                     Xtime,
                     100000,
+                    sigma=sigma,
+                    omega=omega,
                     n_iter=n_iter,
                 ).block_until_ready()
                 # Drop first time cause it includes setups
@@ -269,6 +277,8 @@ def evaluate_instance(
     problem_idx,
     loader,
     state,
+    sigma,
+    omega,
     n_iter,
     use_DC3_dataset,
     batched_objective,
@@ -288,6 +298,8 @@ def evaluate_instance(
         X[problem_idx, :, 0].reshape((1, X.shape[1])),
         X[problem_idx].reshape((1, X.shape[1], 1)),
         100000,
+        sigma=sigma,
+        omega=omega,
         n_iter=n_iter,
     )
 
@@ -415,7 +427,7 @@ class HardConstrainedMLP_unroll(nn.Module):
         self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
 
     @nn.compact
-    def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True):
+    def __call__(self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -423,7 +435,8 @@ class HardConstrainedMLP_unroll(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(self.project.dim)(x)
         alpha = self.schedule(step)
-        x = self.project.call(x, b, interpolation_value=alpha, n_iter=n_iter)[0]
+        x = self.project.call(
+            x, b, interpolation_value=alpha, sigma=sigma, omega=omega, n_iter=n_iter)[0]
         return x
 
 
@@ -443,7 +456,7 @@ class HardConstrainedMLP_impl(nn.Module):
     # TODO: Try adding batch norm and dropout as in the DC3 paper.
     # A quick try with batch norm generated slightly worse results.
     @nn.compact
-    def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True):
+    def __call__(self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -455,6 +468,8 @@ class HardConstrainedMLP_impl(nn.Module):
             x,
             b,
             interpolation_value=alpha,
+            sigma=sigma,
+            omega=omega,
             n_iter=n_iter,
             n_iter_bwd=n_iter_bwd,
             fpi=fpi,
@@ -503,8 +518,6 @@ def main(
     projection_layer = Project(
         ineq_constraint=ineq_constraint,
         eq_constraint=eq_constraint,
-        sigma=hyperparameters["sigma"],
-        omega=hyperparameters["omega"],
         unroll=unroll,
     )
 
@@ -520,8 +533,6 @@ def main(
             projection_layer = Project(
                 ineq_constraint=ineq_constraint,
                 eq_constraint=eq_constraint,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
                 unroll=unroll,
             )
         setup_time = (time.time() - start_setup_time) / SETUP_REPS
@@ -572,12 +583,20 @@ def main(
 
     # Setup the MLP training routine
     @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
-    def train_step(state, x_batch, b_batch, step, n_iter, n_iter_bwd, fpi):
+    def train_step(state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi):
         """Run a single training step."""
 
         def loss_fn(params):
             predictions = state.apply_fn(
-                {"params": params}, x_batch, b_batch, step, n_iter, n_iter_bwd, fpi
+                {"params": params}, 
+                x_batch, 
+                b_batch, 
+                step, 
+                sigma,
+                omega, 
+                n_iter, 
+                n_iter_bwd, 
+                fpi
             )
             return batched_objective(predictions).mean()
 
@@ -588,7 +607,9 @@ def main(
     for batch in train_loader:
         X_batch, _ = batch
     start_compilation_time = time.time()
-    _ = train_step.lower(state, X_batch[:, :, 0], X_batch, 0, 100, 100, True).compile()
+    _ = train_step.lower(
+        state, X_batch[:, :, 0], X_batch, 0, 
+        hyperparameters["sigma"], hyperparameters["omega"], 100, 100, True).compile()
     # Note this also includes the time for one iteration
     compilation_time = time.time() - start_compilation_time
 
@@ -613,7 +634,9 @@ def main(
         for batch in train_loader:
             X_batch, _ = batch
             loss, state = train_step(
-                state, X_batch[:, :, 0], X_batch, step, n_iter_train, n_iter_bwd, fpi
+                state, X_batch[:, :, 0], X_batch, step, 
+                hyperparameters["sigma"], 
+                hyperparameters["omega"], n_iter_train, n_iter_bwd, fpi
             )
             epoch_loss.append(loss)
         pbar.set_description(f"Train Loss: {jnp.array(epoch_loss).mean():.5f}")
@@ -623,14 +646,16 @@ def main(
         if step % eval_every == 0:
             start_evaluation_time = time.time()
             obj, hcnn_obj, eq_cv, ineq_cv, _ = evaluate_hcnn(
-                valid_loader,
-                state,
-                n_iter_test,
-                batched_objective,
-                A,
-                G,
-                h,
-                "Validation",
+                loader=valid_loader,
+                state=state,
+                sigma=hyperparameters["sigma"],
+                omega=hyperparameters["omega"],
+                n_iter=n_iter_test,
+                batched_objective=batched_objective,
+                A=A,
+                G=G,
+                h=h,
+                prefix="Validation",
                 time_evals=0,
                 print_res=False,
             )
@@ -672,6 +697,8 @@ def main(
     _ = evaluate_hcnn(
         loader=valid_loader,
         state=state,
+        sigma=hyperparameters["sigma"], 
+        omega=hyperparameters["omega"], 
         n_iter=hyperparameters["n_iter_test"],
         batched_objective=batched_objective,
         prefix="Validation",
@@ -682,22 +709,26 @@ def main(
     # Solve some validation individual problem
     problem_idx = 4
     evaluate_instance(
-        problem_idx,
-        valid_loader,
-        state,
-        hyperparameters["n_iter_test"],
-        use_DC3_dataset,
-        batched_objective,
-        A,
-        G,
-        h,
-        "Validation",
+        problem_idx=problem_idx,
+        loader=valid_loader,
+        state=state,
+        sigma=hyperparameters["sigma"], 
+        omega=hyperparameters["omega"], 
+        n_iter=hyperparameters["n_iter_test"],
+        use_DC3_dataset=use_DC3_dataset,
+        batched_objective=batched_objective,
+        A=A,
+        G=G,
+        h=h,
+        prefix="Validation",
     )
 
     (obj_test, obj_fun_test, eq_viol_test, ineq_viol_test, batch_inference_times) = (
         evaluate_hcnn(
             loader=test_loader,
             state=state,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_test"],
             batched_objective=batched_objective,
             prefix="Testing",
@@ -710,6 +741,8 @@ def main(
     (_, _, _, _, single_inference_times) = evaluate_hcnn(
         loader=test_loader,
         state=state,
+        sigma=hyperparameters["sigma"],
+        omega=hyperparameters["omega"],
         n_iter=hyperparameters["n_iter_test"],
         batched_objective=batched_objective,
         prefix="Testing",
@@ -722,16 +755,18 @@ def main(
     # Solve some test problems
     problem_idx = 0
     evaluate_instance(
-        problem_idx,
-        test_loader,
-        state,
-        hyperparameters["n_iter_test"],
-        use_DC3_dataset,
-        batched_objective,
-        A,
-        G,
-        h,
-        "Testing",
+        problem_idx=problem_idx,
+        loader=test_loader,
+        state=state,
+        sigma=hyperparameters["sigma"],
+        omega=hyperparameters["omega"],
+        n_iter=hyperparameters["n_iter_test"],
+        use_DC3_dataset=use_DC3_dataset,
+        batched_objective=batched_objective,
+        A=A,
+        G=G,
+        h=h,
+        prefix="Testing",
     )
 
     # Saving of overall results

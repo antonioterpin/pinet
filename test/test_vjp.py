@@ -120,12 +120,11 @@ def test_triangle():
         box_constraint=box_constraint,
         ineq_constraint=affine_constraint,
         unroll=False,
-        sigma=sigma,
-        omega=omega,
     )
     fun_layer = jax.jit(
         lambda x, v, fpi: (
-            projection_layer.call(x, 0.0, 100, n_iter_bwd=100, fpi=fpi)[0] @ v
+            projection_layer.call(
+                x, 0.0, sigma=sigma, omega=omega, n_iter=100, n_iter_bwd=100, fpi=fpi)[0] @ v
         ).mean(),
         static_argnames=["fpi"],
     )

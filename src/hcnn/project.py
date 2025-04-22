@@ -36,8 +36,6 @@ class Project:
     eq_constraint: EqualityConstraint = None
     ineq_constraint: AffineInequalityConstraint = None
     box_constraint: BoxConstraint = None
-    sigma: float = 1.0
-    omega: float = 1.7
     unroll: bool = False
 
     def __init__(
@@ -45,8 +43,6 @@ class Project:
         eq_constraint: EqualityConstraint = None,
         ineq_constraint: AffineInequalityConstraint = None,
         box_constraint: BoxConstraint = None,
-        sigma: float = 1.0,
-        omega: float = 1.7,
         unroll: bool = False,
     ):
         """Initialize projection layer.
@@ -63,8 +59,6 @@ class Project:
         self.eq_constraint = eq_constraint
         self.ineq_constraint = ineq_constraint
         self.box_constraint = box_constraint
-        self.sigma = sigma
-        self.omega = omega
         self.unroll = unroll
         self.setup()
 
@@ -99,8 +93,6 @@ class Project:
                     self.lifted_eq_constraint,
                     self.lifted_ineq_constraint,
                     self.dim,
-                    self.sigma,
-                    self.omega,
                 )
                 self._project = jax.jit(
                     self._project_general_vAb, static_argnames=["n_iter"]
@@ -111,21 +103,15 @@ class Project:
                     self.lifted_eq_constraint,
                     self.lifted_ineq_constraint,
                     self.dim,
-                    self.sigma,
-                    self.omega,
                 )
                 if self.unroll:
                     self._project = jax.jit(
-                        lambda x, b, interpolation_value=0, n_iter=0: _project_general_vb(
+                        partial(
+                            _project_general_vb,
                             self.step_iteration,
                             self.step_final,
                             self.dim_lifted,
-                            x,
-                            b,
-                            interpolation_value,
-                            n_iter,
-                        ),
-                        static_argnames=["n_iter"],
+                        ), static_argnames=["n_iter"],
                     )
                 else:
                     self._project = jax.jit(
@@ -143,18 +129,14 @@ class Project:
                     self.lifted_eq_constraint,
                     self.lifted_ineq_constraint,
                     self.dim,
-                    self.sigma,
-                    self.omega,
                 )
                 if self.unroll:
                     self._project = jax.jit(
-                        lambda x, interpolation_value=0, n_iter=0: _project_general(
+                        partial(
+                            _project_general,
                             self.step_iteration,
                             self.step_final,
                             self.dim_lifted,
-                            x,
-                            interpolation_value,
-                            n_iter,
                         ),
                         static_argnames=["n_iter"],
                     )
@@ -265,22 +247,6 @@ class Project:
         ).reshape(x.shape)
         return interpolation_value * x + (1 - interpolation_value) * y
 
-    def __call__(
-        self, x: jnp.ndarray, interpolation_value: float = 0, n_iter: int = 0
-    ) -> jnp.ndarray:
-        """Project the input to the feasible region.
-
-        Args:
-            x (jnp.ndarray): Input tensor.
-            interpolation_value (float, optional):
-                Interpolation value between the input and the projection.
-            n_iter (int, optional): Number of iterations for the projection.
-        """
-        # Make sure x is of shape (batch_size, n_dims, 1)
-        y = self._project(x.reshape((x.shape[0], x.shape[1], 1)), n_iter).reshape(
-            x.shape
-        )
-        return interpolation_value * x + (1 - interpolation_value) * y
 
 
 # Project general
@@ -290,12 +256,16 @@ def _project_general(
     dim_lifted: int,
     x: jnp.ndarray,
     interpolation_value: float = 0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
     n_iter: int = 0,
 ) -> jnp.ndarray:
     y = jnp.zeros(shape=(x.shape[0], dim_lifted, 1))
     y, _ = jax.lax.scan(
         lambda y, _: (
-            step_iteration(y, x.reshape((x.shape[0], x.shape[1], 1))),
+            step_iteration(
+                y, x.reshape((x.shape[0], x.shape[1], 1)), sigma, omega
+            ),
             None,
         ),
         y,
@@ -307,19 +277,22 @@ def _project_general(
     return interpolation_value * x + (1 - interpolation_value) * y, y_aux
 
 
-@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 5, 6, 7])
+@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 7, 8, 9])
 def _project_general_custom(
     step_iteration,
     step_final,
     dim_lifted: int,
     x: jnp.ndarray,
     interpolation_value: float = 0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
 ):
     return _project_general(
-        step_iteration, step_final, dim_lifted, x, interpolation_value, n_iter
+        step_iteration, 
+        step_final, dim_lifted, x, interpolation_value, sigma, omega, n_iter
     )
 
 
@@ -329,6 +302,8 @@ def _project_general_fwd(
     dim_lifted: int,
     x: jnp.ndarray,
     interpolation_value: float = 0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
@@ -339,19 +314,23 @@ def _project_general_fwd(
         dim_lifted,
         x,
         interpolation_value,
+        sigma,
+        omega,
         n_iter,
         n_iter_bwd,
         fpi,
     )
-    return (y, y_aux), (y_aux, x.reshape((x.shape[0], x.shape[1], 1)))
+    return (y, y_aux), (y_aux, x.reshape((x.shape[0], x.shape[1], 1)), sigma, omega)
 
 
 def _project_general_bwd(
     step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
 ):
-    aux_proj, xproj = res
-    _, iteration_vjp = jax.vjp(lambda xx: step_iteration(xx, xproj), aux_proj)
-    _, iteration_vjp2 = jax.vjp(lambda xx: step_iteration(aux_proj, xx), xproj)
+    aux_proj, xproj, sigma, omega = res
+    _, iteration_vjp = jax.vjp(
+        lambda xx: step_iteration(xx, xproj, sigma, omega), aux_proj)
+    _, iteration_vjp2 = jax.vjp(
+        lambda xx: step_iteration(aux_proj, xx, sigma, omega), xproj)
     _, equality_vjp = jax.vjp(lambda xx: step_final(xx), aux_proj)
 
     # Compute VJP of cotangent with projection before auxiliary
@@ -380,7 +359,7 @@ def _project_general_bwd(
 
         vjp_iter = jax.scipy.sparse.linalg.bicgstab(Aop, gg, maxiter=n_iter_bwd)[0]
     thevjp = iteration_vjp2(vjp_iter)[0].reshape((g[0].shape[0], g[0].shape[1]))
-    return (thevjp, None)
+    return (thevjp, None, None, None)
 
 
 _project_general_custom.defvjp(_project_general_fwd, _project_general_bwd)
@@ -394,6 +373,8 @@ def _project_general_vb(
     x: jnp.ndarray,
     b: jnp.ndarray,
     interpolation_value: float = 0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
     n_iter: int = 0,
 ) -> jnp.ndarray:
     dim = x.shape[1]
@@ -409,7 +390,8 @@ def _project_general_vb(
     y = y.at[:, :dim, 0].set(x)
     y, _ = jax.lax.scan(
         lambda y, _: (
-            step_iteration(y, x.reshape((x.shape[0], x.shape[1], 1)), b_lifted),
+            step_iteration(
+                y, x.reshape((x.shape[0], x.shape[1], 1)), b_lifted, sigma, omega),
             None,
         ),
         y,
@@ -421,7 +403,7 @@ def _project_general_vb(
     return interpolation_value * x + (1 - interpolation_value) * y, y_aux
 
 
-@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 6, 7, 8])
+@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 8, 9, 10])
 def _project_general_vb_custom(
     step_iteration,
     step_final,
@@ -429,12 +411,22 @@ def _project_general_vb_custom(
     x: jnp.ndarray,
     b: jnp.ndarray,
     interpolation_value: float = 0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
 ):
     return _project_general_vb(
-        step_iteration, step_final, dim_lifted, x, b, interpolation_value, n_iter
+        step_iteration, 
+        step_final, 
+        dim_lifted, 
+        x, 
+        b, 
+        interpolation_value, 
+        sigma, 
+        omega, 
+        n_iter
     )
 
 
@@ -445,6 +437,8 @@ def _project_general_vb_fwd(
     x: jnp.ndarray,
     b: jnp.ndarray,
     interpolation_value: float = 0,
+    sigma: float = 1.0,
+    omega: float = 1.7,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
@@ -465,20 +459,24 @@ def _project_general_vb_fwd(
         x,
         b,
         interpolation_value,
+        sigma,
+        omega,
         n_iter,
         n_iter_bwd,
         fpi,
     )
-    return (y, y_aux), (y_aux, x.reshape((x.shape[0], x.shape[1], 1)), b_lifted)
+    return (y, y_aux), (
+        y_aux, x.reshape((x.shape[0], x.shape[1], 1)), b_lifted, sigma, omega)
 
 
 def _project_general_vb_bwd(
     step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
 ):
-    aux_proj, xproj, b_lifted = res
-    _, iteration_vjp = jax.vjp(lambda xx: step_iteration(xx, xproj, b_lifted), aux_proj)
+    aux_proj, xproj, b_lifted, sigma, omega = res
+    _, iteration_vjp = jax.vjp(
+        lambda xx: step_iteration(xx, xproj, b_lifted, sigma, omega), aux_proj)
     _, iteration_vjp2 = jax.vjp(
-        lambda xx: step_iteration(aux_proj, xx, b_lifted), xproj
+        lambda xx: step_iteration(aux_proj, xx, b_lifted, sigma, omega), xproj
     )
     _, equality_vjp = jax.vjp(lambda xx: step_final(xx, b_lifted), aux_proj)
 
@@ -508,7 +506,7 @@ def _project_general_vb_bwd(
 
         vjp_iter = jax.scipy.sparse.linalg.bicgstab(Aop, gg, maxiter=n_iter_bwd)[0]
     thevjp = iteration_vjp2(vjp_iter)[0].reshape((g[0].shape[0], g[0].shape[1]))
-    return (thevjp, None, None)
+    return (thevjp, None, None, None, None)
 
 
 _project_general_vb_custom.defvjp(_project_general_vb_fwd, _project_general_vb_bwd)
