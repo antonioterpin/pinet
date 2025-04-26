@@ -12,14 +12,14 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     install_requires=[
-        "jax==0.4.38",
+        "jax>=0.4.38",
         "tqdm>=4.67.1",
         "h5py>=3.13.0",
         "ruamel.yaml>=0.18.10",
         "imageio>=2.37.0",
         "matplotlib>=3.10.1",
-        "optax==0.2.4",
-        "flax==0.10.2",
+        "optax>=0.2.4",
+        "flax>=0.10.2",
         "cvxpy==1.6.0",
     ],
     extras_require={
@@ -28,7 +28,7 @@ setup(
             "pre_commit==4.0.1",
             "pytest==8.3.4",
         ],
-        "cuda12": ["jax[cuda12_pip]==0.4.38"],
+        "cuda12": ["jax[cuda12_pip]>=0.4.38"],
         "docs": [
             "Sphinx==7.4.7",
             "sphinx-copybutton==0.5.2",
