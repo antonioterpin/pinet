@@ -57,15 +57,16 @@ class ConstrainedMLP(nn.Module):
 ## Contributing
 We will use [conda](https://conda.io/en/latest/user-guide/install/) to handle the virtual environment for development.
 ```sh
-conda create -n hccn python=3.10
-conda activate hccn
+conda create -n hcnn python=3.10
+conda activate hcnn
 ```
 
 To install the requirements, run:
 ```sh
 pip install pip --upgrade
-pip install -r requirements.txt
+pip install -e .[dev,cuda12]
 ```
+To not install cuda related things, just omit it.
 
 The `Coding style validation` action will fail if the pre-commit checks do not pass. To make sure that these are checked automatically on push, run:
 ```sh
