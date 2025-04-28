@@ -14,6 +14,7 @@ def build_iteration_step(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
+    scale: jnp.ndarray = 1.0,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
@@ -25,6 +26,7 @@ def build_iteration_step(
         eq_constraint (EqualityConstraint): (Lifted) Equality constraint.
         box_constraint (BoxConstraint): (Lifted) Box constraint.
         dim (int): Dimension of the original problem.
+        scale (jnp.ndarray): Scaling of primal variables.
 
     Returns:
         Tuple[
@@ -56,7 +58,8 @@ def build_iteration_step(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (xproj + 1 / (2 * sigma) * reflect[:, :dim, :]) / (1 + 1 / (2 * sigma)),
+                (2 * sigma * scale * xproj + reflect[:, :dim, :])
+                / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),
             axis=1,
@@ -73,6 +76,7 @@ def build_iteration_step_vb(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
+    scale: jnp.ndarray = 1.0,
 ) -> Tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
@@ -86,6 +90,7 @@ def build_iteration_step_vb(
         box_constraint (BoxConstraint): (Lifted) Box constraint.
         b: Right-hand side vector for equality.
         dim (int): Dimension of the original problem.
+        scale (jnp.ndarray): Scaling of primal variables.
 
     Returns:
         Tuple[
@@ -118,7 +123,8 @@ def build_iteration_step_vb(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (xproj + 1 / (2 * sigma) * reflect[:, :dim, :]) / (1 + 1 / (2 * sigma)),
+                (2 * sigma * scale * xproj + reflect[:, :dim, :])
+                / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),
             axis=1,
@@ -184,7 +190,7 @@ def build_iteration_step_vAb(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (xproj + 1 / (2 * sigma) * reflect[:, :dim, :]) / (1 + 1 / (2 * sigma)),
+                (2 * sigma * xproj + reflect[:, :dim, :]) / (1 + 2 * sigma),
                 reflect[:, dim:, :],
             ),
             axis=1,
