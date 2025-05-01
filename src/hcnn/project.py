@@ -5,11 +5,11 @@ from functools import partial
 import jax
 from jax import numpy as jnp
 
-from equilibration import ruiz_equilibration
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.constraints.constraint_parser import ConstraintParser
+from hcnn.equilibration import ruiz_equilibration
 from hcnn.solver.admm import (
     build_iteration_step,
     build_iteration_step_vAb,
