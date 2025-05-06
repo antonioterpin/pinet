@@ -68,6 +68,13 @@ pip install -e .[dev,cuda12]
 ```
 To not install cuda related things, just omit it.
 
+**Note**: The above command works with bash. For, e.g., zsh interpreter you need the quotes:
+```sh
+pip install pip --upgrade
+pip install -e ".[dev]"
+```
+To not install cuda related things, just omit it.
+
 The `Coding style validation` action will fail if the pre-commit checks do not pass. To make sure that these are checked automatically on push, run:
 ```sh
 pre-commit install --hook-type pre-push
