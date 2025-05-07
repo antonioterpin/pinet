@@ -28,7 +28,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
         alpha = self.schedule(step)
-        x = self.project(x, interpolation_value=alpha)
+        x = self.project.call(x, interpolation_value=alpha)
         return x
 
 

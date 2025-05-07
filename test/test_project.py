@@ -97,7 +97,9 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    xprojiter = projection_layer.call(xinfeas, b, n_iter=500)[0]
+    xprojiter = projection_layer.call(
+        projection_layer.get_init(xinfeas), xinfeas, b, n_iter=500
+    )[0]
 
     # Compute projections with QP
     yqp = jnp.zeros(shape=(batch_size, dim))
@@ -129,7 +131,9 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         problem_qp.solve(verbose=False)
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
-    xprojiter = projection_layer.call(xinfeas, b_new, n_iter=500)[0]
+    xprojiter = projection_layer.call(
+        projection_layer.get_init(xinfeas), xinfeas, b_new, n_iter=500
+    )[0]
     assert jnp.allclose(xprojiter, yqp, atol=1e-3, rtol=1e-3)
     # %%
     # Generate new LHS and RHS
@@ -169,6 +173,8 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    xprojiter = projection_layer.call(xinfeas, b_new, A_new, n_iter=500)
+    xprojiter = projection_layer.call(
+        projection_layer.get_init(xinfeas), xinfeas, b_new, A_new, n_iter=500
+    )
 
     assert jnp.allclose(xprojiter.reshape(yqp.shape), yqp, atol=1e-3, rtol=1e-3)

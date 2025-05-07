@@ -73,6 +73,7 @@ To not install cuda related things, just omit it.
 pip install pip --upgrade
 pip install -e ".[dev]"
 ```
+To not install cuda related things, just omit it.
 
 The `Coding style validation` action will fail if the pre-commit checks do not pass. To make sure that these are checked automatically on push, run:
 ```sh

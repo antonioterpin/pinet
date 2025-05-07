@@ -96,6 +96,8 @@ def plotting(
 def evaluate_hcnn(
     loader,
     state,
+    sigma,
+    omega,
     n_iter,
     batched_objective,
     A,
@@ -121,6 +123,8 @@ def evaluate_hcnn(
             X[:, :, 0],
             X_full,
             100000,
+            sigma=sigma,
+            omega=omega,
             n_iter=n_iter,
         )
         opt_obj.append(obj)
@@ -172,6 +176,8 @@ def evaluate_hcnn(
             X_inf[:, :, 0],
             X_inf_full,
             100000,
+            sigma=sigma,
+            omega=omega,
             n_iter=n_iter,
         ).block_until_ready(),
         repeat=time_evals,
@@ -208,6 +214,8 @@ def evaluate_instance(
     problem_idx,
     loader,
     state,
+    sigma,
+    omega,
     n_iter,
     batched_objective,
     A,
@@ -227,6 +235,8 @@ def evaluate_instance(
         X[:, :, 0],
         X_full,
         100000,
+        sigma=sigma,
+        omega=omega,
         n_iter=n_iter,
     )
 
@@ -304,7 +314,9 @@ def load_data(filepath):
     )
 
 
-def generate_trajectories(state, n_iter_test, As, lbxs, ubxs, lbus, ubus, alpha):
+def generate_trajectories(
+    state, sigma, omega, n_iter_test, As, lbxs, ubxs, lbus, ubus, alpha
+):
     """Generates trajectories from HCNN and solver."""
     ntraj = 1
     xinit = jnp.array([[-7, -5]]).reshape(ntraj, base_dim, 1)
@@ -317,6 +329,8 @@ def generate_trajectories(state, n_iter_test, As, lbxs, ubxs, lbus, ubus, alpha)
         xinit[:, :, 0],
         Xinitfull,
         100000,
+        sigma=sigma,
+        omega=omega,
         n_iter=n_iter_test,
     )
     # Solve exact problems with cvxpy
@@ -388,7 +402,18 @@ class HardConstrainedMLP_unroll(nn.Module):
         self.schedule = optax.linear_schedule(0.0, 0.0, 70, 0)
 
     @nn.compact
-    def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True, raw=False):
+    def __call__(
+        self,
+        x,
+        b,
+        step,
+        sigma=1.0,
+        omega=1.7,
+        n_iter=100,
+        n_iter_bwd=100,
+        fpi=True,
+        raw=False,
+    ):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -397,7 +422,15 @@ class HardConstrainedMLP_unroll(nn.Module):
         x = nn.Dense(self.project.dim)(x)
         alpha = self.schedule(step)
         if not raw:
-            x = self.project.call(x, b, interpolation_value=alpha, n_iter=n_iter)[0]
+            x = self.project.call(
+                self.project.get_init(x),
+                x,
+                b,
+                interpolation_value=alpha,
+                sigma=sigma,
+                omega=omega,
+                n_iter=n_iter,
+            )[0]
         return x
 
 
@@ -415,7 +448,18 @@ class HardConstrainedMLP_impl(nn.Module):
         self.schedule = optax.linear_schedule(0.0, 0.0, 70, 0)
 
     @nn.compact
-    def __call__(self, x, b, step, n_iter=100, n_iter_bwd=100, fpi=True, raw=False):
+    def __call__(
+        self,
+        x,
+        b,
+        step,
+        sigma=1.0,
+        omega=1.7,
+        n_iter=100,
+        n_iter_bwd=100,
+        fpi=True,
+        raw=False,
+    ):
         """Call the NN."""
         x = nn.Dense(200)(x)
         x = nn.relu(x)
@@ -425,9 +469,12 @@ class HardConstrainedMLP_impl(nn.Module):
         alpha = self.schedule(step)
         if not raw:
             x = self.project.call(
+                self.project.get_init(x),
                 x,
                 b,
                 interpolation_value=alpha,
+                sigma=sigma,
+                omega=omega,
                 n_iter=n_iter,
                 n_iter_bwd=n_iter_bwd,
                 fpi=fpi,
@@ -482,8 +529,6 @@ def main(
     projection_layer = Project(
         box_constraint=box_constraint,
         eq_constraint=eq_constraint,
-        sigma=hyperparameters["sigma"],
-        omega=hyperparameters["omega"],
         unroll=unroll,
     )
     if unroll:
@@ -507,12 +552,22 @@ def main(
     batched_objective = jax.vmap(quadratic_form, in_axes=[0])
 
     @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
-    def train_step(state, x_batch, b_batch, step, n_iter, n_iter_bwd, fpi):
+    def train_step(
+        state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi
+    ):
         """Run a single training step."""
 
         def loss_fn(params):
             predictions = state.apply_fn(
-                {"params": params}, x_batch, b_batch, step, n_iter, n_iter_bwd, fpi
+                {"params": params},
+                x_batch,
+                b_batch,
+                step,
+                sigma,
+                omega,
+                n_iter,
+                n_iter_bwd,
+                fpi,
             )
             return batched_objective(predictions).mean()
 
@@ -546,6 +601,8 @@ def main(
                 X_batch[:, :, 0],
                 X_batch_full,
                 step,
+                hyperparameters["sigma"],
+                hyperparameters["omega"],
                 n_iter_train,
                 n_iter_bwd,
                 fpi,
@@ -570,6 +627,8 @@ def main(
                     X_valid[:, :, 0],
                     X_valid_full,
                     step,
+                    hyperparameters["sigma"],
+                    hyperparameters["omega"],
                     n_iter=n_iter_test,
                 )
                 loss = batched_objective(predictions).mean()
@@ -607,6 +666,8 @@ def main(
             X,
             X_full.reshape(1, -1, 1),
             10000,
+            hyperparameters["sigma"],
+            hyperparameters["omega"],
             n_iter=n_iter_test,
             raw=raw,
         )
@@ -648,6 +709,8 @@ def main(
     _ = evaluate_hcnn(
         loader=valid_loader,
         state=state,
+        sigma=hyperparameters["sigma"],
+        omega=hyperparameters["omega"],
         n_iter=n_iter_test,
         batched_objective=batched_objective,
         prefix="Validation",
@@ -662,6 +725,8 @@ def main(
         problem_idx=problem_idx,
         loader=valid_loader,
         state=state,
+        sigma=hyperparameters["sigma"],
+        omega=hyperparameters["omega"],
         n_iter=200,
         batched_objective=batched_objective,
         A=As,
@@ -673,6 +738,8 @@ def main(
         evaluate_hcnn(
             loader=test_loader,
             state=state,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
             n_iter=n_iter_test,
             batched_objective=batched_objective,
             prefix="Test",
@@ -689,6 +756,8 @@ def main(
         problem_idx=problem_idx,
         loader=test_loader,
         state=state,
+        sigma=hyperparameters["sigma"],
+        omega=hyperparameters["omega"],
         n_iter=hyperparameters["n_iter_test"],
         batched_objective=batched_objective,
         A=As,
@@ -829,8 +898,6 @@ if __name__ == "__main__":
         projection_layer = Project(
             box_constraint=box_constraint,
             eq_constraint=eq_constraint,
-            sigma=hyperparameters["sigma"],
-            omega=hyperparameters["omega"],
             unroll=unroll,
         )
         if unroll:
@@ -864,7 +931,16 @@ if __name__ == "__main__":
         )
 
         trajectories_pred, trajectories_cp = generate_trajectories(
-            state, hyperparameters["n_iter_test"], As, lbxs, ubxs, lbus, ubus, alpha
+            state,
+            hyperparameters["sigma"],
+            hyperparameters["omega"],
+            hyperparameters["n_iter_test"],
+            As,
+            lbxs,
+            ubxs,
+            lbus,
+            ubus,
+            alpha,
         )
 
         # Print results

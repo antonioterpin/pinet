@@ -1,8 +1,8 @@
 n_epochs: 25
-n_iter_train: 200
-n_iter_test: 300
+n_iter_train: 350
+n_iter_test: 350
 learning_rate: 1.0e-2
-sigma: 2.5e-0
+sigma: 3.282890975060525
 omega: 1.7
 unroll: False
 fpi: False

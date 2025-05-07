@@ -32,7 +32,7 @@ class EqualityConstraint(Constraint):
             A: Left hand side matrix.
             b: Right hand side vector.
             method: A string that specifies the method used to solve
-                linear systems. Valid method "pinv", "cholesky".
+                linear systems. Valid method "pinv", "cholesky", None.
             var_b: Boolean that indicates whether the b vector
                 changes or is constant.
             var_A: Boolean that indicates whether the A matrix
@@ -162,3 +162,15 @@ class EqualityConstraint(Constraint):
     def n_constraints(self) -> int:
         """Return the number of constraints."""
         return self.A.shape[1]
+
+    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Compute the constraint violation.
+
+        Args:
+            x: Point to be evaluated. Shape (batch_size, dimension, 1).
+
+        Returns:
+            jnp.ndarray: The constraint violation for each point in the batch.
+                Shape (batch_size, 1, 1).
+        """
+        return jnp.linalg.norm(self.A @ x - self.b, ord=jnp.inf, axis=1, keepdims=True)

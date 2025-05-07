@@ -23,7 +23,7 @@ class HardConstrainedMLP(nn.Module):
         self.schedule = optax.linear_schedule(1.0, 0, 100, 2500)
 
     @nn.compact
-    def __call__(self, x, step):
+    def __call__(self, x, step, sigma=1.0, omega=1.7):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(64)(x)
@@ -31,7 +31,14 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(1)(x)
         alpha = self.schedule(step)
         x = self.project.call(
-            x, interpolation_value=alpha, n_iter=100, n_iter_bwd=50, fpi=False
+            self.project.get_init(x),
+            x,
+            interpolation_value=alpha,
+            sigma=sigma,
+            omega=omega,
+            n_iter=100,
+            n_iter_bwd=50,
+            fpi=False,
         )[0]
         return x
 
