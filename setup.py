@@ -21,7 +21,7 @@ setup(
         "optax>=0.2.4",
         "flax>=0.10.2",
         "cvxpy==1.6.0",
-        "torch==2.6.0",
+        "torch>=2.6.0",
     ],
     extras_require={
         "dev": [
