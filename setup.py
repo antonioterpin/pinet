@@ -22,6 +22,8 @@ setup(
         "flax>=0.10.2",
         "cvxpy==1.6.0",
         "torch>=2.6.0",
+        "cvxpylayers>=0.1.9",
+        "jaxopt>=0.8.5",
     ],
     extras_require={
         "dev": [

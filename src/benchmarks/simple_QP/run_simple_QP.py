@@ -9,6 +9,7 @@ import os
 import pathlib
 import time
 from functools import partial
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -24,6 +25,10 @@ from benchmarks.simple_QP.load_simple_QP import (
     SimpleQPDataset,
     create_dataloaders,
     dc3_dataloader,
+)
+from benchmarks.simple_QP.other_projections import (
+    get_cvxpy_projection,
+    get_jaxopt_projection,
 )
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
@@ -159,19 +164,34 @@ def evaluate_hcnn(
     print_res=True,
     single_instance=False,
     instances=None,
+    proj_method="pinet",
 ):
     """Evaluate the performance of the HCNN."""
+    if proj_method == "pinet":
+
+        def predict(xx):
+            return state.apply_fn(
+                {"params": state.params},
+                xx[:, :, 0],
+                xx,
+                100000,
+                sigma=sigma,
+                omega=omega,
+                n_iter=n_iter,
+            )
+
+    else:
+
+        def predict(xx):
+            return state.apply_fn(
+                {"params": state.params},
+                xx[:, :, 0],
+                xx,
+            )
+
     # This assumes the loader handles all the data in one batch.
     for X, obj in loader:
-        predictions = state.apply_fn(
-            {"params": state.params},
-            X[:, :, 0],
-            X,
-            100000,
-            sigma=sigma,
-            omega=omega,
-            n_iter=n_iter,
-        )
+        predictions = predict(X)
     opt_obj = obj.mean()
     # HCNN objective
     hcnn_obj = batched_objective(predictions)
@@ -209,15 +229,7 @@ def evaluate_hcnn(
                 for rep in range(time_evals + 1):
                     Xtime = X[ii : ii + 1, :, :]
                     start = time.time()
-                    state.apply_fn(
-                        {"params": state.params},
-                        Xtime[:, :, 0],
-                        Xtime,
-                        100000,
-                        sigma=sigma,
-                        omega=omega,
-                        n_iter=n_iter,
-                    ).block_until_ready()
+                    predict(Xtime).block_until_ready()
                     # Drop first time cause it includes setups
                     if rep > 0:
                         eval_times.append(time.time() - start)
@@ -226,15 +238,7 @@ def evaluate_hcnn(
             eval_times = []
             for rep in range(time_evals + 1):
                 start = time.time()
-                state.apply_fn(
-                    {"params": state.params},
-                    Xtime[:, :, 0],
-                    Xtime,
-                    100000,
-                    sigma=sigma,
-                    omega=omega,
-                    n_iter=n_iter,
-                ).block_until_ready()
+                predict(Xtime).block_until_ready()
                 # Drop first time cause it includes setups
                 if rep > 0:
                     eval_times.append(time.time() - start)
@@ -286,6 +290,7 @@ def evaluate_instance(
     G,
     h,
     prefix,
+    proj_method="pinet",
 ):
     """Evaluate performance on single problem instance."""
     # Evaluate HCNN solution
@@ -293,15 +298,22 @@ def evaluate_instance(
     for X, obj in loader:
         pass
 
-    predictions = state.apply_fn(
-        {"params": state.params},
-        X[problem_idx, :, 0].reshape((1, X.shape[1])),
-        X[problem_idx].reshape((1, X.shape[1], 1)),
-        100000,
-        sigma=sigma,
-        omega=omega,
-        n_iter=n_iter,
-    )
+    if proj_method == "pinet":
+        predictions = state.apply_fn(
+            {"params": state.params},
+            X[problem_idx, :, 0].reshape((1, X.shape[1])),
+            X[problem_idx].reshape((1, X.shape[1], 1)),
+            100000,
+            sigma=sigma,
+            omega=omega,
+            n_iter=n_iter,
+        )
+    else:
+        predictions = state.apply_fn(
+            {"params": state.params},
+            X[problem_idx, :, 0].reshape((1, X.shape[1])),
+            X[problem_idx].reshape((1, X.shape[1], 1)),
+        )
 
     objective_val_hcnn = batched_objective(predictions).item()
     eqcv_val_hcnn = jnp.abs(
@@ -462,8 +474,6 @@ class HardConstrainedMLP_impl(nn.Module):
         """Setup for each NN call."""
         self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
 
-    # TODO: Try adding batch norm and dropout as in the DC3 paper.
-    # A quick try with batch norm generated slightly worse results.
     @nn.compact
     def __call__(
         self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
@@ -489,6 +499,35 @@ class HardConstrainedMLP_impl(nn.Module):
         return x
 
 
+class HardConstrainedMLP_other(nn.Module):
+    """Simple MLP with hard constraints on the output.
+
+    Uses jaxopt or cvxpylayers for the projection.
+    """
+
+    project: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    dim: int
+
+    def setup(self):
+        """Setup for each NN call."""
+        self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
+
+    @nn.compact
+    def __call__(
+        self,
+        x,
+        b,
+    ):
+        """Call the NN."""
+        x = nn.Dense(200)(x)
+        x = nn.relu(x)
+        x = nn.Dense(200)(x)
+        x = nn.relu(x)
+        x = nn.Dense(self.dim)(x)
+        x = self.project(x, b)
+        return x
+
+
 def main(
     use_DC3_dataset,
     use_convex,
@@ -499,6 +538,7 @@ def main(
     problem_examples,
     config_path,
     SEED,
+    proj_method,
     PLOT_TRAINING,
     SAVE_RESULTS,
 ):
@@ -522,47 +562,91 @@ def main(
     # Dimension of parameter vector
     LEARNING_RATE = hyperparameters["learning_rate"]
 
-    # Setup the projection layer
-    eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(
-        C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
-    )
-    projection_layer = Project(
-        ineq_constraint=ineq_constraint,
-        eq_constraint=eq_constraint,
-        unroll=unroll,
-        equilibrate=hyperparameters["equilibrate"],
-    )
+    if proj_method == "pinet":
+        # Setup the projection layer
+        eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
+        ineq_constraint = AffineInequalityConstraint(
+            C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
+        )
+        projection_layer = Project(
+            ineq_constraint=ineq_constraint,
+            eq_constraint=eq_constraint,
+            unroll=unroll,
+            equilibrate=hyperparameters["equilibrate"],
+        )
 
-    # Measure setup time
-    SETUP_REPS = 10
-    start_setup_time = time.time()
-    if SETUP_REPS > 0:
-        for _ in range(SETUP_REPS):
-            eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
-            ineq_constraint = AffineInequalityConstraint(
-                C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
-            )
-            _ = Project(
-                ineq_constraint=ineq_constraint,
-                eq_constraint=eq_constraint,
-                unroll=unroll,
-                equilibrate=hyperparameters["equilibrate"],
-            )
-        setup_time = (time.time() - start_setup_time) / SETUP_REPS
+        # Measure setup time
+        SETUP_REPS = 10
+        start_setup_time = time.time()
+        if SETUP_REPS > 0:
+            for _ in range(SETUP_REPS):
+                eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
+                ineq_constraint = AffineInequalityConstraint(
+                    C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
+                )
+                _ = Project(
+                    ineq_constraint=ineq_constraint,
+                    eq_constraint=eq_constraint,
+                    unroll=unroll,
+                    equilibrate=hyperparameters["equilibrate"],
+                )
+            setup_time = (time.time() - start_setup_time) / SETUP_REPS
 
-        print(f"Time to create constraints: {setup_time:.5f} seconds")
+            print(f"Time to create constraints: {setup_time:.5f} seconds")
+        else:
+            setup_time = -1
+
+        # Define HCNN model
+        if unroll:
+            model = HardConstrainedMLP_unroll(project=projection_layer)
+        else:
+            model = HardConstrainedMLP_impl(project=projection_layer)
+        params = model.init(
+            jax.random.PRNGKey(SEED), x=X[:2, :, 0], b=X[:2], step=0, n_iter=2
+        )
+    elif proj_method == "jaxopt":
+        # Define the jaxopt projection
+        jaxopt_projection = get_jaxopt_projection(
+            A=A[0, :, :],
+            C=G[0, :, :],
+            d=h[0, :, 0],
+            dim=A.shape[2],
+            tol=hyperparameters["jaxopt_tol"],
+        )
+        model = HardConstrainedMLP_other(project=jaxopt_projection, dim=A.shape[2])
+        params = model.init(
+            jax.random.PRNGKey(SEED),
+            x=X[:2, :, 0],
+            b=X[:2],
+        )
+    elif proj_method == "cvxpy":
+        cvxpy_proj = get_cvxpy_projection(
+            A=A[0, :, :],
+            C=G[0, :, :],
+            d=h[0, :, 0],
+            dim=A.shape[2],
+        )
+
+        def cvxpy_projection(xx, bb):
+            return cvxpy_proj(
+                xx,
+                bb[:, :, 0],
+                solver_args={
+                    "verbose": False,
+                    "eps_abs": hyperparameters["cvxpy_tol"],
+                    "eps_rel": hyperparameters["cvxpy_tol"],
+                },
+            )[0]
+
+        model = HardConstrainedMLP_other(project=cvxpy_projection, dim=A.shape[2])
+        params = model.init(
+            jax.random.PRNGKey(SEED),
+            x=X[:2, :, 0],
+            b=X[:2],
+        )
     else:
-        setup_time = -1
+        raise ValueError("Projection method not valid.")
 
-    # Define HCNN model
-    if unroll:
-        model = HardConstrainedMLP_unroll(project=projection_layer)
-    else:
-        model = HardConstrainedMLP_impl(project=projection_layer)
-    params = model.init(
-        jax.random.PRNGKey(SEED), x=X[:2, :, 0], b=X[:2], step=0, n_iter=2
-    )
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(
         apply_fn=model.apply, params=params["params"], tx=tx
@@ -596,48 +680,75 @@ def main(
     # batched_penalty_form = jax.vmap(penalty_form, in_axes=[0])
 
     # Setup the MLP training routine
-    @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
-    def train_step(
-        state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi
-    ):
-        """Run a single training step."""
+    if proj_method == "pinet":
 
-        def loss_fn(params):
-            predictions = state.apply_fn(
-                {"params": params},
-                x_batch,
-                b_batch,
-                step,
-                sigma,
-                omega,
-                n_iter,
-                n_iter_bwd,
-                fpi,
-            )
-            return batched_objective(predictions).mean()
+        @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
+        def train_step(
+            state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi
+        ):
+            """Run a single training step."""
 
-        loss, grads = jax.value_and_grad(loss_fn)(state.params)
-        return loss, state.apply_gradients(grads=grads)
+            def loss_fn(params):
+                predictions = state.apply_fn(
+                    {"params": params},
+                    x_batch,
+                    b_batch,
+                    step,
+                    sigma,
+                    omega,
+                    n_iter,
+                    n_iter_bwd,
+                    fpi,
+                )
+                return batched_objective(predictions).mean()
 
-    # Measure compilation time
-    for batch in train_loader:
-        X_batch, _ = batch
-    start_compilation_time = time.time()
-    _ = train_step.lower(
-        state,
-        X_batch[:, :, 0],
-        X_batch,
-        0,
-        hyperparameters["sigma"],
-        hyperparameters["omega"],
-        100,
-        100,
-        True,
-    ).compile()
-    # Note this also includes the time for one iteration
-    compilation_time = time.time() - start_compilation_time
+            loss, grads = jax.value_and_grad(loss_fn)(state.params)
+            return loss, state.apply_gradients(grads=grads)
 
-    print(f"Compilation time: {compilation_time:.5f} seconds")
+    else:
+
+        def train_step(
+            state,
+            x_batch,
+            b_batch,
+        ):
+            """Run a single training step."""
+
+            def loss_fn(params):
+                predictions = state.apply_fn(
+                    {"params": params},
+                    x_batch,
+                    b_batch,
+                )
+                return batched_objective(predictions).mean()
+
+            loss, grads = jax.value_and_grad(loss_fn)(state.params)
+            return loss, state.apply_gradients(grads=grads)
+
+        if proj_method == "jaxopt":
+            train_step = jax.jit(train_step)
+        # cvxpylayers does not support jitting
+
+    if proj_method == "pinet":
+        # Measure compilation time
+        for batch in train_loader:
+            X_batch, _ = batch
+        start_compilation_time = time.time()
+        _ = train_step.lower(
+            state,
+            X_batch[:, :, 0],
+            X_batch,
+            0,
+            hyperparameters["sigma"],
+            hyperparameters["omega"],
+            100,
+            100,
+            True,
+        ).compile()
+        # Note this also includes the time for one iteration
+        compilation_time = time.time() - start_compilation_time
+
+        print(f"Compilation time: {compilation_time:.5f} seconds")
 
     # Train the MLP
     N_EPOCHS = hyperparameters["n_epochs"]
@@ -654,23 +765,35 @@ def main(
     logging_dict = LoggingDict()
     for step in (pbar := tqdm(range(N_EPOCHS))):
         epoch_loss = []
+        batch_sizes = []
         start_epoch_time = time.time()
         for batch in train_loader:
             X_batch, _ = batch
-            loss, state = train_step(
-                state,
-                X_batch[:, :, 0],
-                X_batch,
-                step,
-                hyperparameters["sigma"],
-                hyperparameters["omega"],
-                n_iter_train,
-                n_iter_bwd,
-                fpi,
-            )
+            if proj_method == "pinet":
+                loss, state = train_step(
+                    state,
+                    X_batch[:, :, 0],
+                    X_batch,
+                    step,
+                    hyperparameters["sigma"],
+                    hyperparameters["omega"],
+                    n_iter_train,
+                    n_iter_bwd,
+                    fpi,
+                )
+            else:
+                loss, state = train_step(
+                    state,
+                    X_batch[:, :, 0],
+                    X_batch,
+                )
+            batch_sizes.append(X_batch.shape[0])
             epoch_loss.append(loss)
-        pbar.set_description(f"Train Loss: {jnp.array(epoch_loss).mean():.5f}")
-        trainig_losses.append(jnp.array(epoch_loss).mean())
+        weighted_epoch_loss = sum(
+            el * bs for el, bs in zip(epoch_loss, batch_sizes)
+        ) / sum(batch_sizes)
+        trainig_losses.append(weighted_epoch_loss)
+        pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")
         train_time = time.time() - start_epoch_time
 
         if step % eval_every == 0:
@@ -688,6 +811,7 @@ def main(
                 prefix="Validation",
                 time_evals=0,
                 print_res=False,
+                proj_method=proj_method,
             )
             eqcvs.append(eq_cv.max())
             ineqcvs.append(ineq_cv.max())
@@ -735,6 +859,7 @@ def main(
         A=A,
         G=G,
         h=h,
+        proj_method=proj_method,
     )
     # Solve some validation individual problem
     problem_idx = 4
@@ -751,6 +876,7 @@ def main(
         G=G,
         h=h,
         prefix="Validation",
+        proj_method=proj_method,
     )
 
     (obj_test, obj_fun_test, eq_viol_test, ineq_viol_test, batch_inference_times) = (
@@ -765,6 +891,7 @@ def main(
             A=A,
             G=G,
             h=h,
+            proj_method=proj_method,
         )
     )
     # Evaluate for single inference time
@@ -781,6 +908,7 @@ def main(
         h=h,
         single_instance=True,
         instances=list(range(10)),
+        proj_method=proj_method,
     )
     # Solve some test problems
     problem_idx = 0
@@ -797,6 +925,7 @@ def main(
         G=G,
         h=h,
         prefix="Testing",
+        proj_method=proj_method,
     )
 
     # Saving of overall results
@@ -863,7 +992,13 @@ if __name__ == "__main__":
             "--config",
             type=str,
             default="benchmark_config_manual",
-            help="Configuration file for HCNN hyperparameters.",
+            help="Configuration file for hyperparameters.",
+        )
+        parser.add_argument(
+            "--proj_method",
+            type=str,
+            default="pinet",
+            help="Projection method. Options are: pinet, cvxpy, jaxopt.",
         )
         parser.add_argument(
             "--seed", type=int, default=42, help="Seed for training HCNN."
@@ -904,6 +1039,7 @@ if __name__ == "__main__":
         / (args.config + ".yaml")
     )
     SEED = args.seed
+    proj_method = args.proj_method
     PLOT_TRAINING = args.plot_training
     SAVE_RESULTS = args.save_results
 
@@ -917,6 +1053,7 @@ if __name__ == "__main__":
         problem_examples,
         config_path,
         SEED,
+        proj_method,
         PLOT_TRAINING,
         SAVE_RESULTS,
     )
