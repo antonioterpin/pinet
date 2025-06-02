@@ -1,9 +1,0 @@
-n_epochs: 25
-n_iter_train: 100
-n_iter_test: 100
-learning_rate: 1.0e-2
-sigma: 1.0
-omega: 1.7
-unroll: False
-fpi: False
-n_iter_bwd: 25

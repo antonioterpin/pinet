@@ -8,7 +8,6 @@ import datetime
 import pathlib
 import time
 from functools import partial
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -16,19 +15,12 @@ import matplotlib.pyplot as plt
 import optax
 import torch
 import yaml
-from flax import linen as nn
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
 from benchmarks.simple_QP.load_simple_QP import load_data
-from benchmarks.simple_QP.other_projections import (
-    get_cvxpy_projection,
-    get_jaxopt_projection,
-)
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.project import Project
+from benchmarks.simple_QP.model import setup_model
 
 jax.config.update("jax_enable_x64", True)
 
@@ -170,7 +162,6 @@ def evaluate_hcnn(
                 {"params": state.params},
                 xx[:, :, 0],
                 xx,
-                100000,
                 sigma=sigma,
                 omega=omega,
                 n_iter=n_iter,
@@ -299,7 +290,6 @@ def evaluate_instance(
             {"params": state.params},
             X[problem_idx, :, 0].reshape((1, X.shape[1])),
             X[problem_idx].reshape((1, X.shape[1], 1)),
-            100000,
             sigma=sigma,
             omega=omega,
             n_iter=n_iter,
@@ -355,98 +345,6 @@ def evaluate_instance(
     print(f"Ineq. cv:   \t{ineqcv_val:.5e}")
 
 
-class HardConstrainedMLP_unroll(nn.Module):
-    """Simple MLP with hard constraints on the output.
-
-    Assumes that unrolling is used for backpropagation.
-    This is defined in the projection layer.
-    """
-
-    project: Project
-    features_list: list
-    activation: nn.Module = nn.relu
-
-    @nn.compact
-    def __call__(
-        self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
-    ):
-        """Call the NN."""
-        for features in self.features_list:
-            x = nn.Dense(features)(x)
-            x = self.activation(x)
-        x = nn.Dense(self.project.dim)(x)
-        x = self.project.call(
-            self.project.get_init(x),
-            x,
-            b,
-            interpolation_value=0.0,
-            sigma=sigma,
-            omega=omega,
-            n_iter=n_iter,
-        )[0]
-        return x
-
-
-class HardConstrainedMLP_impl(nn.Module):
-    """Simple MLP with hard constraints on the output.
-
-    Assumes that implicit differentiation is used for backpropagation.
-    This is defined in the projection layer.
-    """
-
-    project: Project
-    features_list: list
-    activation: nn.Module = nn.relu
-
-    @nn.compact
-    def __call__(
-        self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
-    ):
-        """Call the NN."""
-        for features in self.features_list:
-            x = nn.Dense(features)(x)
-            x = self.activation(x)
-        x = nn.Dense(self.project.dim)(x)
-        x = self.project.call(
-            self.project.get_init(x),
-            x,
-            b,
-            interpolation_value=0.0,
-            sigma=sigma,
-            omega=omega,
-            n_iter=n_iter,
-            n_iter_bwd=n_iter_bwd,
-            fpi=fpi,
-        )[0]
-        return x
-
-
-class HardConstrainedMLP_other(nn.Module):
-    """Simple MLP with hard constraints on the output.
-
-    Uses jaxopt or cvxpylayers for the projection.
-    """
-
-    project: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
-    dim: int
-    features_list: list
-    activation: nn.Module = nn.relu
-
-    @nn.compact
-    def __call__(
-        self,
-        x,
-        b,
-    ):
-        """Call the NN."""
-        for features in self.features_list:
-            x = nn.Dense(features)(x)
-            x = self.activation(x)
-        x = nn.Dense(self.dim)(x)
-        x = self.project(x, b)
-        return x
-
-
 def main(
     use_DC3_dataset,
     use_convex,
@@ -465,7 +363,6 @@ def main(
     """Main for running simple QP benchmarks."""
     # Load hyperparameter configuration
     hyperparameters = load_yaml(config_path)
-    unroll = hyperparameters["unroll"]
     torch.manual_seed(SEED)
     key = jax.random.PRNGKey(SEED)
     loader_key, key = jax.random.split(key, 2)
@@ -486,112 +383,10 @@ def main(
     # Y_DIM = Q.shape[2]
     # Dimension of parameter vector
     LEARNING_RATE = hyperparameters["learning_rate"]
-    activation = getattr(nn, hyperparameters["activation"], None)
-    if activation is None:
-        raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
-    if proj_method == "pinet":
-        # Setup the projection layer
-        eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
-        ineq_constraint = AffineInequalityConstraint(
-            C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
-        )
-        projection_layer = Project(
-            ineq_constraint=ineq_constraint,
-            eq_constraint=eq_constraint,
-            unroll=unroll,
-            equilibrate=hyperparameters["equilibrate"],
-        )
-
-        # Measure setup time
-        SETUP_REPS = 10
-        start_setup_time = time.time()
-        if SETUP_REPS > 0:
-            for _ in range(SETUP_REPS):
-                eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
-                ineq_constraint = AffineInequalityConstraint(
-                    C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
-                )
-                _ = Project(
-                    ineq_constraint=ineq_constraint,
-                    eq_constraint=eq_constraint,
-                    unroll=unroll,
-                    equilibrate=hyperparameters["equilibrate"],
-                )
-            setup_time = (time.time() - start_setup_time) / SETUP_REPS
-
-            print(f"Time to create constraints: {setup_time:.5f} seconds")
-        else:
-            setup_time = -1
-
-        # Define HCNN model
-        if unroll:
-            model = HardConstrainedMLP_unroll(
-                project=projection_layer,
-                features_list=hyperparameters["features_list"],
-                activation=activation,
-            )
-        else:
-            model = HardConstrainedMLP_impl(
-                project=projection_layer,
-                features_list=hyperparameters["features_list"],
-                activation=activation,
-            )
-        params = model.init(
-            jax.random.PRNGKey(SEED), x=X[:2, :, 0], b=X[:2], step=0, n_iter=2
-        )
-    elif proj_method == "jaxopt":
-        # Define the jaxopt projection
-        jaxopt_projection = get_jaxopt_projection(
-            A=A[0, :, :],
-            C=G[0, :, :],
-            d=h[0, :, 0],
-            dim=A.shape[2],
-            tol=hyperparameters["jaxopt_tol"],
-        )
-        model = HardConstrainedMLP_other(
-            project=jaxopt_projection,
-            dim=A.shape[2],
-            features_list=hyperparameters["features_list"],
-            activation=activation,
-        )
-        params = model.init(
-            jax.random.PRNGKey(SEED),
-            x=X[:2, :, 0],
-            b=X[:2],
-        )
-    elif proj_method == "cvxpy":
-        cvxpy_proj = get_cvxpy_projection(
-            A=A[0, :, :],
-            C=G[0, :, :],
-            d=h[0, :, 0],
-            dim=A.shape[2],
-        )
-
-        def cvxpy_projection(xx, bb):
-            return cvxpy_proj(
-                xx,
-                bb[:, :, 0],
-                solver_args={
-                    "verbose": False,
-                    "eps_abs": hyperparameters["cvxpy_tol"],
-                    "eps_rel": hyperparameters["cvxpy_tol"],
-                },
-            )[0]
-
-        model = HardConstrainedMLP_other(
-            project=cvxpy_projection,
-            dim=A.shape[2],
-            features_list=hyperparameters["features_list"],
-            activation=activation,
-        )
-        params = model.init(
-            jax.random.PRNGKey(SEED),
-            x=X[:2, :, 0],
-            b=X[:2],
-        )
-    else:
-        raise ValueError("Projection method not valid.")
+    model, params, setup_time = setup_model(
+        key, hyperparameters, proj_method, A, X, G, h
+    )
 
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(
@@ -629,9 +424,7 @@ def main(
     if proj_method == "pinet":
 
         @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
-        def train_step(
-            state, x_batch, b_batch, step, sigma, omega, n_iter, n_iter_bwd, fpi
-        ):
+        def train_step(state, x_batch, b_batch, sigma, omega, n_iter, n_iter_bwd, fpi):
             """Run a single training step."""
 
             def loss_fn(params):
@@ -639,7 +432,6 @@ def main(
                     {"params": params},
                     x_batch,
                     b_batch,
-                    step,
                     sigma,
                     omega,
                     n_iter,
@@ -684,7 +476,6 @@ def main(
             state,
             X_batch[:, :, 0],
             X_batch,
-            0,
             hyperparameters["sigma"],
             hyperparameters["omega"],
             100,
@@ -720,7 +511,6 @@ def main(
                     state,
                     X_batch[:, :, 0],
                     X_batch,
-                    step,
                     hyperparameters["sigma"],
                     hyperparameters["omega"],
                     n_iter_train,
