@@ -169,8 +169,14 @@ def generate_learning_curves(id, config, filename, opt_obj_valid, plotting=False
 
 def generate_time_data(id, config):
     """Generate single and batch inference time data."""
-    single_inference_dict = {"ours": [], "dc3": [], "softMLP": [], "solver": []}
-    inference_dict = {"ours": [], "dc3": [], "softMLP": [], "solver": []}
+    single_inference_dict = {
+        "ours": [],
+        "dc3": [],
+        "softMLP": [],
+        "solver": [],
+        "jaxopt": [],
+    }
+    inference_dict = {"ours": [], "dc3": [], "softMLP": [], "solver": [], "jaxopt": []}
     dataset_folder = pathlib.Path(__file__).parent / "results" / id
     dataset_subfolders = [
         folder
@@ -187,6 +193,11 @@ def generate_time_data(id, config):
             method_name = "ours"
         elif subfolder.name == "solver":
             method_name = "solver"
+        elif (
+            subfolder.name == "benchmark_jaxopt_small"
+            or subfolder.name == "benchmark_jaxopt_large"
+        ):
+            method_name = "jaxopt"
         for nested_folder in subfolder.iterdir():
             if nested_folder.is_dir():
                 results_file = nested_folder / "results.npz"
@@ -206,7 +217,7 @@ def generate_time_data(id, config):
     training_stats = {}
     inference_stats = {}
 
-    for method in ["ours", "dc3", "solver"]:
+    for method in ["ours", "dc3", "solver", "jaxopt"]:
         # for method in training_dict:
         training_stats[method] = compute_box_stats(single_inference_dict[method])
         inference_stats[method] = compute_box_stats(inference_dict[method])
@@ -224,6 +235,7 @@ def generate_time_data(id, config):
         "ours": ("ours", "Ours"),
         "dc3": ("dcthree", "DC3"),
         "solver": ("solver", "Solver"),
+        "jaxopt": ("jaxopt", "JAXopt"),
     }
 
     for dict, name in zip(
@@ -250,7 +262,7 @@ def generate_time_data(id, config):
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["color", "method", "median", "uq", "lq", "uw", "lw"])
-            for method in ["softMLP", "ours", "dc3", "solver"]:
+            for method in ["softMLP", "ours", "dc3", "solver", "jaxopt"]:
                 if method in all_stats:
                     writer.writerow(all_stats[method])
 
@@ -337,6 +349,8 @@ if __name__ == "__main__":
         filename = "DC3"
     elif args.config == "softmlp":
         filename = "SoftMLP"
+    elif "jaxopt" in args.config:
+        filename = "JAXopt"
     else:
         filename = "Ours"
         save_optimal_objectives(args.id, args.config)

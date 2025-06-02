@@ -1,5 +1,8 @@
 """Loading functionality for simple QP benchmark."""
 
+import os
+from typing import Optional
+
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -97,6 +100,50 @@ class DC3Dataset(Dataset):
         return self.X[idx], self.objectives[idx]
 
 
+class JaxDataLoader:
+    """Dataloader for DC3 dataset implemented in JAX."""
+
+    def __init__(
+        self,
+        filepath,
+        use_convex,
+        batch_size: int,
+        shuffle: bool = True,
+        rng_key: Optional[jax.Array] = None,
+    ):
+        """Initialize JaxDataLoader."""
+        self.dataset = DC3Dataset(filepath, use_convex)
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        # Batch indices for the current epoch
+        if self.shuffle:
+            self._perm = self._get_perm()
+        else:
+            self._perm = jnp.arange(len(self.dataset))
+
+    def __len__(self):
+        """Length of dataset."""
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+
+    def __iter__(self):
+        """Iterate over the dataset."""
+        for start in range(0, len(self.dataset), self.batch_size):
+            batch_idx = self._perm[start : start + self.batch_size]
+            yield self.dataset[batch_idx]
+
+        if self.shuffle:
+            self._perm = self._get_perm()
+
+    def _advance_rng(self):
+        self.rng_key, self._last_key = jax.random.split(self.rng_key)
+
+    def _get_perm(self):
+        self._advance_rng()
+        perm = jax.random.permutation(self._last_key, len(self.dataset))
+        return perm
+
+
 def dc3_dataloader(
     filepath,
     use_convex,
@@ -115,3 +162,93 @@ def dc3_dataloader(
     )
 
     return loader
+
+
+def load_data(
+    use_DC3_dataset,
+    use_convex,
+    problem_seed,
+    problem_var,
+    problem_nineq,
+    problem_neq,
+    problem_examples,
+    rng_key,
+    use_jax_loader=True,
+):
+    """Load problem data."""
+    if not use_DC3_dataset:
+        # Choose problem parameters
+        if use_convex:
+            filename = (
+                f"SimpleQP_seed{problem_seed}_var{problem_var}_ineq{problem_nineq}"
+                f"_eq{problem_neq}_examples{problem_examples}.npz"
+            )
+        else:
+            raise NotImplementedError()
+        dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filename)
+
+        QPDataset = SimpleQPDataset(dataset_path)
+        train_loader, valid_loader, test_loader = create_dataloaders(
+            dataset_path, batch_size=2048, val_split=0.1, test_split=0.1
+        )
+        Q, p, A, G, h = QPDataset.const
+        p = p[0, :, :]
+        X = QPDataset.X
+    else:
+        # Choose the filename here
+        if use_convex:
+            filename = (
+                f"dc3_random_simple_dataset_var{problem_var}_ineq{problem_nineq}"
+                f"_eq{problem_neq}_ex{problem_examples}"
+            )
+        else:
+            filename = (
+                f"dc3_random_nonconvex_dataset_var{problem_var}_ineq{problem_nineq}"
+                f"_eq{problem_neq}_ex{problem_examples}"
+            )
+        filename_train = filename + "train.npz"
+        dataset_path_train = os.path.join(
+            os.path.dirname(__file__), "datasets", filename_train
+        )
+        filename_valid = filename + "valid.npz"
+        dataset_path_valid = os.path.join(
+            os.path.dirname(__file__), "datasets", filename_valid
+        )
+        filename_test = filename + "test.npz"
+        dataset_path_test = os.path.join(
+            os.path.dirname(__file__), "datasets", filename_test
+        )
+        if not use_jax_loader:
+            train_loader = dc3_dataloader(
+                dataset_path_train, use_convex, batch_size=2048
+            )
+            valid_loader = dc3_dataloader(
+                dataset_path_valid, use_convex, batch_size=1024, shuffle=False
+            )
+            test_loader = dc3_dataloader(
+                dataset_path_test, use_convex, batch_size=1024, shuffle=False
+            )
+        else:
+            loader_keys = jax.random.split(rng_key, 3)
+            train_loader = JaxDataLoader(
+                dataset_path_train, use_convex, batch_size=2048, rng_key=loader_keys[0]
+            )
+            valid_loader = JaxDataLoader(
+                dataset_path_valid,
+                use_convex,
+                batch_size=1024,
+                shuffle=False,
+                rng_key=loader_keys[1],
+            )
+            test_loader = JaxDataLoader(
+                dataset_path_test,
+                use_convex,
+                batch_size=1024,
+                shuffle=False,
+                rng_key=loader_keys[2],
+            )
+        Q, p, A, G, h = train_loader.dataset.const
+        p = p[0, :, :]
+        X = train_loader.dataset.X
+
+    return (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader)

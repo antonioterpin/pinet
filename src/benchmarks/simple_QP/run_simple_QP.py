@@ -5,7 +5,6 @@
 # TODO: Enable training with SoftMLP.
 import argparse
 import datetime
-import os
 import pathlib
 import time
 from functools import partial
@@ -15,17 +14,14 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import optax
+import torch
 import yaml
 from flax import linen as nn
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
-from benchmarks.simple_QP.load_simple_QP import (
-    SimpleQPDataset,
-    create_dataloaders,
-    dc3_dataloader,
-)
+from benchmarks.simple_QP.load_simple_QP import load_data
 from benchmarks.simple_QP.other_projections import (
     get_cvxpy_projection,
     get_jaxopt_projection,
@@ -359,72 +355,6 @@ def evaluate_instance(
     print(f"Ineq. cv:   \t{ineqcv_val:.5e}")
 
 
-def load_data(
-    use_DC3_dataset,
-    use_convex,
-    problem_seed,
-    problem_var,
-    problem_nineq,
-    problem_neq,
-    problem_examples,
-):
-    """Load problem data."""
-    if not use_DC3_dataset:
-        # Choose problem parameters
-        if use_convex:
-            filename = (
-                f"SimpleQP_seed{problem_seed}_var{problem_var}_ineq{problem_nineq}"
-                f"_eq{problem_neq}_examples{problem_examples}.npz"
-            )
-        else:
-            raise NotImplementedError()
-        dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filename)
-
-        QPDataset = SimpleQPDataset(dataset_path)
-        train_loader, valid_loader, test_loader = create_dataloaders(
-            dataset_path, batch_size=2048, val_split=0.1, test_split=0.1
-        )
-        Q, p, A, G, h = QPDataset.const
-        p = p[0, :, :]
-        X = QPDataset.X
-    else:
-        # Choose the filename here
-        if use_convex:
-            filename = (
-                f"dc3_random_simple_dataset_var{problem_var}_ineq{problem_nineq}"
-                f"_eq{problem_neq}_ex{problem_examples}"
-            )
-        else:
-            filename = (
-                f"dc3_random_nonconvex_dataset_var{problem_var}_ineq{problem_nineq}"
-                f"_eq{problem_neq}_ex{problem_examples}"
-            )
-        filename_train = filename + "train.npz"
-        dataset_path_train = os.path.join(
-            os.path.dirname(__file__), "datasets", filename_train
-        )
-        filename_valid = filename + "valid.npz"
-        dataset_path_valid = os.path.join(
-            os.path.dirname(__file__), "datasets", filename_valid
-        )
-        filename_test = filename + "test.npz"
-        dataset_path_test = os.path.join(
-            os.path.dirname(__file__), "datasets", filename_test
-        )
-        train_loader = dc3_dataloader(dataset_path_train, use_convex, batch_size=2048)
-        valid_loader = dc3_dataloader(
-            dataset_path_valid, use_convex, batch_size=1024, shuffle=False
-        )
-        test_loader = dc3_dataloader(
-            dataset_path_test, use_convex, batch_size=1024, shuffle=False
-        )
-        Q, p, A, G, h = train_loader.dataset.const
-        p = p[0, :, :]
-        X = train_loader.dataset.X
-
-    return (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader)
-
-
 class HardConstrainedMLP_unroll(nn.Module):
     """Simple MLP with hard constraints on the output.
 
@@ -433,27 +363,23 @@ class HardConstrainedMLP_unroll(nn.Module):
     """
 
     project: Project
-
-    def setup(self):
-        """Setup for each NN call."""
-        self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
+    features_list: list
+    activation: nn.Module = nn.relu
 
     @nn.compact
     def __call__(
         self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
     ):
         """Call the NN."""
-        x = nn.Dense(200)(x)
-        x = nn.relu(x)
-        x = nn.Dense(200)(x)
-        x = nn.relu(x)
+        for features in self.features_list:
+            x = nn.Dense(features)(x)
+            x = self.activation(x)
         x = nn.Dense(self.project.dim)(x)
-        alpha = self.schedule(step)
         x = self.project.call(
             self.project.get_init(x),
             x,
             b,
-            interpolation_value=alpha,
+            interpolation_value=0.0,
             sigma=sigma,
             omega=omega,
             n_iter=n_iter,
@@ -469,27 +395,23 @@ class HardConstrainedMLP_impl(nn.Module):
     """
 
     project: Project
-
-    def setup(self):
-        """Setup for each NN call."""
-        self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
+    features_list: list
+    activation: nn.Module = nn.relu
 
     @nn.compact
     def __call__(
         self, x, b, step, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
     ):
         """Call the NN."""
-        x = nn.Dense(200)(x)
-        x = nn.relu(x)
-        x = nn.Dense(200)(x)
-        x = nn.relu(x)
+        for features in self.features_list:
+            x = nn.Dense(features)(x)
+            x = self.activation(x)
         x = nn.Dense(self.project.dim)(x)
-        alpha = self.schedule(step)
         x = self.project.call(
             self.project.get_init(x),
             x,
             b,
-            interpolation_value=alpha,
+            interpolation_value=0.0,
             sigma=sigma,
             omega=omega,
             n_iter=n_iter,
@@ -507,10 +429,8 @@ class HardConstrainedMLP_other(nn.Module):
 
     project: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
     dim: int
-
-    def setup(self):
-        """Setup for each NN call."""
-        self.schedule = optax.linear_schedule(0.0, 0.0, 2000, 300)
+    features_list: list
+    activation: nn.Module = nn.relu
 
     @nn.compact
     def __call__(
@@ -519,10 +439,9 @@ class HardConstrainedMLP_other(nn.Module):
         b,
     ):
         """Call the NN."""
-        x = nn.Dense(200)(x)
-        x = nn.relu(x)
-        x = nn.Dense(200)(x)
-        x = nn.relu(x)
+        for features in self.features_list:
+            x = nn.Dense(features)(x)
+            x = self.activation(x)
         x = nn.Dense(self.dim)(x)
         x = self.project(x, b)
         return x
@@ -536,6 +455,7 @@ def main(
     problem_nineq,
     problem_neq,
     problem_examples,
+    use_jax_loader,
     config_path,
     SEED,
     proj_method,
@@ -546,6 +466,9 @@ def main(
     # Load hyperparameter configuration
     hyperparameters = load_yaml(config_path)
     unroll = hyperparameters["unroll"]
+    torch.manual_seed(SEED)
+    key = jax.random.PRNGKey(SEED)
+    loader_key, key = jax.random.split(key, 2)
     # Load problem data
     (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader) = load_data(
         use_DC3_dataset,
@@ -555,12 +478,17 @@ def main(
         problem_nineq,
         problem_neq,
         problem_examples,
+        loader_key,
+        use_jax_loader=use_jax_loader,
     )
 
     # Dimension of decision variable
     # Y_DIM = Q.shape[2]
     # Dimension of parameter vector
     LEARNING_RATE = hyperparameters["learning_rate"]
+    activation = getattr(nn, hyperparameters["activation"], None)
+    if activation is None:
+        raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
     if proj_method == "pinet":
         # Setup the projection layer
@@ -598,9 +526,17 @@ def main(
 
         # Define HCNN model
         if unroll:
-            model = HardConstrainedMLP_unroll(project=projection_layer)
+            model = HardConstrainedMLP_unroll(
+                project=projection_layer,
+                features_list=hyperparameters["features_list"],
+                activation=activation,
+            )
         else:
-            model = HardConstrainedMLP_impl(project=projection_layer)
+            model = HardConstrainedMLP_impl(
+                project=projection_layer,
+                features_list=hyperparameters["features_list"],
+                activation=activation,
+            )
         params = model.init(
             jax.random.PRNGKey(SEED), x=X[:2, :, 0], b=X[:2], step=0, n_iter=2
         )
@@ -613,7 +549,12 @@ def main(
             dim=A.shape[2],
             tol=hyperparameters["jaxopt_tol"],
         )
-        model = HardConstrainedMLP_other(project=jaxopt_projection, dim=A.shape[2])
+        model = HardConstrainedMLP_other(
+            project=jaxopt_projection,
+            dim=A.shape[2],
+            features_list=hyperparameters["features_list"],
+            activation=activation,
+        )
         params = model.init(
             jax.random.PRNGKey(SEED),
             x=X[:2, :, 0],
@@ -638,7 +579,12 @@ def main(
                 },
             )[0]
 
-        model = HardConstrainedMLP_other(project=cvxpy_projection, dim=A.shape[2])
+        model = HardConstrainedMLP_other(
+            project=cvxpy_projection,
+            dim=A.shape[2],
+            features_list=hyperparameters["features_list"],
+            activation=activation,
+        )
         params = model.init(
             jax.random.PRNGKey(SEED),
             x=X[:2, :, 0],
@@ -1015,6 +961,12 @@ if __name__ == "__main__":
             dest="save_results",
             help="Don't save the results.",
         )
+        parser.add_argument(
+            "--jax_loader",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Use the jax loader or not. If not, use pytorch loader.",
+        )
         parser.set_defaults(save_results=True)
         parser.set_defaults(plot_training=False)
         return parser.parse_args()
@@ -1032,6 +984,7 @@ if __name__ == "__main__":
     problem_nineq = dataset["problem_nineq"]
     problem_neq = dataset["problem_neq"]
     problem_examples = dataset["problem_examples"]
+    use_jax_loader = args.jax_loader
     # Configs path
     config_path = (
         pathlib.Path(__file__).parent.parent.parent.resolve()
@@ -1051,6 +1004,7 @@ if __name__ == "__main__":
         problem_nineq,
         problem_neq,
         problem_examples,
+        use_jax_loader,
         config_path,
         SEED,
         proj_method,
