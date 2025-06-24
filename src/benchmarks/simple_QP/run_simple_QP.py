@@ -19,8 +19,10 @@ from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
+import wandb
 from benchmarks.simple_QP.load_simple_QP import load_data
 from benchmarks.simple_QP.model import setup_model
+from hcnn.utils import GracefulShutdown, Logger
 
 jax.config.update("jax_enable_x64", True)
 
@@ -359,6 +361,8 @@ def main(
     proj_method,
     PLOT_TRAINING,
     SAVE_RESULTS,
+    run_name,
+    current_timestamp,
 ):
     """Main for running simple QP benchmarks."""
     # Load hyperparameter configuration
@@ -500,123 +504,150 @@ def main(
     eqcvs = []
     ineqcvs = []
     logging_dict = LoggingDict()
-    for step in (pbar := tqdm(range(N_EPOCHS))):
-        epoch_loss = []
-        batch_sizes = []
-        start_epoch_time = time.time()
-        for batch in train_loader:
-            X_batch, _ = batch
-            if proj_method == "pinet":
-                loss, state = train_step(
-                    state,
-                    X_batch[:, :, 0],
-                    X_batch,
-                    hyperparameters["sigma"],
-                    hyperparameters["omega"],
-                    n_iter_train,
-                    n_iter_bwd,
-                    fpi,
-                )
-            else:
-                loss, state = train_step(
-                    state,
-                    X_batch[:, :, 0],
-                    X_batch,
-                )
-            batch_sizes.append(X_batch.shape[0])
-            epoch_loss.append(loss)
-        weighted_epoch_loss = sum(
-            el * bs for el, bs in zip(epoch_loss, batch_sizes)
-        ) / sum(batch_sizes)
-        trainig_losses.append(weighted_epoch_loss)
-        pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")
-        train_time = time.time() - start_epoch_time
+    with (
+        Logger(run_name) as data_logger,
+        GracefulShutdown("Stop detected, finish epoch...") as g,
+    ):
+        data_logger.run.config.update(hyperparameters)
+        for step in (pbar := tqdm(range(N_EPOCHS))):
+            if g.stop:
+                break
+            epoch_loss = []
+            batch_sizes = []
+            start_epoch_time = time.time()
+            for batch in train_loader:
+                X_batch, _ = batch
+                if proj_method == "pinet":
+                    loss, state = train_step(
+                        state,
+                        X_batch[:, :, 0],
+                        X_batch,
+                        hyperparameters["sigma"],
+                        hyperparameters["omega"],
+                        n_iter_train,
+                        n_iter_bwd,
+                        fpi,
+                    )
+                else:
+                    loss, state = train_step(
+                        state,
+                        X_batch[:, :, 0],
+                        X_batch,
+                    )
+                batch_sizes.append(X_batch.shape[0])
+                epoch_loss.append(loss)
+            weighted_epoch_loss = sum(
+                el * bs for el, bs in zip(epoch_loss, batch_sizes)
+            ) / sum(batch_sizes)
+            trainig_losses.append(weighted_epoch_loss)
+            pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")
+            train_time = time.time() - start_epoch_time
 
-        if step % eval_every == 0:
-            start_evaluation_time = time.time()
-            obj, hcnn_obj, eq_cv, ineq_cv, _ = evaluate_hcnn(
-                loader=valid_loader,
-                state=state,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=n_iter_test,
-                batched_objective=batched_objective,
-                A=A,
-                G=G,
-                h=h,
-                prefix="Validation",
-                time_evals=0,
-                print_res=False,
-                proj_method=proj_method,
-            )
-            eqcvs.append(eq_cv.max())
-            ineqcvs.append(ineq_cv.max())
-            validation_losses.append(hcnn_obj.mean())
-            pbar.set_postfix(
-                {
-                    "eqcv": f"{eq_cv.mean():.5f}",
-                    "ineqcv": f"{ineq_cv.mean():.5f}",
-                    "Valid. Loss:": f"{hcnn_obj.mean():.5f}",
-                }
-            )
-            eval_time = time.time() - start_evaluation_time
-            logging_dict.update(
-                obj,
-                hcnn_obj,
-                eq_cv,
-                ineq_cv,
-                train_time,
-                eval_time,
-            )
-    training_time = time.time() - start_training_time
-    print(f"Training time: {training_time:.5f} seconds")
+            if step % eval_every == 0:
+                start_evaluation_time = time.time()
+                obj, hcnn_obj, eq_cv, ineq_cv, _ = evaluate_hcnn(
+                    loader=valid_loader,
+                    state=state,
+                    sigma=hyperparameters["sigma"],
+                    omega=hyperparameters["omega"],
+                    n_iter=n_iter_test,
+                    batched_objective=batched_objective,
+                    A=A,
+                    G=G,
+                    h=h,
+                    prefix="Validation",
+                    time_evals=0,
+                    print_res=False,
+                    proj_method=proj_method,
+                )
+                eqcvs.append(eq_cv.max())
+                ineqcvs.append(ineq_cv.max())
+                validation_losses.append(hcnn_obj.mean())
+                pbar.set_postfix(
+                    {
+                        "eqcv": f"{eq_cv.mean():.5f}",
+                        "ineqcv": f"{ineq_cv.mean():.5f}",
+                        "Valid. Loss:": f"{hcnn_obj.mean():.5f}",
+                    }
+                )
+                eval_time = time.time() - start_evaluation_time
+                logging_dict.update(
+                    obj,
+                    hcnn_obj,
+                    eq_cv,
+                    ineq_cv,
+                    train_time,
+                    eval_time,
+                )
+                data_logger.log(
+                    step,
+                    {
+                        "weighted_epoch_loss": weighted_epoch_loss,
+                        "batch_training_time": train_time,
+                        "validation_objective_mean": hcnn_obj.mean(),
+                        "validation_average_rs": (
+                            (hcnn_obj - obj) / jnp.abs(obj)
+                        ).mean(),
+                        "validation_eqcv_mean": eq_cv.mean(),
+                        "validation_ineqcv_mean": ineq_cv.mean(),
+                        "validation_time": eval_time,
+                    },
+                )
 
-    # Plot the results
-    if PLOT_TRAINING:
-        plotting(
-            train_loader,
-            valid_loader,
-            trainig_losses,
-            validation_losses,
-            eqcvs,
-            ineqcvs,
-            eval_every=eval_every,
+        training_time = time.time() - start_training_time
+        print(f"Training time: {training_time:.5f} seconds")
+
+        # Plot the results
+        if PLOT_TRAINING:
+            plotting(
+                train_loader,
+                valid_loader,
+                trainig_losses,
+                validation_losses,
+                eqcvs,
+                ineqcvs,
+                eval_every=eval_every,
+            )
+
+        # Evaluate validation performance
+        _ = evaluate_hcnn(
+            loader=valid_loader,
+            state=state,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_test"],
+            batched_objective=batched_objective,
+            prefix="Validation",
+            A=A,
+            G=G,
+            h=h,
+            proj_method=proj_method,
+        )
+        # Solve some validation individual problem
+        problem_idx = 4
+        evaluate_instance(
+            problem_idx=problem_idx,
+            loader=valid_loader,
+            state=state,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_test"],
+            use_DC3_dataset=use_DC3_dataset,
+            batched_objective=batched_objective,
+            A=A,
+            G=G,
+            h=h,
+            prefix="Validation",
+            proj_method=proj_method,
         )
 
-    # Evaluate validation performance
-    _ = evaluate_hcnn(
-        loader=valid_loader,
-        state=state,
-        sigma=hyperparameters["sigma"],
-        omega=hyperparameters["omega"],
-        n_iter=hyperparameters["n_iter_test"],
-        batched_objective=batched_objective,
-        prefix="Validation",
-        A=A,
-        G=G,
-        h=h,
-        proj_method=proj_method,
-    )
-    # Solve some validation individual problem
-    problem_idx = 4
-    evaluate_instance(
-        problem_idx=problem_idx,
-        loader=valid_loader,
-        state=state,
-        sigma=hyperparameters["sigma"],
-        omega=hyperparameters["omega"],
-        n_iter=hyperparameters["n_iter_test"],
-        use_DC3_dataset=use_DC3_dataset,
-        batched_objective=batched_objective,
-        A=A,
-        G=G,
-        h=h,
-        prefix="Validation",
-        proj_method=proj_method,
-    )
-
-    (obj_test, obj_fun_test, eq_viol_test, ineq_viol_test, batch_inference_times) = (
-        evaluate_hcnn(
+        (
+            obj_test,
+            obj_fun_test,
+            eq_viol_test,
+            ineq_viol_test,
+            batch_inference_times,
+        ) = evaluate_hcnn(
             loader=test_loader,
             state=state,
             sigma=hyperparameters["sigma"],
@@ -629,45 +660,133 @@ def main(
             h=h,
             proj_method=proj_method,
         )
-    )
-    # Evaluate for single inference time
-    (_, _, _, _, single_inference_times) = evaluate_hcnn(
-        loader=test_loader,
-        state=state,
-        sigma=hyperparameters["sigma"],
-        omega=hyperparameters["omega"],
-        n_iter=hyperparameters["n_iter_test"],
-        batched_objective=batched_objective,
-        prefix="Testing",
-        A=A,
-        G=G,
-        h=h,
-        single_instance=True,
-        instances=list(range(10)),
-        proj_method=proj_method,
-    )
-    # Solve some test problems
-    problem_idx = 0
-    evaluate_instance(
-        problem_idx=problem_idx,
-        loader=test_loader,
-        state=state,
-        sigma=hyperparameters["sigma"],
-        omega=hyperparameters["omega"],
-        n_iter=hyperparameters["n_iter_test"],
-        use_DC3_dataset=use_DC3_dataset,
-        batched_objective=batched_objective,
-        A=A,
-        G=G,
-        h=h,
-        prefix="Testing",
-        proj_method=proj_method,
-    )
+        # Evaluate for single inference time
+        (_, _, _, _, single_inference_times) = evaluate_hcnn(
+            loader=test_loader,
+            state=state,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_test"],
+            batched_objective=batched_objective,
+            prefix="Testing",
+            A=A,
+            G=G,
+            h=h,
+            single_instance=True,
+            instances=list(range(10)),
+            proj_method=proj_method,
+        )
+        # Solve some test problems
+        problem_idx = 0
+        evaluate_instance(
+            problem_idx=problem_idx,
+            loader=test_loader,
+            state=state,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_test"],
+            use_DC3_dataset=use_DC3_dataset,
+            batched_objective=batched_objective,
+            A=A,
+            G=G,
+            h=h,
+            prefix="Testing",
+            proj_method=proj_method,
+        )
+
+        # Log figures
+        fig, ax = plt.subplots()
+        # Relative suboptimality
+        rs = (obj_fun_test - obj_test) / jnp.abs(obj_test)
+        cv = jnp.maximum(eq_viol_test, ineq_viol_test)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlim(jnp.minimum(1e-14, jnp.min(cv)), jnp.maximum(1e-1, jnp.max(cv)))
+        ax.set_ylim(jnp.minimum(1e-5, jnp.min(rs)), jnp.maximum(1e-1, jnp.max(rs)))
+        # Plot thresholds
+        cvthres = 1e-3
+        rsthres = 5e-2
+        ax.hlines(
+            y=rsthres,
+            xmin=ax.get_xlim()[0],
+            xmax=cvthres,
+            color="red",
+            linestyle="--",
+        )
+        ax.plot(
+            [cvthres, cvthres],
+            [ax.get_ylim()[0], rsthres],
+            color="red",
+            linestyle="--",
+        )
+        ax.scatter(cv, rs, label="Πnet")
+        ax.set_xlabel("Constraint Violation")
+        ax.set_ylabel("Relative Suboptimality")
+        ax.set_title("Πnet")
+        ax.legend()
+        ax.grid(True)
+        fig.tight_layout()
+        data_logger.run.log({"RS vs CV": wandb.Image(fig)})
+
+        fig, ax1 = plt.subplots()
+
+        ax2 = ax1.twinx()
+
+        bp1 = ax1.boxplot(
+            [single_inference_times],
+            positions=[1],
+            widths=0.6,
+            patch_artist=True,
+            showfliers=True,
+        )
+        bp2 = ax2.boxplot(
+            [batch_inference_times],
+            positions=[2],
+            widths=0.6,
+            patch_artist=True,
+            showfliers=True,
+        )
+
+        bp1["boxes"][0].set_facecolor("#1f77b4")
+        bp2["boxes"][0].set_facecolor("#ff7f0e")
+
+        def pad_ylim(ax, data, pad_ratio=0.10):
+            ymin, ymax = jnp.min(data), jnp.max(data)
+            span = ymax - ymin
+            pad = span * pad_ratio if span else 1.0
+            ax.set_ylim(ymin - pad, ymax + pad)
+
+        pad_ylim(ax1, single_inference_times)
+        pad_ylim(ax2, batch_inference_times)
+
+        ax1.set_xticks([1, 2])
+        ax1.set_xticklabels(["Single Inference", "Batch Inference"])
+
+        ax1.set_ylabel("Inference Time [s]")
+        ax2.set_ylabel("Inference Time [s]")
+        ax1.set_title("Inference Time")
+
+        for spine in ("top",):
+            ax1.spines[spine].set_visible(False)
+            ax2.spines[spine].set_visible(False)
+
+        fig.tight_layout()
+        data_logger.run.log({"Inference Times": wandb.Image(fig)})
+
+        # Log summary metrics for wandb
+        data_logger.run.summary.update(
+            {
+                "Average RS Test": jnp.mean(rs),
+                "Max CV Test": jnp.max(cv),
+                "Percentage CV < tol": (1 - jnp.mean(cv > cvthres)) * 100,
+                "Average Single Inference Time": jnp.mean(single_inference_times),
+                "Average Batch Inference Time": jnp.mean(batch_inference_times),
+            },
+        )
 
     # Saving of overall results
     if SAVE_RESULTS:
         # Setup results path
-        current_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename_results = "results.npz"
         results_folder = (
             pathlib.Path(__file__).parent
@@ -786,6 +905,9 @@ if __name__ == "__main__":
     PLOT_TRAINING = args.plot_training
     SAVE_RESULTS = args.save_results
 
+    nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name = f"{args.config}_{'simple' if use_convex else 'nonconvex'}_{nowstamp}"
+
     main(
         use_DC3_dataset,
         use_convex,
@@ -800,4 +922,6 @@ if __name__ == "__main__":
         proj_method,
         PLOT_TRAINING,
         SAVE_RESULTS,
+        run_name,
+        nowstamp,
     )

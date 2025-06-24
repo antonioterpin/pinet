@@ -1,7 +1,8 @@
 """Utility functions and classes for logging and timing code execution."""
 
+import logging
+import signal
 import time
-from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 import wandb
@@ -10,20 +11,24 @@ PROJECT = "hcnn"
 
 # Log in to wandb automatically when the module is imported.
 wandb.login()
+logger = logging.getLogger(__name__)
 
 
 class Logger:
     """Encapsulates logging functionalities."""
 
-    def __init__(self, dataset: str) -> None:
+    def __init__(self, run_name: str) -> None:
         """Initializes the Logger and creates a new wandb run.
 
         Args:
-            dataset (str): The name of the dataset to be logged.
+            run_name (str): The name of the run to be logged.
         """
-        self.dataset = dataset
-        self.run = wandb.init(project=PROJECT)
-        self.run.name = dataset + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.run_name = run_name
+        self.run = wandb.init(
+            project=PROJECT,
+            name=self.run_name,
+            id=self.run_name,
+        )
 
     def __enter__(self) -> "Logger":
         """Enters the runtime context for Logger.
@@ -36,6 +41,19 @@ class Logger:
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         """Exits the runtime context and finishes the wandb run."""
         wandb.finish()
+
+    def log(
+        self,
+        t: int,
+        data: Dict[str, Any],
+    ):
+        """Logs data.
+
+        Args:
+            t (int): An indexing parameter (for example, the epoch).
+            data (Dict[str, Any]): A dictionary of variable names and values to log.
+        """
+        wandb.log(data, step=t)
 
     class Timer:
         """A context manager for timing code execution and logging the results."""
@@ -120,3 +138,32 @@ if __name__ == "__main__":
             value_a = 15
             value_b = 25
         print("Timer block ended. Logged metrics to wandb.")
+
+
+class GracefulShutdown:
+    """A context manager for graceful shutdowns."""
+
+    stop = False
+
+    def __init__(self, exit_message: Optional[str] = None):
+        """Initializes the GracefulShutdown context manager.
+
+        Args:
+            exit_message (str): The message to log upon shutdown.
+        """
+        self.exit_message = exit_message
+
+    def __enter__(self):
+        """Register the signal handler."""
+
+        def handle_signal(signum, frame):
+            self.stop = True
+            if self.exit_message:
+                logger.info(self.exit_message)
+
+        signal.signal(signal.SIGINT, handle_signal)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Unregister the signal handler."""
+        pass
