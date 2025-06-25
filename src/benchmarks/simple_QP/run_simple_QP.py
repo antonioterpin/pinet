@@ -311,6 +311,7 @@ def main(
         problem_neq,
         problem_examples,
         loader_key,
+        batch_size=hyperparameters.get("batch_size", 2048),
         use_jax_loader=use_jax_loader,
     )
 

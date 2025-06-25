@@ -173,6 +173,7 @@ def load_data(
     problem_neq,
     problem_examples,
     rng_key,
+    batch_size=2048,
     use_jax_loader=True,
 ):
     """Load problem data."""
@@ -189,7 +190,7 @@ def load_data(
 
         QPDataset = SimpleQPDataset(dataset_path)
         train_loader, valid_loader, test_loader = create_dataloaders(
-            dataset_path, batch_size=2048, val_split=0.1, test_split=0.1
+            dataset_path, batch_size=batch_size, val_split=0.1, test_split=0.1
         )
         Q, p, A, G, h = QPDataset.const
         p = p[0, :, :]
@@ -220,7 +221,7 @@ def load_data(
         )
         if not use_jax_loader:
             train_loader = dc3_dataloader(
-                dataset_path_train, use_convex, batch_size=2048
+                dataset_path_train, use_convex, batch_size=batch_size
             )
             valid_loader = dc3_dataloader(
                 dataset_path_valid, use_convex, batch_size=1024, shuffle=False
@@ -231,7 +232,10 @@ def load_data(
         else:
             loader_keys = jax.random.split(rng_key, 3)
             train_loader = JaxDataLoader(
-                dataset_path_train, use_convex, batch_size=2048, rng_key=loader_keys[0]
+                dataset_path_train,
+                use_convex,
+                batch_size=batch_size,
+                rng_key=loader_keys[0],
             )
             valid_loader = JaxDataLoader(
                 dataset_path_valid,

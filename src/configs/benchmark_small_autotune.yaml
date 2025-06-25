@@ -16,3 +16,4 @@ equilibrate:
   safeguard: False
 features_list: [200, 200]
 activation: relu
+batch_size: 2048

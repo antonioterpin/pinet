@@ -7,7 +7,7 @@ omega: 1.7
 unroll: False
 fpi: False
 n_iter_bwd: 25
-cvxpy_tol: 1.0e-3
+jaxopt_tol: 1.0e-3
 equilibrate:
   max_iter: 0
   tol: 1.0e-3
@@ -17,4 +17,4 @@ equilibrate:
   safeguard: False
 features_list: [200, 200]
 activation: relu
-batch_size: 2048
+batch_size: 1024
