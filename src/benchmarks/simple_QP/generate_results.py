@@ -106,15 +106,12 @@ def generate_learning_curves(id, config, filename, opt_obj_valid, plotting=False
     )
     objective_matrix = jnp.concatenate(objective_columns, axis=2)
     cv_matrix = jnp.concatenate(cv_columns, axis=2)
-    print(cv_matrix.shape)
     train_time_matrix = jnp.concatenate(train_time, axis=1)
-    print(train_time_matrix.shape)
     train_time_matrix = jnp.mean(jnp.cumsum(train_time_matrix, axis=0), axis=1)
     # Compute relative suboptimality for each run and instance
     rs_runs = (objective_matrix - optimal_objective_matrix) / jnp.abs(
         optimal_objective_matrix
     )
-    print(rs_runs.shape)
     # Average rs over run dimension (axis=2) and over instances (axis=1)
     avg_rs = jnp.mean(jnp.mean(rs_runs, axis=1), axis=1)
     std_rs = jnp.std(jnp.mean(rs_runs, axis=1), axis=1)
