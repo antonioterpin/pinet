@@ -11,7 +11,6 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import optax
 import torch
 import yaml
@@ -22,6 +21,11 @@ from tqdm import tqdm
 import wandb
 from benchmarks.simple_QP.load_simple_QP import load_data
 from benchmarks.simple_QP.model import setup_model
+from benchmarks.simple_QP.plotting import (
+    plot_inference_boxes,
+    plot_learning,
+    plot_rs_vs_cv,
+)
 from hcnn.utils import GracefulShutdown, Logger
 
 jax.config.update("jax_enable_x64", True)
@@ -34,79 +38,6 @@ def load_yaml(file_path: str) -> dict:
     with open(file_path, "r") as file:
         hyperparameters = yaml.safe_load(file)
     return hyperparameters
-
-
-def plotting(
-    train_loader,
-    valid_loader,
-    trainig_losses,
-    validation_losses,
-    eqcvs,
-    ineqcvs,
-    eval_every,
-):
-    """Plot training curves."""
-    opt_train_loss = []
-    for batch in train_loader:
-        _, obj_batch = batch
-        opt_train_loss.append(obj_batch)
-    opt_train_loss = jnp.concatenate(opt_train_loss, axis=0).mean()
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 4, 1)
-    plt.plot(trainig_losses, label="Training Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.axhline(
-        y=opt_train_loss,
-        color="r",
-        linestyle="-",
-        linewidth=2,
-        label="Optimal Training Objective",
-    )
-    plt.legend()
-
-    opt_valid_loss = []
-    for batch in valid_loader:
-        _, obj_batch = batch
-        opt_valid_loss.append(obj_batch)
-    opt_valid_loss = jnp.array(opt_valid_loss).mean()
-    plt.subplot(1, 4, 2)
-    plt.plot(
-        jnp.arange(len(validation_losses), dtype=jnp.int32) * eval_every,
-        validation_losses,
-        label="Validation Loss",
-    )
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.axhline(
-        y=opt_valid_loss,
-        color="r",
-        linestyle="-",
-        linewidth=2,
-        label="Optimal Validation Objective",
-    )
-    plt.legend()
-
-    plt.subplot(1, 4, 3)
-    plt.plot(
-        jnp.arange(len(validation_losses), dtype=jnp.int32) * eval_every,
-        eqcvs,
-        label="Equality Constraint Violation",
-    )
-    plt.xlabel("Epoch")
-    plt.ylabel("Max Equality Violation")
-
-    plt.subplot(1, 4, 4)
-    plt.plot(
-        jnp.arange(len(validation_losses), dtype=jnp.int32) * eval_every,
-        ineqcvs,
-        label="Inequality Constraint Violation",
-    )
-    plt.xlabel("Epoch")
-    plt.ylabel("Max Inequality Violation")
-
-    plt.tight_layout()
-    plt.show()
 
 
 class LoggingDict:
@@ -599,7 +530,7 @@ def main(
 
         # Plot the results
         if PLOT_TRAINING:
-            plotting(
+            plot_learning(
                 train_loader,
                 valid_loader,
                 trainig_losses,
@@ -695,82 +626,18 @@ def main(
         )
 
         # Log figures
-        fig, ax = plt.subplots()
-        # Relative suboptimality
-        rs = (obj_fun_test - obj_test) / jnp.abs(obj_test)
-        cv = jnp.maximum(eq_viol_test, ineq_viol_test)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlim(jnp.minimum(1e-14, jnp.min(cv)), jnp.maximum(1e-1, jnp.max(cv)))
-        ax.set_ylim(jnp.minimum(1e-5, jnp.min(rs)), jnp.maximum(1e-1, jnp.max(rs)))
-        # Plot thresholds
         cvthres = 1e-3
         rsthres = 5e-2
-        ax.hlines(
-            y=rsthres,
-            xmin=ax.get_xlim()[0],
-            xmax=cvthres,
-            color="red",
-            linestyle="--",
+        fig, rs, cv = plot_rs_vs_cv(
+            obj_fun_test=obj_fun_test,
+            obj_test=obj_test,
+            eq_viol_test=eq_viol_test,
+            ineq_viol_test=ineq_viol_test,
+            cvthres=cvthres,
+            rsthres=rsthres,
         )
-        ax.plot(
-            [cvthres, cvthres],
-            [ax.get_ylim()[0], rsthres],
-            color="red",
-            linestyle="--",
-        )
-        ax.scatter(cv, rs, label="Πnet")
-        ax.set_xlabel("Constraint Violation")
-        ax.set_ylabel("Relative Suboptimality")
-        ax.set_title("Πnet")
-        ax.legend()
-        ax.grid(True)
-        fig.tight_layout()
         data_logger.run.log({"RS vs CV": wandb.Image(fig)})
-
-        fig, ax1 = plt.subplots()
-
-        ax2 = ax1.twinx()
-
-        bp1 = ax1.boxplot(
-            [single_inference_times],
-            positions=[1],
-            widths=0.6,
-            patch_artist=True,
-            showfliers=True,
-        )
-        bp2 = ax2.boxplot(
-            [batch_inference_times],
-            positions=[2],
-            widths=0.6,
-            patch_artist=True,
-            showfliers=True,
-        )
-
-        bp1["boxes"][0].set_facecolor("#1f77b4")
-        bp2["boxes"][0].set_facecolor("#ff7f0e")
-
-        def pad_ylim(ax, data, pad_ratio=0.10):
-            ymin, ymax = jnp.min(data), jnp.max(data)
-            span = ymax - ymin
-            pad = span * pad_ratio if span else 1.0
-            ax.set_ylim(ymin - pad, ymax + pad)
-
-        pad_ylim(ax1, single_inference_times)
-        pad_ylim(ax2, batch_inference_times)
-
-        ax1.set_xticks([1, 2])
-        ax1.set_xticklabels(["Single Inference", "Batch Inference"])
-
-        ax1.set_ylabel("Inference Time [s]")
-        ax2.set_ylabel("Inference Time [s]")
-        ax1.set_title("Inference Time")
-
-        for spine in ("top",):
-            ax1.spines[spine].set_visible(False)
-            ax2.spines[spine].set_visible(False)
-
-        fig.tight_layout()
+        fig = plot_inference_boxes(single_inference_times, batch_inference_times)
         data_logger.run.log({"Inference Times": wandb.Image(fig)})
 
         # Log summary metrics for wandb

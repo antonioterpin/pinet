@@ -24,6 +24,7 @@ setup(
         "torch>=2.6.0",
         "cvxpylayers>=0.1.9",
         "jaxopt>=0.8.5",
+        "wandb>=0.20.1",
     ],
     extras_require={
         "dev": [
