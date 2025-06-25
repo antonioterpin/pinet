@@ -1,13 +1,11 @@
 """Module for the Alternating Direction Method of Multipliers (ADMM) solver."""
 
-from typing import Callable, Tuple
+from typing import Callable
 
 import jax.numpy as jnp
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.box import BoxConstraint
-
-# TODO: Adapt the final step of all versions.
 
 
 def build_iteration_step(
@@ -15,8 +13,8 @@ def build_iteration_step(
     box_constraint: BoxConstraint,
     dim: int,
     scale: jnp.ndarray = 1.0,
-) -> Tuple[
-    Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+) -> tuple[
+    Callable[[jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
 ]:
     """Build the iteration and result retrieval step for the ADMM solver.
@@ -29,7 +27,7 @@ def build_iteration_step(
         scale (jnp.ndarray): Scaling of primal variables.
 
     Returns:
-        Tuple[
+        tuple[
             Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
             Callable[[jnp.ndarray], jnp.ndarray]
         ]:
@@ -42,12 +40,14 @@ def build_iteration_step(
         xproj: jnp.ndarray,
         sigma: float = 1.0,
         omega: float = 1.7,
-    ):
+    ) -> jnp.ndarray:
         """One iteration of the ADMM solver.
 
         Args:
             xk (jnp.ndarray): State iterate for the ADMM solver.
-            xproj (jnp.ndarray): Tensor to be projected.
+                Shape (batch_size, lifted_dimension, 1).
+            xproj (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
             sigma (float, optional): ADMM parameter.
             omega (float, optional): ADMM parameter.
 
@@ -77,7 +77,7 @@ def build_iteration_step_vb(
     box_constraint: BoxConstraint,
     dim: int,
     scale: jnp.ndarray = 1.0,
-) -> Tuple[
+) -> tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
 ]:
@@ -88,12 +88,11 @@ def build_iteration_step_vb(
     Args:
         eq_constraint (EqualityConstraint): (Lifted) Equality constraint.
         box_constraint (BoxConstraint): (Lifted) Box constraint.
-        b: Right-hand side vector for equality.
         dim (int): Dimension of the original problem.
         scale (jnp.ndarray): Scaling of primal variables.
 
     Returns:
-        Tuple[
+        tuple[
             Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
             Callable[[jnp.ndarray], jnp.ndarray]
         ]:
@@ -107,12 +106,16 @@ def build_iteration_step_vb(
         b: jnp.ndarray,
         sigma: float = 1.0,
         omega: float = 1.7,
-    ):
+    ) -> jnp.ndarray:
         """One iteration of the ADMM solver.
 
         Args:
             xk (jnp.ndarray): State iterate for the ADMM solver.
-            xproj (jnp.ndarray): Tensor to be projected.
+                Shape (batch_size, lifted_dimension, 1).
+            xproj (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
+            b: Right-hand side vector for equality.
+                Shape (batch_size, n_constraints, 1).
             sigma (float, optional): ADMM parameter.
             omega (float, optional): ADMM parameter.
 
@@ -141,7 +144,8 @@ def build_iteration_step_vAb(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
-) -> Tuple[
+    scale: jnp.ndarray = 1.0,
+) -> tuple[
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     Callable[[jnp.ndarray], jnp.ndarray],
 ]:
@@ -153,9 +157,10 @@ def build_iteration_step_vAb(
         eq_constraint (EqualityConstraint): (Lifted) Equality constraint.
         box_constraint (BoxConstraint): (Lifted) Box constraint.
         dim (int): Dimension of the original problem.
+        scale (jnp.ndarray): Scaling of primal variables.
 
     Returns:
-        Tuple[
+        tuple[
             Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
             Callable[[jnp.ndarray], jnp.ndarray]
         ]:
@@ -171,15 +176,20 @@ def build_iteration_step_vAb(
         Apinv: jnp.ndarray,
         sigma: float = 1.0,
         omega: float = 1.7,
-    ):
+    ) -> jnp.ndarray:
         """One iteration of the ADMM solver.
 
         Args:
             xk (jnp.ndarray): State iterate for the ADMM solver.
-            xproj (jnp.ndarray): Tensor to be projected.
+                Shape (batch_size, lifted_dimension, 1).
+            xproj (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
             b: Right-hand side vector for equality.
+                Shape (batch_size, n_constraints, 1).
             A: Left-hand side matrix for equality.
+                Shape (batch_size, n_constraints, lifted_dimension).
             Apinv: Pseudo-inverse of A.
+                Shape (batch_size, lifted_dimension, n_constraints).
             sigma (float, optional): ADMM parameter.
             omega (float, optional): ADMM parameter.
 
@@ -190,7 +200,8 @@ def build_iteration_step_vAb(
         reflect = 2 * dk - xk
         tobox = jnp.concatenate(
             (
-                (2 * sigma * xproj + reflect[:, :dim, :]) / (1 + 2 * sigma),
+                (2 * sigma * scale * xproj + reflect[:, :dim, :])
+                / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),
             axis=1,

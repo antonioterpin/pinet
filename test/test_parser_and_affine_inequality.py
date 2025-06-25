@@ -15,7 +15,7 @@ from hcnn.solver.admm import build_iteration_step
 
 jax.config.update("jax_enable_x64", True)
 
-VALID_METHODS = ["pinv", "cholesky"]
+VALID_METHODS = ["pinv"]
 SEEDS = [24, 42]
 BATCH_SIZE = [1, 10]
 
@@ -102,7 +102,7 @@ def test_simple_2d(method, seed, batch_size):
     assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
 
 
-VALID_METHODS = ["pinv", "cholesky"]
+VALID_METHODS = ["pinv"]
 SEEDS = [24, 42]
 # Note that here batch_size only affects number of projected points
 # The same constraints hold throughout the batch

@@ -12,7 +12,7 @@ def ruiz_equilibration(
     col_scaling: bool = False,
     update_mode: str = "Gauss",
     safeguard: bool = False,
-):
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Perform modified Ruiz equilibration on matrix A.
 
     Ruiz equilibration iteratively scales the rows and columns of A so that

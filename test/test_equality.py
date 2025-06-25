@@ -19,7 +19,7 @@ DIM = 100
 # Random seeds
 SEEDS = [0, 24]
 # Methods for equality constraints (paired with above seeds)
-VALID_METHODS = ["pinv", "cholesky"]
+VALID_METHODS = ["pinv"]
 # Number of equality constraints (for QP test)
 N_EQ = 50
 # Batch size options

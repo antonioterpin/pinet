@@ -9,17 +9,20 @@ class AffineInequalityConstraint(Constraint):
     """Affine inequality constraint set.
 
     The (affine) inequality constraint set is defined as:
-    l <= C @ x <= u
-    where the matrix C and the vectors l and u are the parameters.
+    lb <= C @ x <= ub
+    where the matrix C and the vectors lb and ub are the parameters.
     """
 
-    def __init__(self, C: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray):
+    def __init__(self, C: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray) -> None:
         """Initialize the affine inequality constraint.
 
         Args:
             C (jnp.ndarray): The matrix C in the inequality.
+                Shape (batch_size, n_constraints, dimension).
             lb (jnp.ndarray): The lower bound in the inequality.
+                Shape (batch_size, n_constraints, 1).
             ub (jnp.ndarray): The upper bound in the inequality.
+                Shape (batch_size, n_constraints, 1).
         """
         self.C = C
         self.lb = lb
@@ -48,18 +51,18 @@ class AffineInequalityConstraint(Constraint):
             self.C.shape[1] == self.ub.shape[1]
         ), "Number of rows in C must equal size of u."
 
-    def project(self, x):
+    def project(self, x) -> jnp.ndarray:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            x (numpy.ndarray): The point to be projected. Shape (batch_size, n_dims).
+            x (jnp.ndarray): The point to be projected. Shape (batch_size, dimension, 1).
         """
         raise NotImplementedError(
             "The 'project' method is not implemented and should not be called."
         )
 
     @property
-    def dim(self):
+    def dim(self) -> int:
         """Return the dimension of the constraint set."""
         return self.C.shape[-1]
 

@@ -1,6 +1,7 @@
-"""Flax implementation of the projection layer."""
+"""Implementation of the projection layer."""
 
 from functools import partial
+from typing import Callable
 
 import jax
 from jax import numpy as jnp
@@ -32,7 +33,7 @@ from hcnn.solver.admm import (
 #   It does not seem to be taking very long so
 #   maybe we can leave this for a later stage.
 class Project:
-    """Projection layer implemented via iterative projections."""
+    """Projection layer implemented via Douglas-Rachford."""
 
     eq_constraint: EqualityConstraint = None
     ineq_constraint: AffineInequalityConstraint = None
@@ -53,15 +54,13 @@ class Project:
             "update_mode": "Gauss",
             "safeguard": False,
         },
-    ):
+    ) -> None:
         """Initialize projection layer.
 
         Args:
             eq_constraint (EqualityConstraint): Equality constraint.
             ineq_constraint (AffineInequalityConstraint): Inequality constraint.
             box_constraint (BoxConstraint): Box constraint.
-            sigma (float): ADMM scaling parameter.
-            omega (float): ADMM relaxation parameter.
             unroll (bool): Use loop unrolling for backpropagation.
             equilibrate (dict): Dictionary with equilibration parameters.
         """
@@ -72,7 +71,7 @@ class Project:
         self.equilibrate = equilibrate
         self.setup()
 
-    def setup(self):
+    def setup(self) -> None:
         """Setup the projection layer."""
         self.constraints = [
             c
@@ -234,7 +233,7 @@ class Project:
         # jit correctly the call method
         self.call = self._project
 
-    def cv(self, x):
+    def cv(self, x) -> jnp.ndarray:
         """Compute the constraint violation.
 
         If there are equality constraints that have variable A or b,
@@ -242,6 +241,10 @@ class Project:
 
         Args:
             x (jnp.ndarray): Point to be evaluated.
+                Shape (batch_size, dimension, 1).
+
+        Returns:
+            jnp.ndarray: Constraint violation for each point in the batch.
         """
         x = x.reshape(x.shape[0], x.shape[1], 1)
         cv = jnp.zeros((x.shape[0], 1, 1))
@@ -260,6 +263,23 @@ class Project:
         interpolation_value: float = 0,
         n_iter: int = 0,
     ) -> jnp.ndarray:
+        """Project a batch of points using Douglas-Rachford.
+
+        Args:
+            y0 (jnp.ndarray): Initial value for the governing sequence.
+                Shape (batch_size, dim_lifted, 1).
+            x (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
+            b (jnp.ndarray): Right-hand side of the equality constraint.
+                Shape (batch_size, n_constraints, 1).
+            A (jnp.ndarray): Coefficient matrix of the equality constraint.
+                Shape (n_constraints, dimension, 1).
+            interpolation_value (float): Interpolation value between x and y.
+            n_iter (int): Number of iterations to run.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+        """
         # First write in lifted formulation
         b_lifted = jnp.concatenate(
             [
@@ -303,6 +323,17 @@ class Project:
     def _project_single(
         self, x: jnp.ndarray, interpolation_value: float = 0, _: int = 0
     ) -> jnp.ndarray:
+        """Project a batch of points with single constraint.
+
+        Args:
+            x (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
+            interpolation_value (float): Interpolation value between x and y.
+            _ (int): Unused argument for compatibility.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+        """
         y = self.single_constraint.project(
             x.reshape((x.shape[0], x.shape[1], 1))
         ).reshape(x.shape)
@@ -311,6 +342,19 @@ class Project:
     def _project_single_vb(
         self, x: jnp.ndarray, b: jnp.ndarray, interpolation_value: float = 0, _: int = 0
     ) -> jnp.ndarray:
+        """Project a batch of points on equality constraint with variable b.
+
+        Args:
+            x (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
+            b (jnp.ndarray): Right-hand side of the equality constraint.
+                Shape (batch_size, n_constraints, 1).
+            interpolation_value (float): Interpolation value between x and y.
+            _ (int): Unused argument for compatibility.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+        """
         y = self.single_constraint.project(
             x.reshape((x.shape[0], x.shape[1], 1)), b
         ).reshape(x.shape)
@@ -324,6 +368,21 @@ class Project:
         interpolation_value: float = 0,
         _: int = 0,
     ) -> jnp.ndarray:
+        """Project a batch of points on equality constraint with variable A, b.
+
+        Args:
+            x (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
+            b (jnp.ndarray): Right-hand side of the equality constraint.
+                Shape (batch_size, n_constraints, 1).
+            A (jnp.ndarray): Coefficient matrix of the equality constraint.
+                Shape (batch_size, n_constraints, dimension).
+            interpolation_value (float): Interpolation value between x and y.
+            _ (int): Unused argument for compatibility.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+        """
         if self.eq_constraint.method == "pinv":
             Apinv = jnp.linalg.pinv(A)
         else:
@@ -347,8 +406,8 @@ class Project:
 
 # Project general
 def _project_general(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[[jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray],
+    step_final: Callable[[jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
@@ -358,7 +417,28 @@ def _project_general(
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
-) -> jnp.ndarray:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Project a batch of points using Douglas-Rachford.
+
+    Args:
+        step_iteration (callable): Function for the iteration step.
+        step_final (callable): Function for the final step.
+        dim_lifted (int): Dimension of the lifted space.
+        d_r (jnp.ndarray): Scaling factor for the rows.
+        d_c (jnp.ndarray): Scaling factor for the columns.
+        y0 (jnp.ndarray): Initial value for the governing sequence.
+            Shape (batch_size, dim_lifted, 1).
+        x (jnp.ndarray): Point to be projected.
+            Shape (batch_size, dimension, 1).
+        interpolation_value (float): Interpolation value between x and y.
+        sigma (float): ADMM parameter.
+        omega (float): ADMM parameter.
+        n_iter (int): Number of iterations to run.
+
+    Returns:
+        tuple[jnp.ndarray, jnp.ndarray]: First output is the projected
+            point, and second output is the value of the governing sequence.
+    """
     y = y0
     y, _ = jax.lax.scan(
         lambda y, _: (
@@ -377,8 +457,8 @@ def _project_general(
 
 @partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 10, 11, 12])
 def _project_general_custom(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[[jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray],
+    step_final: Callable[[jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
@@ -390,7 +470,8 @@ def _project_general_custom(
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
-):
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Auxiliary function to define custom vjp."""
     return _project_general(
         step_iteration,
         step_final,
@@ -407,8 +488,8 @@ def _project_general_custom(
 
 
 def _project_general_fwd(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[[jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray],
+    step_final: Callable[[jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
@@ -421,6 +502,7 @@ def _project_general_fwd(
     n_iter_bwd: int = 5,
     fpi: bool = False,
 ):
+    """Forward pass for custom vjp."""
     y, y_aux = _project_general_custom(
         step_iteration,
         step_final,
@@ -447,8 +529,40 @@ def _project_general_fwd(
 
 
 def _project_general_bwd(
-    step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
-):
+    step_iteration: Callable[[jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray],
+    step_final: Callable[[jnp.ndarray], jnp.ndarray],
+    dim_lifted: int,
+    n_iter: int,
+    n_iter_bwd: int,
+    fpi: bool,
+    res: tuple,
+    g: jnp.ndarray,
+) -> tuple:
+    """Backward pass for custom vjp.
+
+    This function computes the vjp for the projection using the
+    implicit function theorem.
+    Note that, the arguments are:
+    (i) any arguments for the
+    forward that are not jnp.ndarray;
+    (ii) res: tuple with auxiliary data from the forward pass;
+    (iii) g: incoming cotangents.
+    The function returns a tuple where each element corresponds
+    to a jnp.ndarray from the input.
+
+    Args:
+        step_iteration (callable): Function for the iteration step.
+        step_final (callable): Function for the final step.
+        dim_lifted (int): Dimension of the lifted space.
+        n_iter (int): Number of iterations to run.
+        n_iter_bwd (int): Number of iterations for backward pass.
+        fpi (bool): Whether to use fixed-point iteration.
+        res (tuple): Auxiliary data from the forward pass.
+        g (tuple): Incoming cotangents.
+
+    Returns:
+        tuple: The computed cotangent for the projection.
+    """
     aux_proj, xproj, d_r, d_c, sigma, omega = res
     _, iteration_vjp = jax.vjp(
         lambda xx: step_iteration(xx, xproj, sigma, omega), aux_proj
@@ -497,8 +611,10 @@ _project_general_custom.defvjp(_project_general_fwd, _project_general_bwd)
 
 # Project general variable b
 def _project_general_vb(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray
+    ],
+    step_final: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
@@ -509,7 +625,30 @@ def _project_general_vb(
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
-) -> jnp.ndarray:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Project a batch of points using Douglas-Rachford.
+
+    Args:
+        step_iteration (callable): Function for the iteration step.
+        step_final (callable): Function for the final step.
+        dim_lifted (int): Dimension of the lifted space.
+        d_r (jnp.ndarray): Scaling factor for the rows.
+        d_c (jnp.ndarray): Scaling factor for the columns.
+        y0 (jnp.ndarray): Initial value for the governing sequence.
+            Shape (batch_size, dim_lifted, 1).
+        x (jnp.ndarray): Point to be projected.
+            Shape (batch_size, dimension, 1).
+        b (jnp.ndarray): Right-hand side of the equality constraint.
+            Shape (batch_size, n_constraints, 1).
+        interpolation_value (float): Interpolation value between x and y.
+        sigma (float): ADMM parameter.
+        omega (float): ADMM parameter.
+        n_iter (int): Number of iterations to run.
+
+    Returns:
+        tuple[jnp.ndarray, jnp.ndarray]: First output is the projected
+            point, and second output is the value of the governing sequence.
+    """
     dim = x.shape[1]
     # First write in lifted formulation
     b_lifted = (
@@ -544,8 +683,10 @@ def _project_general_vb(
 
 @partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 11, 12, 13])
 def _project_general_vb_custom(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray
+    ],
+    step_final: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
@@ -558,7 +699,8 @@ def _project_general_vb_custom(
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
-):
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Auxiliary function to define custom vjp."""
     return _project_general_vb(
         step_iteration,
         step_final,
@@ -576,8 +718,10 @@ def _project_general_vb_custom(
 
 
 def _project_general_vb_fwd(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray
+    ],
+    step_final: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
@@ -591,6 +735,7 @@ def _project_general_vb_fwd(
     n_iter_bwd: int = 5,
     fpi: bool = False,
 ):
+    """Forward pass for custom vjp."""
     dim = x.shape[1]
     # First write in lifted formulation
     b_lifted = (
@@ -631,8 +776,42 @@ def _project_general_vb_fwd(
 
 
 def _project_general_vb_bwd(
-    step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
+    step_iteration: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray
+    ],
+    step_final: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+    dim_lifted: int,
+    n_iter: int,
+    n_iter_bwd: int,
+    fpi: bool,
+    res: tuple,
+    g: jnp.ndarray,
 ):
+    """Backward pass for custom vjp.
+
+    This function computes the vjp for the projection using the
+    implicit function theorem.
+    Note that, the arguments are:
+    (i) any arguments for the
+    forward that are not jnp.ndarray;
+    (ii) res: tuple with auxiliary data from the forward pass;
+    (iii) g: incoming cotangents.
+    The function returns a tuple where each element corresponds
+    to a jnp.ndarray from the input.
+
+    Args:
+        step_iteration (callable): Function for the iteration step.
+        step_final (callable): Function for the final step.
+        dim_lifted (int): Dimension of the lifted space.
+        n_iter (int): Number of iterations to run.
+        n_iter_bwd (int): Number of iterations for backward pass.
+        fpi (bool): Whether to use fixed-point iteration.
+        res (tuple): Auxiliary data from the forward pass.
+        g (tuple): Incoming cotangents.
+
+    Returns:
+        tuple: The computed cotangent for the projection.
+    """
     aux_proj, xproj, b_lifted, d_r, d_c, sigma, omega = res
     _, iteration_vjp = jax.vjp(
         lambda xx: step_iteration(xx, xproj, b_lifted, sigma, omega), aux_proj
@@ -676,19 +855,3 @@ def _project_general_vb_bwd(
 
 
 _project_general_vb_custom.defvjp(_project_general_vb_fwd, _project_general_vb_bwd)
-
-# An interesting take away from this iterative approach
-# is that you need to get the active constraints right.
-# Once you have the correct active constraints,
-# then you can just compute the gradient
-# using the VJPs.
-# Even more interesting, we might be able to seriously bring
-# down the size of the backpropagation iteration,
-# by exploiting the fact that we only care about the active
-# constraints.
-# Concretely, we can ran the back iteration
-# for a much smaller size of augment auxiliary variable.
-##################
-# Regardles of the previous (but leading there), I can
-# implement a solution guessing, where I round the
-# constraints that appear active.

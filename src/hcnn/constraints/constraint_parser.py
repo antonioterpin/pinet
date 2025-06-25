@@ -1,7 +1,5 @@
 """Parser of constraints to lifted representation module."""
 
-from typing import Tuple
-
 import jax.numpy as jnp
 import numpy as np
 
@@ -13,10 +11,8 @@ from hcnn.constraints.box import BoxConstraint
 class ConstraintParser:
     """Parse constraints into a lifted representation.
 
-    This class takes as input an equality, an inequality,
-    and optionally a box constraint.
-    It returns an equivalent equality and box constraint
-    in a lifted representation.
+    This class takes as input an equality, an inequality, and a box constraint.
+    It returns an equivalent equality and box constraint in a lifted representation.
     """
 
     def __init__(
@@ -24,13 +20,13 @@ class ConstraintParser:
         eq_constraint: EqualityConstraint,
         ineq_constraint: AffineInequalityConstraint,
         box_constraint: BoxConstraint = None,
-    ):
+    ) -> None:
         """Initiaze the constraint parser.
 
         Args:
-            eq_constraint: An equality constraint.
-            ineq_constraint: An inequality constraint.
-            box_constraint: A box constraint.
+            eq_constraint (EqualityConstraint): An equality constraint.
+            ineq_constraint (AffineInequalityConstraint): An inequality constraint.
+            box_constraint (BoxConstraint): A box constraint.
         """
         if ineq_constraint is None:
             # The constraints do not need lifting.
@@ -74,12 +70,12 @@ class ConstraintParser:
                 or self.box_constraint.upper_bound.shape[0] == 1
             ), "Batch sizes of ub and upper_bound must be consistent."
 
-    def parse(self, method: str = "pinv") -> Tuple[EqualityConstraint, BoxConstraint]:
+    def parse(self, method: str = "pinv") -> tuple[EqualityConstraint, BoxConstraint]:
         """Parse the constraints into a lifted representation.
 
         Args:
             method: A string that specifies the method used to solve
-                linear systems. Valid method "pinv", "cholesky".
+                linear systems. Valid method "pinv", and None.
 
         Returns:
             A tuple of constraints: (eq_constraint, box_constraint)
@@ -127,8 +123,6 @@ class ConstraintParser:
             var_b=self.eq_constraint.var_b,
             var_A=self.eq_constraint.var_A,
         )
-        # TODO: Memory management? After building the lifted
-        # matrix we could probably discard the original one.
 
         if self.box_constraint is None:
             # We only project the lifted part.

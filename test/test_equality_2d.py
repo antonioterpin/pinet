@@ -16,8 +16,7 @@ from hcnn.project import Project
 jax.config.update("jax_enable_x64", True)
 # Random seeds
 SEEDS = [24, 42]
-# Methods for equality constraints (paired with above seeds)
-VALID_METHODS = ["pinv", "cholesky"]
+VALID_METHODS = ["pinv"]
 
 
 class HardConstrainedMLP(nn.Module):

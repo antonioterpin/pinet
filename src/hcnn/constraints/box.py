@@ -14,7 +14,7 @@ class BoxConstraint(Constraint):
 
     The box constraint set is defined as the Cartesian product of intervals.
     The interval is defined by a lower and an upper bound.
-    The constraint possibly act only on a subset of the dimensions,
+    The constraint possibly acts only on a subset of the dimensions,
     defined by a mask.
     """
 
@@ -26,15 +26,17 @@ class BoxConstraint(Constraint):
         lower_bound: jnp.ndarray,
         upper_bound: jnp.ndarray,
         mask: Optional[np.ndarray] = None,
-    ):
+    ) -> None:
         """Initialize the box constraint.
 
         Args:
             lower_bound (jnp.ndarray): Lower bound of the box.
+                Shape (batch_size, n_constraints, 1).
             upper_bound (jnp.ndarray): Upper bound of the box.
-            mask (np.ndarray): Mask to apply the constraint only to some dimensions.
+                Shape (batch_size, n_constraints, 1).
+            mask (jnp.ndarray): Mask to apply the constraint only to some dimensions.
                 The same mask is applied to the entire batch.
-                Must be a np.ndarray to be compatible with jit.
+                Must be a jnp.ndarray to be compatible with jit.
         """
         if mask is None:
             mask = np.ones(shape=(lower_bound.shape[1]), dtype=jnp.bool_)
@@ -68,7 +70,12 @@ class BoxConstraint(Constraint):
         """Project the input to the feasible region.
 
         Args:
-            x: Input to be projected. jnp.ndarray with shape (n, d).
+            x (jnp.ndarray): Input to be projected.
+                Shape (batch_size, dimension, 1).
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+                Shape (batch_size, dimension, 1).
         """
         return x.at[:, self.masked_idx, :].set(
             jnp.clip(x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
@@ -91,7 +98,7 @@ class BoxConstraint(Constraint):
         return jnp.maximum(tmp, 0)
 
     @property
-    def dim(self):
+    def dim(self) -> int:
         """Return the dimension of the constraint set."""
         return self.lower_bound.shape[1]
 
