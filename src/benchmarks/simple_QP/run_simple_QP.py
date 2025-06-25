@@ -13,12 +13,12 @@ import jax
 import jax.numpy as jnp
 import optax
 import torch
+import wandb
 import yaml
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
-import wandb
 from benchmarks.simple_QP.load_simple_QP import load_data
 from benchmarks.simple_QP.model import setup_model
 from benchmarks.simple_QP.plotting import (
