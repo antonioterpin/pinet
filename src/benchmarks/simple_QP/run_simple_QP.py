@@ -7,7 +7,6 @@ import argparse
 import datetime
 import pathlib
 import time
-from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -72,9 +71,6 @@ class LoggingDict:
 def evaluate_hcnn(
     loader,
     state,
-    sigma,
-    omega,
-    n_iter,
     batched_objective,
     A,
     G,
@@ -88,26 +84,14 @@ def evaluate_hcnn(
     proj_method="pinet",
 ):
     """Evaluate the performance of the HCNN."""
-    if proj_method == "pinet":
 
-        def predict(xx):
-            return state.apply_fn(
-                {"params": state.params},
-                xx[:, :, 0],
-                xx,
-                sigma=sigma,
-                omega=omega,
-                n_iter=n_iter,
-            )
-
-    else:
-
-        def predict(xx):
-            return state.apply_fn(
-                {"params": state.params},
-                xx[:, :, 0],
-                xx,
-            )
+    def predict(xx):
+        return state.apply_fn(
+            {"params": state.params},
+            x=xx[:, :, 0],
+            b=xx,
+            test=True,
+        )
 
     # This assumes the loader handles all the data in one batch.
     for X, obj in loader:
@@ -201,9 +185,6 @@ def evaluate_instance(
     problem_idx,
     loader,
     state,
-    sigma,
-    omega,
-    n_iter,
     use_DC3_dataset,
     batched_objective,
     A,
@@ -218,21 +199,12 @@ def evaluate_instance(
     for X, obj in loader:
         pass
 
-    if proj_method == "pinet":
-        predictions = state.apply_fn(
-            {"params": state.params},
-            X[problem_idx, :, 0].reshape((1, X.shape[1])),
-            X[problem_idx].reshape((1, X.shape[1], 1)),
-            sigma=sigma,
-            omega=omega,
-            n_iter=n_iter,
-        )
-    else:
-        predictions = state.apply_fn(
-            {"params": state.params},
-            X[problem_idx, :, 0].reshape((1, X.shape[1])),
-            X[problem_idx].reshape((1, X.shape[1], 1)),
-        )
+    predictions = state.apply_fn(
+        {"params": state.params},
+        x=X[problem_idx, :, 0].reshape((1, X.shape[1])),
+        b=X[problem_idx].reshape((1, X.shape[1], 1)),
+        test=True,
+    )
 
     objective_val_hcnn = batched_objective(predictions).item()
     eqcv_val_hcnn = jnp.abs(
@@ -357,51 +329,28 @@ def main(
     # batched_penalty_form = jax.vmap(penalty_form, in_axes=[0])
 
     # Setup the MLP training routine
-    if proj_method == "pinet":
+    def train_step(
+        state,
+        x_batch,
+        b_batch,
+    ):
+        """Run a single training step."""
 
-        @partial(jax.jit, static_argnames=["n_iter", "n_iter_bwd", "fpi"])
-        def train_step(state, x_batch, b_batch, sigma, omega, n_iter, n_iter_bwd, fpi):
-            """Run a single training step."""
+        def loss_fn(params):
+            predictions = state.apply_fn(
+                {"params": params},
+                x=x_batch,
+                b=b_batch,
+                test=False,
+            )
+            return batched_objective(predictions).mean()
 
-            def loss_fn(params):
-                predictions = state.apply_fn(
-                    {"params": params},
-                    x_batch,
-                    b_batch,
-                    sigma,
-                    omega,
-                    n_iter,
-                    n_iter_bwd,
-                    fpi,
-                )
-                return batched_objective(predictions).mean()
+        loss, grads = jax.value_and_grad(loss_fn)(state.params)
+        return loss, state.apply_gradients(grads=grads)
 
-            loss, grads = jax.value_and_grad(loss_fn)(state.params)
-            return loss, state.apply_gradients(grads=grads)
-
-    else:
-
-        def train_step(
-            state,
-            x_batch,
-            b_batch,
-        ):
-            """Run a single training step."""
-
-            def loss_fn(params):
-                predictions = state.apply_fn(
-                    {"params": params},
-                    x_batch,
-                    b_batch,
-                )
-                return batched_objective(predictions).mean()
-
-            loss, grads = jax.value_and_grad(loss_fn)(state.params)
-            return loss, state.apply_gradients(grads=grads)
-
-        if proj_method == "jaxopt":
-            train_step = jax.jit(train_step)
-        # cvxpylayers does not support jitting
+    # cvxpylayers does not support jitting
+    if not proj_method == "cvxpy":
+        train_step = jax.jit(train_step)
 
     if proj_method == "pinet":
         # Measure compilation time
@@ -412,11 +361,6 @@ def main(
             state,
             X_batch[:, :, 0],
             X_batch,
-            hyperparameters["sigma"],
-            hyperparameters["omega"],
-            100,
-            100,
-            True,
         ).compile()
         # Note this also includes the time for one iteration
         compilation_time = time.time() - start_compilation_time
@@ -427,10 +371,6 @@ def main(
     N_EPOCHS = hyperparameters["n_epochs"]
     eval_every = 1
     start_training_time = time.time()
-    n_iter_train = hyperparameters["n_iter_train"]
-    n_iter_test = hyperparameters["n_iter_test"]
-    n_iter_bwd = hyperparameters["n_iter_bwd"]
-    fpi = hyperparameters["fpi"]
     trainig_losses = []
     validation_losses = []
     eqcvs = []
@@ -449,23 +389,11 @@ def main(
             start_epoch_time = time.time()
             for batch in train_loader:
                 X_batch, _ = batch
-                if proj_method == "pinet":
-                    loss, state = train_step(
-                        state,
-                        X_batch[:, :, 0],
-                        X_batch,
-                        hyperparameters["sigma"],
-                        hyperparameters["omega"],
-                        n_iter_train,
-                        n_iter_bwd,
-                        fpi,
-                    )
-                else:
-                    loss, state = train_step(
-                        state,
-                        X_batch[:, :, 0],
-                        X_batch,
-                    )
+                loss, state = train_step(
+                    state,
+                    X_batch[:, :, 0],
+                    X_batch,
+                )
                 batch_sizes.append(X_batch.shape[0])
                 epoch_loss.append(loss)
             weighted_epoch_loss = sum(
@@ -480,9 +408,6 @@ def main(
                 obj, hcnn_obj, eq_cv, ineq_cv, _ = evaluate_hcnn(
                     loader=valid_loader,
                     state=state,
-                    sigma=hyperparameters["sigma"],
-                    omega=hyperparameters["omega"],
-                    n_iter=n_iter_test,
                     batched_objective=batched_objective,
                     A=A,
                     G=G,
@@ -545,9 +470,6 @@ def main(
         _ = evaluate_hcnn(
             loader=valid_loader,
             state=state,
-            sigma=hyperparameters["sigma"],
-            omega=hyperparameters["omega"],
-            n_iter=hyperparameters["n_iter_test"],
             batched_objective=batched_objective,
             prefix="Validation",
             A=A,
@@ -561,9 +483,6 @@ def main(
             problem_idx=problem_idx,
             loader=valid_loader,
             state=state,
-            sigma=hyperparameters["sigma"],
-            omega=hyperparameters["omega"],
-            n_iter=hyperparameters["n_iter_test"],
             use_DC3_dataset=use_DC3_dataset,
             batched_objective=batched_objective,
             A=A,
@@ -582,9 +501,6 @@ def main(
         ) = evaluate_hcnn(
             loader=test_loader,
             state=state,
-            sigma=hyperparameters["sigma"],
-            omega=hyperparameters["omega"],
-            n_iter=hyperparameters["n_iter_test"],
             batched_objective=batched_objective,
             prefix="Testing",
             A=A,
@@ -596,9 +512,6 @@ def main(
         (_, _, _, _, single_inference_times) = evaluate_hcnn(
             loader=test_loader,
             state=state,
-            sigma=hyperparameters["sigma"],
-            omega=hyperparameters["omega"],
-            n_iter=hyperparameters["n_iter_test"],
             batched_objective=batched_objective,
             prefix="Testing",
             A=A,
@@ -614,9 +527,6 @@ def main(
             problem_idx=problem_idx,
             loader=test_loader,
             state=state,
-            sigma=hyperparameters["sigma"],
-            omega=hyperparameters["omega"],
-            n_iter=hyperparameters["n_iter_test"],
             use_DC3_dataset=use_DC3_dataset,
             batched_objective=batched_objective,
             A=A,
