@@ -506,48 +506,50 @@ def main(
             },
         )
 
-    # Saving of overall results
-    if SAVE_RESULTS:
-        # Setup results path
-        filename_results = "results.npz"
-        results_folder = (
-            pathlib.Path(__file__).parent
-            / "results"
-            / args.id
-            / args.config
-            / current_timestamp
-        )
-        results_folder.mkdir(parents=True, exist_ok=True)
-        # Save final results
-        jnp.savez(
-            file=results_folder / filename_results,
-            inference_time=batch_inference_times,
-            single_inference_time=single_inference_times,
-            setup_time=setup_time,
-            compilation_time=compilation_time,
-            training_time=training_time,
-            eq_viol_test=eq_viol_test,
-            ineq_viol_test=ineq_viol_test,
-            obj_fun_test=obj_fun_test,
-            opt_obj_test=obj_test,
-            config_path=config_path,
-            **hyperparameters,
-        )
-        # Save learning curve results
-        jnp.savez(
-            file=results_folder / "learning_curves.npz",
-            optimal_objective=logging_dict.as_array("optimal_objective"),
-            objective=logging_dict.as_array("objective"),
-            eqcv=logging_dict.as_array("eqcv"),
-            ineqcv=logging_dict.as_array("ineqcv"),
-            train_time=logging_dict.as_array("train_time"),
-            inf_time=logging_dict.as_array("inf_time"),
-        )
-        # Save network parameters
-        params_filename = "params.msgpack"
-        params_path = results_folder / params_filename
-        with open(params_path, "wb") as f:
-            f.write(to_bytes(state.params))
+        # Saving of overall results
+        if SAVE_RESULTS:
+            # Setup results path
+            filename_results = "results.npz"
+            results_folder = (
+                pathlib.Path(__file__).parent
+                / "results"
+                / args.id
+                / args.config
+                / current_timestamp
+            )
+            results_folder.mkdir(parents=True, exist_ok=True)
+            # Save final results
+            jnp.savez(
+                file=results_folder / filename_results,
+                inference_time=batch_inference_times,
+                single_inference_time=single_inference_times,
+                setup_time=setup_time,
+                compilation_time=compilation_time,
+                training_time=training_time,
+                eq_viol_test=eq_viol_test,
+                ineq_viol_test=ineq_viol_test,
+                obj_fun_test=obj_fun_test,
+                opt_obj_test=obj_test,
+                config_path=config_path,
+                **hyperparameters,
+            )
+            # Save learning curve results
+            jnp.savez(
+                file=results_folder / "learning_curves.npz",
+                optimal_objective=logging_dict.as_array("optimal_objective"),
+                objective=logging_dict.as_array("objective"),
+                eqcv=logging_dict.as_array("eqcv"),
+                ineqcv=logging_dict.as_array("ineqcv"),
+                train_time=logging_dict.as_array("train_time"),
+                inf_time=logging_dict.as_array("inf_time"),
+            )
+            wandb.save(results_folder / filename_results)
+            wandb.save(results_folder / "learning_curves.npz")
+            # Save network parameters
+            params_filename = "params.msgpack"
+            params_path = results_folder / params_filename
+            with open(params_path, "wb") as f:
+                f.write(to_bytes(state.params))
 
     return state
 
