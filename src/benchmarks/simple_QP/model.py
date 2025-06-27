@@ -3,6 +3,7 @@
 import time
 from typing import Callable
 
+import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
@@ -56,6 +57,7 @@ def setup_model(
     X,
     G,
     h,
+    batched_objective,
     setup_reps=10,
 ):
     """Receives problem (hyper)parameters and returns the model and its parameters."""
@@ -197,4 +199,29 @@ def setup_model(
         b=X[:2],
         test=False,
     )
-    return model, params, setup_time
+
+    # Setup the MLP training routine
+    def train_step(
+        state,
+        x_batch,
+        b_batch,
+    ):
+        """Run a single training step."""
+
+        def loss_fn(params):
+            predictions = state.apply_fn(
+                {"params": params},
+                x=x_batch,
+                b=b_batch,
+                test=False,
+            )
+            return batched_objective(predictions).mean()
+
+        loss, grads = jax.value_and_grad(loss_fn)(state.params)
+        return loss, state.apply_gradients(grads=grads)
+
+    # cvxpylayers does not support jitting
+    if not proj_method == "cvxpy":
+        train_step = jax.jit(train_step)
+
+    return model, params, setup_time, train_step

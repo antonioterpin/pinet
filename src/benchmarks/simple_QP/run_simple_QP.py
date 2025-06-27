@@ -274,83 +274,44 @@ def main(
     key = jax.random.PRNGKey(SEED)
     loader_key, key = jax.random.split(key, 2)
     # Load problem data
-    (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader) = load_data(
-        use_DC3_dataset,
-        use_convex,
-        problem_seed,
-        problem_var,
-        problem_nineq,
-        problem_neq,
-        problem_examples,
-        loader_key,
+    (
+        A,
+        G,
+        h,
+        X,
+        batched_objective,
+        train_loader,
+        valid_loader,
+        test_loader,
+    ) = load_data(
+        use_DC3_dataset=use_DC3_dataset,
+        use_convex=use_convex,
+        problem_seed=problem_seed,
+        problem_var=problem_var,
+        problem_nineq=problem_nineq,
+        problem_neq=problem_neq,
+        problem_examples=problem_examples,
+        loader_key=loader_key,
         batch_size=hyperparameters.get("batch_size", 2048),
         use_jax_loader=use_jax_loader,
     )
 
-    # Dimension of decision variable
-    # Y_DIM = Q.shape[2]
-    # Dimension of parameter vector
-    LEARNING_RATE = hyperparameters["learning_rate"]
-
-    model, params, setup_time = setup_model(
-        key, hyperparameters, proj_method, A, X, G, h
+    model, params, setup_time, train_step = setup_model(
+        rng_key=key,
+        hyperparameters=hyperparameters,
+        proj_method=proj_method,
+        A=A,
+        X=X,
+        G=G,
+        h=h,
+        batched_objective=batched_objective,
     )
 
+    LEARNING_RATE = hyperparameters["learning_rate"]
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(
         apply_fn=model.apply, params=params["params"], tx=tx
     )
-
-    # Predictions is of shape (batch_size, Y_DIM) and Q is of shape (Y_DIM, Y_DIM)
-    def quadratic_form(prediction):
-        """Evaluate the quadratic objective."""
-        return 0.5 * prediction.T @ Q @ prediction + p.T @ prediction
-
-    def quadratic_form_sine(prediction):
-        """Evaluate the quadratic objective plus sine."""
-        return 0.5 * prediction.T @ Q @ prediction + p.T @ jnp.sin(prediction)
-
-    if use_convex:
-        objective_function = quadratic_form
-    else:
-        objective_function = quadratic_form_sine
-
-    # Vectorize the quadratic form computation over the batch dimension
-    batched_objective = jax.vmap(objective_function, in_axes=[0])
-
-    # To be used if we include a constraint violation penalty in the objective
-    # def penalty_form(prediction):
-    #     """Penaly for violating inequality constraints."""
-    #     return jnp.maximum(
-    #         G[0].reshape(problem_nineq, Y_DIM) @ prediction - h,
-    #         0,
-    #     ).max()
-
-    # batched_penalty_form = jax.vmap(penalty_form, in_axes=[0])
-
-    # Setup the MLP training routine
-    def train_step(
-        state,
-        x_batch,
-        b_batch,
-    ):
-        """Run a single training step."""
-
-        def loss_fn(params):
-            predictions = state.apply_fn(
-                {"params": params},
-                x=x_batch,
-                b=b_batch,
-                test=False,
-            )
-            return batched_objective(predictions).mean()
-
-        loss, grads = jax.value_and_grad(loss_fn)(state.params)
-        return loss, state.apply_gradients(grads=grads)
-
-    # cvxpylayers does not support jitting
-    if not proj_method == "cvxpy":
-        train_step = jax.jit(train_step)
 
     if proj_method == "pinet":
         # Measure compilation time
@@ -491,7 +452,7 @@ def main(
             prefix="Validation",
             proj_method=proj_method,
         )
-
+        # Evaluate test performance
         (
             obj_test,
             obj_fun_test,
