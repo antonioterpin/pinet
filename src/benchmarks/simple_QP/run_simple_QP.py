@@ -18,8 +18,8 @@ from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
+from benchmarks.model import setup_model
 from benchmarks.simple_QP.load_simple_QP import load_data
-from benchmarks.simple_QP.model import setup_model
 from benchmarks.simple_QP.plotting import (
     plot_inference_boxes,
     plot_learning,
@@ -291,7 +291,7 @@ def main(
         problem_nineq=problem_nineq,
         problem_neq=problem_neq,
         problem_examples=problem_examples,
-        loader_key=loader_key,
+        rng_key=loader_key,
         batch_size=hyperparameters.get("batch_size", 2048),
         use_jax_loader=use_jax_loader,
     )
