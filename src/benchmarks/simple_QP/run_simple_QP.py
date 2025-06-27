@@ -20,11 +20,7 @@ from tqdm import tqdm
 
 from benchmarks.model import setup_model
 from benchmarks.simple_QP.load_simple_QP import load_data
-from benchmarks.simple_QP.plotting import (
-    plot_inference_boxes,
-    plot_learning,
-    plot_rs_vs_cv,
-)
+from benchmarks.simple_QP.plotting import plot_inference_boxes, plot_rs_vs_cv
 from hcnn.utils import GracefulShutdown, Logger
 
 jax.config.update("jax_enable_x64", True)
@@ -262,7 +258,6 @@ def main(
     config_path,
     SEED,
     proj_method,
-    PLOT_TRAINING,
     SAVE_RESULTS,
     run_name,
     current_timestamp,
@@ -414,18 +409,6 @@ def main(
 
         training_time = time.time() - start_training_time
         print(f"Training time: {training_time:.5f} seconds")
-
-        # Plot the results
-        if PLOT_TRAINING:
-            plot_learning(
-                train_loader,
-                valid_loader,
-                trainig_losses,
-                validation_losses,
-                eqcvs,
-                ineqcvs,
-                eval_every=eval_every,
-            )
 
         # Evaluate validation performance
         _ = evaluate_hcnn(
@@ -598,9 +581,6 @@ if __name__ == "__main__":
             "--seed", type=int, default=42, help="Seed for training HCNN."
         )
         parser.add_argument(
-            "--plot_training", action="store_true", help="Plot training curves."
-        )
-        parser.add_argument(
             "--save_results", action="store_true", help="Save the results."
         )
         parser.add_argument(
@@ -616,7 +596,6 @@ if __name__ == "__main__":
             help="Use the jax loader or not. If not, use pytorch loader.",
         )
         parser.set_defaults(save_results=True)
-        parser.set_defaults(plot_training=False)
         return parser.parse_args()
 
     args = parse_args()
@@ -641,7 +620,6 @@ if __name__ == "__main__":
     )
     SEED = args.seed
     proj_method = args.proj_method
-    PLOT_TRAINING = args.plot_training
     SAVE_RESULTS = args.save_results
 
     nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -659,7 +637,6 @@ if __name__ == "__main__":
         config_path,
         SEED,
         proj_method,
-        PLOT_TRAINING,
         SAVE_RESULTS,
         run_name,
         nowstamp,
