@@ -3,6 +3,7 @@
 import time
 from typing import Callable
 
+import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
@@ -15,79 +16,16 @@ from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.project import Project
 
 
-class HardConstrainedMLP_unroll(nn.Module):
+class HardConstrainedMLP(nn.Module):
     """Simple MLP with hard constraints on the output.
 
-    Assumes that unrolling is used for backpropagation.
-    This is defined in the projection layer.
-    """
-
-    project: Project
-    features_list: list
-    activation: nn.Module = nn.relu
-
-    @nn.compact
-    def __call__(
-        self, x, b, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
-    ):
-        """Call the NN."""
-        for features in self.features_list:
-            x = nn.Dense(features)(x)
-            x = self.activation(x)
-        x = nn.Dense(self.project.dim)(x)
-        x = self.project.call(
-            self.project.get_init(x),
-            x,
-            b,
-            interpolation_value=0.0,
-            sigma=sigma,
-            omega=omega,
-            n_iter=n_iter,
-        )[0]
-        return x
-
-
-class HardConstrainedMLP_impl(nn.Module):
-    """Simple MLP with hard constraints on the output.
-
-    Assumes that implicit differentiation is used for backpropagation.
-    This is defined in the projection layer.
-    """
-
-    project: Project
-    features_list: list
-    activation: nn.Module = nn.relu
-
-    @nn.compact
-    def __call__(
-        self, x, b, sigma=1.0, omega=1.7, n_iter=100, n_iter_bwd=100, fpi=True
-    ):
-        """Call the NN."""
-        for features in self.features_list:
-            x = nn.Dense(features)(x)
-            x = self.activation(x)
-        x = nn.Dense(self.project.dim)(x)
-        x = self.project.call(
-            self.project.get_init(x),
-            x,
-            b,
-            interpolation_value=0.0,
-            sigma=sigma,
-            omega=omega,
-            n_iter=n_iter,
-            n_iter_bwd=n_iter_bwd,
-            fpi=fpi,
-        )[0]
-        return x
-
-
-class HardConstrainedMLP_other(nn.Module):
-    """Simple MLP with hard constraints on the output.
-
-    Uses jaxopt or cvxpylayers for the projection.
+    The hard constraints are enforced through projection.
+    A different projection method can be given
+    for training and inference.
     """
 
     project: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    project_test: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
     dim: int
     features_list: list
     activation: nn.Module = nn.relu
@@ -97,13 +35,17 @@ class HardConstrainedMLP_other(nn.Module):
         self,
         x,
         b,
+        test,
     ):
         """Call the NN."""
         for features in self.features_list:
             x = nn.Dense(features)(x)
             x = self.activation(x)
         x = nn.Dense(self.dim)(x)
-        x = self.project(x, b)
+        if not test:
+            x = self.project(x, b)
+        else:
+            x = self.project_test(x, b)
         return x
 
 
@@ -115,6 +57,7 @@ def setup_model(
     X,
     G,
     h,
+    batched_objective,
     setup_reps=10,
 ):
     """Receives problem (hyper)parameters and returns the model and its parameters."""
@@ -136,7 +79,6 @@ def setup_model(
         )
 
         # Measure setup time
-        setup_reps = 10
         start_setup_time = time.time()
         if setup_reps > 0:
             for _ in range(setup_reps):
@@ -158,38 +100,68 @@ def setup_model(
 
         # Define HCNN model
         if hyperparameters["unroll"]:
-            model = HardConstrainedMLP_unroll(
-                project=projection_layer,
-                features_list=hyperparameters["features_list"],
-                activation=activation,
-            )
+
+            def project(x, b):
+                return projection_layer.call(
+                    y0=projection_layer.get_init(x),
+                    x=x,
+                    b=b,
+                    interpolation_value=0.0,
+                    sigma=hyperparameters["sigma"],
+                    omega=hyperparameters["omega"],
+                    n_iter=hyperparameters["n_iter_train"],
+                )[0]
+
+            def project_test(x, b):
+                return projection_layer.call(
+                    y0=projection_layer.get_init(x),
+                    x=x,
+                    b=b,
+                    interpolation_value=0.0,
+                    sigma=hyperparameters["sigma"],
+                    omega=hyperparameters["omega"],
+                    n_iter=hyperparameters["n_iter_test"],
+                )[0]
+
         else:
-            model = HardConstrainedMLP_impl(
-                project=projection_layer,
-                features_list=hyperparameters["features_list"],
-                activation=activation,
-            )
-        params = model.init(rng_key, x=X[:2, :, 0], b=X[:2], n_iter=2)
+
+            def project(x, b):
+                return projection_layer.call(
+                    y0=projection_layer.get_init(x),
+                    x=x,
+                    b=b,
+                    interpolation_value=0.0,
+                    sigma=hyperparameters["sigma"],
+                    omega=hyperparameters["omega"],
+                    n_iter=hyperparameters["n_iter_train"],
+                    n_iter_bwd=hyperparameters["n_iter_bwd"],
+                    fpi=hyperparameters["fpi"],
+                )[0]
+
+            def project_test(x, b):
+                return projection_layer.call(
+                    y0=projection_layer.get_init(x),
+                    x=x,
+                    b=b,
+                    interpolation_value=0.0,
+                    sigma=hyperparameters["sigma"],
+                    omega=hyperparameters["omega"],
+                    n_iter=hyperparameters["n_iter_test"],
+                    n_iter_bwd=hyperparameters["n_iter_bwd"],
+                    fpi=hyperparameters["fpi"],
+                )[0]
+
     elif proj_method == "jaxopt":
         # Define the jaxopt projection
-        jaxopt_projection = get_jaxopt_projection(
+        project = get_jaxopt_projection(
             A=A[0, :, :],
             C=G[0, :, :],
             d=h[0, :, 0],
             dim=A.shape[2],
             tol=hyperparameters["jaxopt_tol"],
         )
-        model = HardConstrainedMLP_other(
-            project=jaxopt_projection,
-            dim=A.shape[2],
-            features_list=hyperparameters["features_list"],
-            activation=activation,
-        )
-        params = model.init(
-            rng_key,
-            x=X[:2, :, 0],
-            b=X[:2],
-        )
+        project_test = project
+        setup_time = 0.0
     elif proj_method == "cvxpy":
         cvxpy_proj = get_cvxpy_projection(
             A=A[0, :, :],
@@ -198,7 +170,7 @@ def setup_model(
             dim=A.shape[2],
         )
 
-        def cvxpy_projection(xx, bb):
+        def project(xx, bb):
             return cvxpy_proj(
                 xx,
                 bb[:, :, 0],
@@ -209,18 +181,47 @@ def setup_model(
                 },
             )[0]
 
-        model = HardConstrainedMLP_other(
-            project=cvxpy_projection,
-            dim=A.shape[2],
-            features_list=hyperparameters["features_list"],
-            activation=activation,
-        )
-        params = model.init(
-            rng_key,
-            x=X[:2, :, 0],
-            b=X[:2],
-        )
+        project_test = project
+        setup_time = 0.0
     else:
         raise ValueError("Projection method not valid.")
 
-    return model, params, setup_time
+    model = HardConstrainedMLP(
+        project=project,
+        project_test=project_test,
+        dim=A.shape[2],
+        features_list=hyperparameters["features_list"],
+        activation=activation,
+    )
+    params = model.init(
+        rng_key,
+        x=X[:2, :, 0],
+        b=X[:2],
+        test=False,
+    )
+
+    # Setup the MLP training routine
+    def train_step(
+        state,
+        x_batch,
+        b_batch,
+    ):
+        """Run a single training step."""
+
+        def loss_fn(params):
+            predictions = state.apply_fn(
+                {"params": params},
+                x=x_batch,
+                b=b_batch,
+                test=False,
+            )
+            return batched_objective(predictions).mean()
+
+        loss, grads = jax.value_and_grad(loss_fn)(state.params)
+        return loss, state.apply_gradients(grads=grads)
+
+    # cvxpylayers does not support jitting
+    if not proj_method == "cvxpy":
+        train_step = jax.jit(train_step)
+
+    return model, params, setup_time, train_step

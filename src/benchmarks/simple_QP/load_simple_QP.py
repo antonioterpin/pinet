@@ -255,4 +255,31 @@ def load_data(
         p = p[0, :, :]
         X = train_loader.dataset.X
 
-    return (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader)
+    # Define loss/objective function
+    # Predictions is of shape (batch_size, Y_DIM) and Q is of shape (Y_DIM, Y_DIM)
+    def quadratic_form(prediction):
+        """Evaluate the quadratic objective."""
+        return 0.5 * prediction.T @ Q @ prediction + p.T @ prediction
+
+    def quadratic_form_sine(prediction):
+        """Evaluate the quadratic objective plus sine."""
+        return 0.5 * prediction.T @ Q @ prediction + p.T @ jnp.sin(prediction)
+
+    if use_convex:
+        objective_function = quadratic_form
+    else:
+        objective_function = quadratic_form_sine
+
+    # Vectorize the quadratic form computation over the batch dimension
+    batched_objective = jax.vmap(objective_function, in_axes=[0])
+
+    return (
+        A,
+        G,
+        h,
+        X,
+        batched_objective,
+        train_loader,
+        valid_loader,
+        test_loader,
+    )
