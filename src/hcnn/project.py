@@ -254,6 +254,75 @@ class Project:
 
         return cv
 
+    def call_and_check(
+        self,
+        sigma=1.0,
+        omega=1.7,
+        check_every=10,
+        tol=1e-3,
+        max_iter=100,
+        reduction="max",
+    ) -> Callable:
+        """Returns a function that projects input and checks constraint violation.
+
+        Args:
+            check_every (int): Frequency of checking constraint violation.
+            tol (float): Tolerance for constraint violation.
+            max_iter (int): Maximum number of iterations for checking.
+            reduction (str): Method to reduce constraint violations among a batch.
+            Valid options are: "max" meaning that maximum cv is less that tol;
+            "mean" meaning that mean cv is less than tol;
+            or a number in [0,1] meaning the percentage of instances
+            with cv less than tol.
+
+        Returns:
+            Callable: Takes as input the points to be projected and any specifications for
+            the constraints (e.g., the value of b for variable b equality constraints.).
+            Returns an approximately project and a flag showing whether the termination
+            condition was satisfied.
+        """
+
+        @jax.jit
+        def check(x):
+            if reduction == "max":
+                return jnp.max(self.cv(x)) < tol
+            elif reduction == "mean":
+                return jnp.mean(self.cv(x)) < tol
+            elif isinstance(reduction, float) and 0 < reduction < 1:
+                return jnp.mean(self.cv(x) < tol) >= reduction
+            else:
+                raise ValueError(
+                    f"Invalid reduction method {reduction}. "
+                    "Valid options are: 'max', 'mean', or a float in (0, 1)."
+                )
+
+        def project_and_check(*args):
+            x, others = args[0], args[1:]
+            xtmp = x.reshape((x.shape[0], x.shape[1], 1))
+            y0 = self.get_init(x)
+            # Executed iterations
+            iter_exec = 0
+            terminate = False
+            # Call the projection function with all given arguments.
+            while not (terminate or iter_exec >= max_iter):
+                xproj, y0 = self.call(
+                    y0,
+                    xtmp,
+                    *others,
+                    interpolation_value=0.0,
+                    sigma=sigma,
+                    omega=omega,
+                    n_iter=check_every,
+                    n_iter_bwd=0,  # only used when backproping
+                    fpi=False,  # only used when backproping
+                )
+                iter_exec += check_every
+                terminate = check(xproj)
+
+            return xproj.reshape(x.shape), terminate, iter_exec
+
+        return project_and_check
+
     def _project_general_vAb(
         self,
         y0: jnp.ndarray,

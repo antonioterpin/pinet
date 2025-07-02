@@ -91,6 +91,17 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         lb = lb.at[ii, :, :].set(jnp.array(lfeas.value).reshape((n_ineq, 1)))
         ub = ub.at[ii, :, :].set(jnp.array(ufeas.value).reshape((n_ineq, 1)))
 
+    # Check projection layer without var_b
+    eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    projection_layer_novarb = Project(
+        eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
+    )
+    xprojiter_novarb = projection_layer_novarb.call(
+        projection_layer_novarb.get_init(xinfeas), xinfeas, n_iter=500
+    )[0]
+    # Check projection layer with var_b
     eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=True)
     ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
 
@@ -116,6 +127,37 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
     assert jnp.allclose(xprojiter, yqp, atol=1e-3, rtol=1e-3)
+    assert jnp.allclose(xprojiter_novarb, yqp, atol=1e-3, rtol=1e-3)
+    # Test call and check method
+    sigma = 1.0
+    omega = 1.7
+    tol = 1e-5
+    check_every = 20
+    max_iter = 500
+    reduction = "max"
+    for reduction in ["max", "mean", 0.5, 0.9]:
+        check = projection_layer.call_and_check(
+            sigma=sigma,
+            omega=omega,
+            check_every=check_every,
+            tol=tol,
+            max_iter=max_iter,
+            reduction=reduction,
+        )
+        check_novarb = projection_layer_novarb.call_and_check(
+            sigma=sigma,
+            omega=omega,
+            check_every=check_every,
+            tol=tol,
+            max_iter=max_iter,
+            reduction=reduction,
+        )
+        _, flag, _ = check(xinfeas, b)
+        _, flag_novarb, _ = check_novarb(xinfeas)
+
+        assert flag
+        assert flag_novarb
+
     # %%
     b_new = b + jax.random.normal(key[5], shape=(batch_size, n_eq, 1))
     yqp = jnp.zeros(shape=(batch_size, dim))
