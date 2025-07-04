@@ -16,6 +16,137 @@ from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.project import Project
 
 
+def setup_pinet(A, b, C, ub, setup_reps, hyperparameters):
+    """Setup of pinet projection layer."""
+    eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
+    ineq_constraint = AffineInequalityConstraint(
+        C=C, ub=ub, lb=-jnp.inf * jnp.ones_like(ub)
+    )
+    projection_layer = Project(
+        ineq_constraint=ineq_constraint,
+        eq_constraint=eq_constraint,
+        unroll=hyperparameters["unroll"],
+        equilibrate=hyperparameters["equilibrate"],
+    )
+
+    # Measure setup time
+    start_setup_time = time.time()
+    if setup_reps > 0:
+        for _ in range(setup_reps):
+            eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
+            ineq_constraint = AffineInequalityConstraint(
+                C=C, ub=ub, lb=-jnp.inf * jnp.ones_like(ub)
+            )
+            _ = Project(
+                ineq_constraint=ineq_constraint,
+                eq_constraint=eq_constraint,
+                unroll=hyperparameters["unroll"],
+                equilibrate=hyperparameters["equilibrate"],
+            )
+        setup_time = (time.time() - start_setup_time) / setup_reps
+
+        print(f"Time to create constraints: {setup_time:.5f} seconds")
+    else:
+        setup_time = 0.0
+
+    # Define HCNN model
+    if hyperparameters["unroll"]:
+
+        def project(x, b):
+            return projection_layer.call(
+                y0=projection_layer.get_init(x),
+                x=x,
+                b=b,
+                interpolation_value=0.0,
+                sigma=hyperparameters["sigma"],
+                omega=hyperparameters["omega"],
+                n_iter=hyperparameters["n_iter_train"],
+            )[0]
+
+        def project_test(x, b):
+            return projection_layer.call(
+                y0=projection_layer.get_init(x),
+                x=x,
+                b=b,
+                interpolation_value=0.0,
+                sigma=hyperparameters["sigma"],
+                omega=hyperparameters["omega"],
+                n_iter=hyperparameters["n_iter_test"],
+            )[0]
+
+    else:
+
+        def project(x, b):
+            return projection_layer.call(
+                y0=projection_layer.get_init(x),
+                x=x,
+                b=b,
+                interpolation_value=0.0,
+                sigma=hyperparameters["sigma"],
+                omega=hyperparameters["omega"],
+                n_iter=hyperparameters["n_iter_train"],
+                n_iter_bwd=hyperparameters["n_iter_bwd"],
+                fpi=hyperparameters["fpi"],
+            )[0]
+
+        def project_test(x, b):
+            return projection_layer.call(
+                y0=projection_layer.get_init(x),
+                x=x,
+                b=b,
+                interpolation_value=0.0,
+                sigma=hyperparameters["sigma"],
+                omega=hyperparameters["omega"],
+                n_iter=hyperparameters["n_iter_test"],
+                n_iter_bwd=hyperparameters["n_iter_bwd"],
+                fpi=hyperparameters["fpi"],
+            )[0]
+
+        return project, project_test, setup_time
+
+
+def setup_jaxopt(A, b, C, ub, setup_reps, hyperparameters):
+    """Setup of jaxopt projection layer."""
+    # Define the jaxopt projection
+    project = get_jaxopt_projection(
+        A=A[0, :, :],
+        C=C[0, :, :],
+        d=ub[0, :, 0],
+        dim=A.shape[2],
+        tol=hyperparameters["jaxopt_tol"],
+    )
+    project_test = project
+    setup_time = 0.0
+
+    return project, project_test, setup_time
+
+
+def setup_cvxpy(A, b, C, ub, setup_reps, hyperparameters):
+    """Setup of cvxpy projection layer."""
+    cvxpy_proj = get_cvxpy_projection(
+        A=A[0, :, :],
+        C=C[0, :, :],
+        d=ub[0, :, 0],
+        dim=A.shape[2],
+    )
+
+    def project(xx, bb):
+        return cvxpy_proj(
+            xx,
+            bb[:, :, 0],
+            solver_args={
+                "verbose": False,
+                "eps_abs": hyperparameters["cvxpy_tol"],
+                "eps_rel": hyperparameters["cvxpy_tol"],
+            },
+        )[0]
+
+    project_test = project
+    setup_time = 0.0
+
+    return project, project_test, setup_time
+
+
 class HardConstrainedMLP(nn.Module):
     """Simple MLP with hard constraints on the output.
 
@@ -65,126 +196,14 @@ def setup_model(
     if activation is None:
         raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
-    if proj_method == "pinet":
-        # Setup the projection layer
-        eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
-        ineq_constraint = AffineInequalityConstraint(
-            C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
-        )
-        projection_layer = Project(
-            ineq_constraint=ineq_constraint,
-            eq_constraint=eq_constraint,
-            unroll=hyperparameters["unroll"],
-            equilibrate=hyperparameters["equilibrate"],
-        )
+    setups = {"pinet": setup_pinet, "jaxopt": setup_jaxopt, "cvxpy": setup_cvxpy}
 
-        # Measure setup time
-        start_setup_time = time.time()
-        if setup_reps > 0:
-            for _ in range(setup_reps):
-                eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
-                ineq_constraint = AffineInequalityConstraint(
-                    C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
-                )
-                _ = Project(
-                    ineq_constraint=ineq_constraint,
-                    eq_constraint=eq_constraint,
-                    unroll=hyperparameters["unroll"],
-                    equilibrate=hyperparameters["equilibrate"],
-                )
-            setup_time = (time.time() - start_setup_time) / setup_reps
+    if proj_method not in setups:
+        raise ValueError(f"Projection method not valid: {proj_method}")
 
-            print(f"Time to create constraints: {setup_time:.5f} seconds")
-        else:
-            setup_time = 0.0
-
-        # Define HCNN model
-        if hyperparameters["unroll"]:
-
-            def project(x, b):
-                return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
-                    interpolation_value=0.0,
-                    sigma=hyperparameters["sigma"],
-                    omega=hyperparameters["omega"],
-                    n_iter=hyperparameters["n_iter_train"],
-                )[0]
-
-            def project_test(x, b):
-                return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
-                    interpolation_value=0.0,
-                    sigma=hyperparameters["sigma"],
-                    omega=hyperparameters["omega"],
-                    n_iter=hyperparameters["n_iter_test"],
-                )[0]
-
-        else:
-
-            def project(x, b):
-                return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
-                    interpolation_value=0.0,
-                    sigma=hyperparameters["sigma"],
-                    omega=hyperparameters["omega"],
-                    n_iter=hyperparameters["n_iter_train"],
-                    n_iter_bwd=hyperparameters["n_iter_bwd"],
-                    fpi=hyperparameters["fpi"],
-                )[0]
-
-            def project_test(x, b):
-                return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
-                    interpolation_value=0.0,
-                    sigma=hyperparameters["sigma"],
-                    omega=hyperparameters["omega"],
-                    n_iter=hyperparameters["n_iter_test"],
-                    n_iter_bwd=hyperparameters["n_iter_bwd"],
-                    fpi=hyperparameters["fpi"],
-                )[0]
-
-    elif proj_method == "jaxopt":
-        # Define the jaxopt projection
-        project = get_jaxopt_projection(
-            A=A[0, :, :],
-            C=G[0, :, :],
-            d=h[0, :, 0],
-            dim=A.shape[2],
-            tol=hyperparameters["jaxopt_tol"],
-        )
-        project_test = project
-        setup_time = 0.0
-    elif proj_method == "cvxpy":
-        cvxpy_proj = get_cvxpy_projection(
-            A=A[0, :, :],
-            C=G[0, :, :],
-            d=h[0, :, 0],
-            dim=A.shape[2],
-        )
-
-        def project(xx, bb):
-            return cvxpy_proj(
-                xx,
-                bb[:, :, 0],
-                solver_args={
-                    "verbose": False,
-                    "eps_abs": hyperparameters["cvxpy_tol"],
-                    "eps_rel": hyperparameters["cvxpy_tol"],
-                },
-            )[0]
-
-        project_test = project
-        setup_time = 0.0
-    else:
-        raise ValueError("Projection method not valid.")
+    project, project_test, setup_time = setups[proj_method](
+        A=A, b=X, C=G, ub=h, setup_reps=setup_reps, hyperparameters=hyperparameters
+    )
 
     model = HardConstrainedMLP(
         project=project,
