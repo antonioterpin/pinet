@@ -5,6 +5,7 @@ from typing import Optional
 import jax.numpy as jnp
 
 from hcnn.constraints.base import Constraint
+from hcnn.utils import Inputs
 
 
 class EqualityConstraint(Constraint):
@@ -76,16 +77,10 @@ class EqualityConstraint(Constraint):
         valid_methods = ["pinv", None]
 
         if self.method == "pinv":
-            if self.var_A:
-                self.project = self.project_pinv_vAb
-            else:
-                # Compute pseudo-inverse
-                self.Apinv = jnp.linalg.pinv(self.A)
-                # Instantiate projection method
-                if self.var_b:
-                    self.project = self.project_pinv_vb
-                else:
-                    self.project = self.project_pinv
+            if not self.var_A:
+                self.Apinv = self.Apinv = jnp.linalg.pinv(self.A)
+
+            self.project = self.project_pinv
         elif self.method is None:
 
             def raise_not_implemented_error():
@@ -97,55 +92,36 @@ class EqualityConstraint(Constraint):
                 f"Invalid method {self.method}. Valid methods are: {valid_methods}"
             )
 
-    def project_pinv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def get_params(self, inp: Inputs) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Get A, b, Apinv depending on varying constraints."""
+        if self.var_b:
+            b = inp.eq.b
+        else:
+            b = self.b
+
+        if self.var_A:
+            A = inp.eq.A
+            Apinv = inp.eq.Apinv
+        else:
+            A = self.A
+            Apinv = self.Apinv
+
+        return b, A, Apinv
+
+    def project_pinv(self, inp: Inputs) -> jnp.ndarray:
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
-            x (jnp.ndarray): Point to be projected. Shape (batch_size, dimension, 1)
+            inp (Inputs): Inputs to projection.
+                The .x attribute is the point to project.
 
         Returns:
             jnp.ndarray: The projected point for each point in the batch.
                 Shape (batch_size, dimension, 1).
         """
-        return x - self.Apinv @ (self.A @ x - self.b)
+        b, A, Apinv = self.get_params(inp)
 
-    def project_pinv_vb(self, x: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
-        """Project onto equality constraints using pseudo-inverse.
-
-        Args:
-            x (jnp.ndarray): Point to be projected. Shape (batch_size, dimension, 1)
-            b (jnp.ndarray): Right hand side vector. Shape (batch_size, n_constraints, 1)
-
-        Returns:
-            jnp.ndarray: The projected point for each point in the batch.
-                Shape (batch_size, dimension, 1).
-        """
-        return x - self.Apinv @ (self.A @ x - b)
-
-    def project_pinv_vAb(
-        self,
-        x: jnp.ndarray,
-        b: jnp.ndarray,
-        A: jnp.ndarray,
-        Apinv: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Project onto equality constraints using pseudo-inverse.
-
-        Args:
-            x (jnp.ndarray): Point to be projected.
-                Shape (batch_size, dimension, 1)
-            b (jnp.ndarray): Right hand side vector.
-                Shape (batch_size, n_constraints, 1)
-            A (jnp.ndarray): Left hand side matrix.
-                Shape (batch_size, n_constraints, dimension)
-            Apinv (jnp.ndarray): Pseudo-inverse of A.
-                Shape (batch_size, dimension, n_constraints)
-
-        Returns:
-            jnp.ndarray: The projected point for each point in the batch.
-                Shape (batch_size, dimension, 1).
-        """
-        return x - Apinv @ (A @ x - b)
+        return inp.x - Apinv @ (A @ inp.x - b)
 
     @property
     def dim(self) -> int:
@@ -157,14 +133,16 @@ class EqualityConstraint(Constraint):
         """Return the number of constraints."""
         return self.A.shape[1]
 
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        return jnp.linalg.norm(self.A @ x - self.b, ord=jnp.inf, axis=1, keepdims=True)
+        b, A, _ = self.get_params(inp)
+
+        return jnp.linalg.norm(A @ inp.x - b, ord=jnp.inf, axis=1, keepdims=True)

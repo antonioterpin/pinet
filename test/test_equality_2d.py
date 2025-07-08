@@ -12,6 +12,7 @@ from flax.training import train_state
 
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.project import Project
+from hcnn.utils import Inputs
 
 jax.config.update("jax_enable_x64", True)
 # Random seeds
@@ -36,7 +37,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.softplus(x)
         x = nn.Dense(2)(x)
         alpha = self.schedule(step)
-        x = self.project.call(x, interpolation_value=alpha)
+        x = self.project.call(Inputs(x=x), interpolation_value=alpha)
         return x
 
 

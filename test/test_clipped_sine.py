@@ -9,6 +9,7 @@ from flax.training import train_state
 
 from hcnn.constraints.box import BoxConstraint
 from hcnn.project import Project
+from hcnn.utils import Inputs
 
 
 class HardConstrainedMLP(nn.Module):
@@ -28,7 +29,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
         alpha = self.schedule(step)
-        x = self.project.call(x, interpolation_value=alpha)
+        x = self.project.call(Inputs(x=x), interpolation_value=alpha)
         return x
 
 

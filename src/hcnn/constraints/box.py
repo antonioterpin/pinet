@@ -7,6 +7,7 @@ from jax import numpy as jnp
 from jax.experimental.checkify import checkify
 
 from hcnn.constraints.base import Constraint
+from hcnn.utils import Inputs
 
 
 class BoxConstraint(Constraint):
@@ -66,34 +67,36 @@ class BoxConstraint(Constraint):
         self.mask = mask
         self.masked_idx = tuple(np.where(mask)[0])
 
-    def project(self, x: jnp.ndarray) -> jnp.ndarray:
+    def project(self, inp: Inputs) -> jnp.ndarray:
         """Project the input to the feasible region.
 
         Args:
-            x (jnp.ndarray): Input to be projected.
-                Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to projection.
+                The .x attribute is the point to project.
 
         Returns:
             jnp.ndarray: The projected point for each point in the batch.
                 Shape (batch_size, dimension, 1).
         """
-        return x.at[:, self.masked_idx, :].set(
-            jnp.clip(x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
+        return inp.x.at[:, self.masked_idx, :].set(
+            jnp.clip(inp.x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
         )
 
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
         tmp = jnp.maximum(
-            jnp.max(x[:, self.mask, :] - self.upper_bound, axis=1, keepdims=True),
-            jnp.max(self.lower_bound - x[:, self.masked_idx, :], axis=1, keepdims=True),
+            jnp.max(inp.x[:, self.mask, :] - self.upper_bound, axis=1, keepdims=True),
+            jnp.max(
+                self.lower_bound - inp.x[:, self.masked_idx, :], axis=1, keepdims=True
+            ),
         )
         return jnp.maximum(tmp, 0)
 

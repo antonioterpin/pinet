@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import pytest
 
 from hcnn.constraints.box import BoxConstraint
+from hcnn.utils import Inputs
 
 
 def test_instantiation_error():
@@ -79,7 +80,7 @@ def test_box():
 
     for lb, ub, x, y in zip(lower_bounds, upper_bounds, xs, ys):
         box_constraint = BoxConstraint(lb, ub)
-        z = box_constraint.project(x)
+        z = box_constraint.project(Inputs(x=x))
 
         assert jnp.allclose(
             y, z
@@ -98,7 +99,7 @@ def test_mask():
         jnp.array([1, 0], dtype=jnp.bool_),
     )
     x = jnp.array([[2, 2]]).reshape((1, 2, 1))
-    y = box_constraint.project(x)
+    y = box_constraint.project(Inputs(x=x))
 
     assert y[0, 0, 0] == 1, "The first element should be clipped to 1."
     assert y[0, 1, 0] == 2, "The second element should not be clipped."
@@ -128,7 +129,7 @@ def test_box_parametrized(n_batch_l, n_batch_u, n_batch_x, seed):
     x = jax.random.uniform(key[3], shape=(n_batch_x, DIM, 1), minval=-2, maxval=2)
 
     box_constraint = BoxConstraint(lb, ub, mask)
-    z = box_constraint.project(x)
+    z = box_constraint.project(Inputs(x=x))
 
     # Compute projectino with for loop
     y = x.copy()

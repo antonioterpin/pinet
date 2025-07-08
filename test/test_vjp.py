@@ -13,6 +13,7 @@ from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.project import Project
+from hcnn.utils import Inputs
 
 jax.config.update("jax_enable_x64", True)
 
@@ -127,11 +128,13 @@ def test_triangle():
         ineq_constraint=affine_constraint,
         unroll=False,
     )
-    fun_layer = jax.jit(
-        lambda x, v, fpi: (
+
+    def fun_layer(x, v, fpi):
+        inp = Inputs(x=x)
+        return (
             projection_layer.call(
-                projection_layer.get_init(x),
-                x,
+                projection_layer.get_init(inp),
+                inp,
                 0.0,
                 sigma=sigma,
                 omega=omega,
@@ -140,9 +143,9 @@ def test_triangle():
                 fpi=fpi,
             )[0]
             @ v
-        ).mean(),
-        static_argnames=["fpi"],
-    )
+        ).mean()
+
+    fun_layer = jax.jit(fun_layer, static_argnames=["fpi"])
     e_1 = jnp.eye(2)[0].reshape(2, 1)
     e_2 = jnp.eye(2)[1].reshape(2, 1)
 
@@ -232,7 +235,8 @@ def test_box():
     projection_layer = Project(box_constraint=box_constraint)
 
     def fun_layer(x, v):
-        return (projection_layer.call(x, 0.0) @ v).mean()
+        inp = Inputs(x=x)
+        return (projection_layer.call(inp, 0.0) @ v).mean()
 
     e_1 = jnp.eye(2)[0]
     e_2 = jnp.eye(2)[1]
@@ -319,16 +323,18 @@ def test_general_eq_ineq(seed, batch_size):
         ]
         objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
         problem_qp = cp.Problem(objective=objective, constraints=constraints)
-        problem_qp.solve(solver=cp.CLARABEL)
+        problem_qp.solve(
+            solver=cp.CLARABEL, verbose=True, tol_gap_abs=1e-10, tol_gap_rel=1e-10
+        )
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
 
     # Check that the projection are computed correctly
     n_iter = 200
     y_unroll = projection_layer_unroll.call(
-        projection_layer_unroll.get_init(x), x, n_iter=n_iter
+        projection_layer_unroll.get_init(Inputs(x=x)), Inputs(x=x), n_iter=n_iter
     )[0]
     y_impl = projection_layer_impl.call(
-        projection_layer_impl.get_init(x), x, n_iter=n_iter
+        projection_layer_impl.get_init(Inputs(x=x)), Inputs(x=x), n_iter=n_iter
     )[0]
     assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
     assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
@@ -338,18 +344,19 @@ def test_general_eq_ineq(seed, batch_size):
     vec = jnp.array(jax.random.normal(key[3], shape=(dim, batch_size)))
 
     def loss(x, v, unroll, n_iter_bwd, fpi):
+        inp = Inputs(x=x)
         if unroll:
             return (
                 projection_layer_unroll.call(
-                    projection_layer_unroll.get_init(x), x, n_iter=n_iter
+                    projection_layer_unroll.get_init(inp), inp, n_iter=n_iter
                 )[0]
                 @ v
             ).mean()
         else:
             return (
                 projection_layer_impl.call(
-                    projection_layer_impl.get_init(x),
-                    x,
+                    projection_layer_impl.get_init(inp),
+                    inp,
                     n_iter=n_iter,
                     n_iter_bwd=n_iter_bwd,
                     fpi=fpi,
@@ -406,15 +413,15 @@ def test_general_eq_ineq(seed, batch_size):
     # Use jax utils for checking
     def unroll_f(y):
         return projection_layer_unroll.call(
-            projection_layer_unroll.get_init(x),
-            y,
+            projection_layer_unroll.get_init(Inputs(x=x)),
+            Inputs(x=y),
             n_iter=200,
         )[0]
 
     def fpi_f(y):
         return projection_layer_impl.call(
-            projection_layer_impl.get_init(x),
-            y,
+            projection_layer_impl.get_init(Inputs(x=x)),
+            Inputs(x=y),
             n_iter=200,
             n_iter_bwd=200,
             fpi=True,
@@ -422,8 +429,8 @@ def test_general_eq_ineq(seed, batch_size):
 
     def linsys_f(y):
         return projection_layer_impl.call(
-            projection_layer_impl.get_init(x),
-            y,
+            projection_layer_impl.get_init(Inputs(x=x)),
+            Inputs(x=y),
             n_iter=200,
             n_iter_bwd=50,
             fpi=False,

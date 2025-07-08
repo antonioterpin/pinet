@@ -12,6 +12,7 @@ from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.constraints.constraint_parser import ConstraintParser
 from hcnn.solver.admm import build_iteration_step
+from hcnn.utils import Inputs
 
 jax.config.update("jax_enable_x64", True)
 
@@ -93,7 +94,7 @@ def test_simple_2d(method, seed, batch_size):
     # Compute the projection with iterative
     n_iter = 200
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
-    xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
+    xk = Inputs(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=0.1, omega=1.0)
 
@@ -191,7 +192,7 @@ def test_general_eq_ineq(method, seed, batch_size):
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     iteration_step = jax.jit(iteration_step)
-    xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
+    xk = Inputs(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
 
@@ -390,7 +391,7 @@ def test_general_eq_ineq_box(
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     iteration_step = jax.jit(iteration_step)
-    xk = jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1))
+    xk = Inputs(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
 
@@ -434,7 +435,7 @@ def test_general_eq_ineq_box(
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     iteration_step = jax.jit(iteration_step)
-    xk = jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1))
+    xk = Inputs(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
 
@@ -472,7 +473,7 @@ def test_simple_no_equality(seed, batch_size):
 
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
-    xk = jnp.zeros(shape=(batch_size, dim + n_ineq, 1))
+    xk = Inputs(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=0.1, omega=1.0)
 

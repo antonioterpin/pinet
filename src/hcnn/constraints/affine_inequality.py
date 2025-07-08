@@ -3,6 +3,7 @@
 from jax import numpy as jnp
 
 from hcnn.constraints.base import Constraint
+from hcnn.utils import Inputs
 
 
 class AffineInequalityConstraint(Constraint):
@@ -51,11 +52,16 @@ class AffineInequalityConstraint(Constraint):
             self.C.shape[1] == self.ub.shape[1]
         ), "Number of rows in C must equal size of u."
 
-    def project(self, x) -> jnp.ndarray:
+    def project(self, inp: Inputs) -> jnp.ndarray:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            x (jnp.ndarray): The point to be projected. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to projection.
+                The .x attribute is the point to project.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+                Shape (batch_size, dimension, 1).
         """
         raise NotImplementedError(
             "The 'project' method is not implemented and should not be called."
@@ -71,17 +77,17 @@ class AffineInequalityConstraint(Constraint):
         """Return the number of constraints."""
         return self.C.shape[1]
 
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        Cx = self.C @ x
+        Cx = self.C @ inp.x
         cv_ub = jnp.maximum(Cx - self.ub, 0)
         cv_lb = jnp.maximum(self.lb - Cx, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)
