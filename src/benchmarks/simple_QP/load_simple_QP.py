@@ -135,12 +135,9 @@ class JaxDataLoader:
         if self.shuffle:
             self._perm = self._get_perm()
 
-    def _advance_rng(self):
-        self.rng_key, self._last_key = jax.random.split(self.rng_key)
-
     def _get_perm(self):
-        self._advance_rng()
-        perm = jax.random.permutation(self._last_key, len(self.dataset))
+        self.rng_key, last_key = jax.random.split(self.rng_key)
+        perm = jax.random.permutation(last_key, len(self.dataset))
         return perm
 
 
