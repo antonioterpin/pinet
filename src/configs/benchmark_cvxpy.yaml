@@ -1,12 +1,13 @@
 n_epochs: 25
-n_iter_train: 350
-n_iter_test: 350
+n_iter_train: 200
+n_iter_test: 300
 learning_rate: 1.0e-2
-sigma: 3.282890975060525
+sigma: 2.5e-0
 omega: 1.7
 unroll: False
 fpi: False
 n_iter_bwd: 25
+cvxpy_tol: 1.0e-3
 equilibrate:
   max_iter: 0
   tol: 1.0e-3
@@ -14,3 +15,6 @@ equilibrate:
   col_scaling: False
   update_mode: "Gauss"
   safeguard: False
+features_list: [200, 200]
+activation: relu
+batch_size: 2048
