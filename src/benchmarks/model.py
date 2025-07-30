@@ -14,6 +14,7 @@ from benchmarks.simple_QP.other_projections import (
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.project import Project
+from hcnn.utils import EqualityInputs, Inputs
 
 
 class HardConstrainedMLP(nn.Module):
@@ -102,10 +103,10 @@ def setup_model(
         if hyperparameters["unroll"]:
 
             def project(x, b):
+                inp = Inputs(x=x, eq=EqualityInputs(b=b))
                 return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
+                    y0=projection_layer.get_init(inp),
+                    inp=inp,
                     interpolation_value=0.0,
                     sigma=hyperparameters["sigma"],
                     omega=hyperparameters["omega"],
@@ -113,10 +114,10 @@ def setup_model(
                 )[0]
 
             def project_test(x, b):
+                inp = Inputs(x=x, eq=EqualityInputs(b=b))
                 return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
+                    y0=projection_layer.get_init(inp),
+                    inp=inp,
                     interpolation_value=0.0,
                     sigma=hyperparameters["sigma"],
                     omega=hyperparameters["omega"],
@@ -126,10 +127,10 @@ def setup_model(
         else:
 
             def project(x, b):
+                inp = Inputs(x=x, eq=EqualityInputs(b=b))
                 return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
+                    y0=projection_layer.get_init(inp),
+                    inp=inp,
                     interpolation_value=0.0,
                     sigma=hyperparameters["sigma"],
                     omega=hyperparameters["omega"],
@@ -139,10 +140,10 @@ def setup_model(
                 )[0]
 
             def project_test(x, b):
+                inp = Inputs(x=x, eq=EqualityInputs(b=b))
                 return projection_layer.call(
-                    y0=projection_layer.get_init(x),
-                    x=x,
-                    b=b,
+                    y0=projection_layer.get_init(inp),
+                    inp=inp,
                     interpolation_value=0.0,
                     sigma=hyperparameters["sigma"],
                     omega=hyperparameters["omega"],

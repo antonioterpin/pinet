@@ -12,13 +12,13 @@ import wandb
 
 PROJECT = "hcnn"
 
-# Log in to wandb automatically when the module is imported.
-wandb.login()
 logger = logging.getLogger(__name__)
 
 
 class Logger:
     """Encapsulates logging functionalities."""
+
+    _logged_in = False
 
     def __init__(self, run_name: str) -> None:
         """Initializes the Logger and creates a new wandb run.
@@ -26,6 +26,10 @@ class Logger:
         Args:
             run_name (str): The name of the run to be logged.
         """
+        if not Logger._logged_in:
+            wandb.login()
+            Logger._logged_in = True
+
         self.run_name = run_name
         self.run = wandb.init(
             project=PROJECT,
