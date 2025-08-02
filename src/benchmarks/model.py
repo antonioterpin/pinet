@@ -30,6 +30,8 @@ class HardConstrainedMLP(nn.Module):
     dim: int
     features_list: list
     activation: nn.Module = nn.relu
+    raw_train: bool = False
+    raw_test: bool = False
 
     @nn.compact
     def __call__(
@@ -44,9 +46,11 @@ class HardConstrainedMLP(nn.Module):
             x = self.activation(x)
         x = nn.Dense(self.dim)(x)
         if not test:
-            x = self.project(x, b)
+            if not self.raw_train:
+                x = self.project(x, b)
         else:
-            x = self.project_test(x, b)
+            if not self.raw_test:
+                x = self.project_test(x, b)
         return x
 
 
@@ -58,7 +62,7 @@ def setup_model(
     X,
     G,
     h,
-    batched_objective,
+    batched_loss,
     setup_reps=10,
 ):
     """Receives problem (hyper)parameters and returns the model and its parameters."""
@@ -193,6 +197,8 @@ def setup_model(
         dim=A.shape[2],
         features_list=hyperparameters["features_list"],
         activation=activation,
+        raw_train=hyperparameters.get("raw_train", False),
+        raw_test=hyperparameters.get("raw_test", False),
     )
     params = model.init(
         rng_key,
@@ -216,7 +222,7 @@ def setup_model(
                 b=b_batch,
                 test=False,
             )
-            return batched_objective(predictions).mean()
+            return batched_loss(predictions, b_batch).mean()
 
         loss, grads = jax.value_and_grad(loss_fn)(state.params)
         return loss, state.apply_gradients(grads=grads)

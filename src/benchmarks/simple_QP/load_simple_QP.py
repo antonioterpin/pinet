@@ -175,6 +175,7 @@ def load_data(
     rng_key,
     batch_size=2048,
     use_jax_loader=True,
+    penalty=0.0,
 ):
     """Load problem data."""
     if not use_DC3_dataset:
@@ -273,6 +274,35 @@ def load_data(
     # Vectorize the quadratic form computation over the batch dimension
     batched_objective = jax.vmap(objective_function, in_axes=[0])
 
+    def penalty_form(predictions, X):
+        eq_cv = jnp.max(
+            jnp.abs(
+                A[0].reshape(1, A.shape[1], A.shape[2])
+                @ predictions.reshape(X.shape[0], A.shape[2], 1)
+                - X
+            ),
+            axis=1,
+        )
+        ineq_cv = jnp.max(
+            jnp.maximum(
+                G[0].reshape(1, G.shape[1], G.shape[2])
+                @ predictions.reshape(X.shape[0], G.shape[2], 1)
+                - h,
+                0,
+            ),
+            axis=1,
+        )
+
+        return eq_cv + ineq_cv
+
+    def batched_loss(predictions, X):
+        if penalty > 0:
+            return batched_objective(predictions) + penalty * penalty_form(
+                predictions, X
+            )
+        else:
+            return batched_objective(predictions)
+
     return (
         A,
         G,
@@ -282,4 +312,5 @@ def load_data(
         train_loader,
         valid_loader,
         test_loader,
+        batched_loss,
     )
