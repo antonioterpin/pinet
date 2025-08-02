@@ -10,8 +10,6 @@ import jax
 import jax.numpy as jnp
 import wandb
 
-PROJECT = "hcnn"
-
 logger = logging.getLogger(__name__)
 
 
@@ -20,11 +18,12 @@ class Logger:
 
     _logged_in = False
 
-    def __init__(self, run_name: str) -> None:
+    def __init__(self, run_name: str, project_name: str = "hcnn") -> None:
         """Initializes the Logger and creates a new wandb run.
 
         Args:
             run_name (str): The name of the run to be logged.
+            project_name (str): The name of the project.
         """
         if not Logger._logged_in:
             wandb.login()
@@ -32,7 +31,7 @@ class Logger:
 
         self.run_name = run_name
         self.run = wandb.init(
-            project=PROJECT,
+            project=project_name,
             name=self.run_name,
             id=self.run_name,
         )

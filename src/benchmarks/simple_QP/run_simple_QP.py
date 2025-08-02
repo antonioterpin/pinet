@@ -335,7 +335,7 @@ def main(
     ineqcvs = []
     logging_dict = LoggingDict()
     with (
-        Logger(run_name) as data_logger,
+        Logger(run_name=run_name, project_name="hcnn") as data_logger,
         GracefulShutdown("Stop detected, finish epoch...") as g,
     ):
         data_logger.run.config.update(hyperparameters)

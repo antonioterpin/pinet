@@ -19,6 +19,7 @@ from tqdm import tqdm
 from benchmarks.toy_MPC.load_toy_MPC import load_data
 from benchmarks.toy_MPC.model import setup_model
 from benchmarks.toy_MPC.plotting import generate_trajectories, plot_training
+from hcnn.utils import GracefulShutdown, Logger
 
 jax.config.update("jax_enable_x64", True)
 
@@ -82,7 +83,8 @@ def evaluate_hcnn(
     # Objectives
     opt_obj = jnp.concatenate(opt_obj, axis=0)
     opt_obj_mean = opt_obj.mean()
-    hcnn_obj_mean = jnp.concatenate(hcnn_obj, axis=0).mean()
+    hcnn_obj = jnp.concatenate(hcnn_obj, axis=0)
+    hcnn_obj_mean = hcnn_obj.mean()
     # Equality Constraints
     eq_cv = jnp.concatenate(eq_cv, axis=0)
     eq_cv_mean = eq_cv.mean()
@@ -145,6 +147,7 @@ def main(
     PLOT_TRAINING,
     SAVE_RESULTS,
     use_jax_loader,
+    run_name,
 ):
     """Main for running toy MPC benchmarks."""
     hyperparameters = load_yaml(config_path)
@@ -202,95 +205,141 @@ def main(
     )
 
     N_EPOCHS = hyperparameters["n_epochs"]
+    eval_every = 1
     start = time.time()
     trainig_losses = []
     validation_losses = []
     eqcvs = []
     ineqcvs = []
 
-    for step in (pbar := tqdm(range(N_EPOCHS))):
-        epoch_loss = []
-        for batch in train_loader:
-            X_batch, _ = batch
-            X_batch_full = jnp.concatenate(
-                (
-                    X_batch,
-                    jnp.zeros((X_batch.shape[0], As.shape[1] - X_batch.shape[1], 1)),
-                ),
-                axis=1,
-            )
-            loss, state = train_step(
-                state,
-                X_batch[:, :, 0],
-                X_batch_full,
-            )
-            epoch_loss.append(loss)
-        pbar.set_description(f"Train Loss: {jnp.array(epoch_loss).mean():.5f}")
-        trainig_losses.append(jnp.array(epoch_loss).mean())
-
-        if step % 1 == 0:
-            for X_valid, _ in valid_loader:
-                X_valid_full = jnp.concatenate(
+    with (
+        Logger(run_name=run_name, project_name="hcnn_toy_mpc") as data_logger,
+        GracefulShutdown("Stop detected, finishing epoch...") as g,
+    ):
+        data_logger.run.config.update(hyperparameters)
+        for step in (pbar := tqdm(range(N_EPOCHS))):
+            if g.stop:
+                break
+            epoch_loss = []
+            batch_sizes = []
+            start_epoch_time = time.time()
+            for batch in train_loader:
+                X_batch, _ = batch
+                X_batch_full = jnp.concatenate(
                     (
-                        X_valid,
+                        X_batch,
                         jnp.zeros(
-                            (X_valid.shape[0], As.shape[1] - X_valid.shape[1], 1)
+                            (X_batch.shape[0], As.shape[1] - X_batch.shape[1], 1)
                         ),
                     ),
                     axis=1,
                 )
-                predictions = state.apply_fn(
-                    {"params": state.params},
-                    X_valid[:, :, 0],
-                    X_valid_full,
-                    test=True,
+                loss, state = train_step(
+                    state,
+                    X_batch[:, :, 0],
+                    X_batch_full,
                 )
-                loss = batched_objective(predictions).mean()
-                eqcv = jnp.abs(
-                    As[0] @ predictions.reshape(-1, Y_DIM, 1) - X_valid_full
-                ).max()
-                ineqcvub = jnp.max(
-                    jnp.maximum(predictions.reshape(-1, Y_DIM, 1) - ub, 0), axis=1
-                )
-                ineqcvlb = jnp.max(
-                    jnp.maximum(lb - predictions.reshape(-1, Y_DIM, 1), 0), axis=1
-                )
-                ineqcv = jnp.maximum(ineqcvub, ineqcvlb).mean()
-                eqcvs.append(eqcv)
-                ineqcvs.append(ineqcv)
-                validation_losses.append(loss)
-                pbar.set_postfix(
-                    {
-                        "eqcv": f"{eqcv:.5f}",
-                        "ineqcv": f"{ineqcv:.5f}",
-                        "Valid. Loss:": f"{loss:.5f}",
-                    }
-                )
-    training_time = time.time() - start
-    print(f"Training time: {training_time:.5f} seconds")
+                batch_sizes.append(X_batch.shape[0])
+                epoch_loss.append(loss)
+            weighted_epoch_loss = sum(
+                el * bs for el, bs in zip(epoch_loss, batch_sizes)
+            ) / sum(batch_sizes)
+            trainig_losses.append(weighted_epoch_loss)
+            pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")
+            epoch_time = time.time() - start_epoch_time
 
-    if PLOT_TRAINING:
-        plot_training(
-            train_loader,
-            valid_loader,
-            trainig_losses,
-            validation_losses,
-            eqcvs,
-            ineqcvs,
+            if step % eval_every == 0:
+                start_evaluation_time = time.time()
+                # TODO: Use some of the evaluate functions?
+                for X_valid, valid_obj in valid_loader:
+                    X_valid_full = jnp.concatenate(
+                        (
+                            X_valid,
+                            jnp.zeros(
+                                (X_valid.shape[0], As.shape[1] - X_valid.shape[1], 1)
+                            ),
+                        ),
+                        axis=1,
+                    )
+                    predictions = state.apply_fn(
+                        {"params": state.params},
+                        X_valid[:, :, 0],
+                        X_valid_full,
+                        test=True,
+                    )
+                    validation_loss = batched_objective(predictions)
+                    eqcv = jnp.abs(
+                        As[0] @ predictions.reshape(-1, Y_DIM, 1) - X_valid_full
+                    ).max()
+                    ineqcvub = jnp.max(
+                        jnp.maximum(predictions.reshape(-1, Y_DIM, 1) - ub, 0), axis=1
+                    )
+                    ineqcvlb = jnp.max(
+                        jnp.maximum(lb - predictions.reshape(-1, Y_DIM, 1), 0), axis=1
+                    )
+                    ineqcv = jnp.maximum(ineqcvub, ineqcvlb).mean()
+                    eqcvs.append(eqcv)
+                    ineqcvs.append(ineqcv)
+                    validation_losses.append(validation_loss.mean())
+                    eval_time = time.time() - start_evaluation_time
+                    pbar.set_postfix(
+                        {
+                            "eqcv": f"{eqcv:.5f}",
+                            "ineqcv": f"{ineqcv:.5f}",
+                            "Valid. Loss:": f"{validation_loss.mean():.5f}",
+                        }
+                    )
+                    data_logger.log(
+                        step,
+                        {
+                            "weighted_epoch_loss": weighted_epoch_loss,
+                            "epoch_training_time": epoch_time,
+                            "validation_objective_mean": validation_loss.mean(),
+                            "validation_average_rs": (
+                                (validation_loss - valid_obj) / jnp.abs(valid_obj)
+                            ).mean(),
+                            "validation_cv": jnp.maximum(ineqcv, eqcv),
+                            "validation_time": eval_time,
+                        },
+                    )
+        training_time = time.time() - start
+        print(f"Training time: {training_time:.5f} seconds")
+
+        if PLOT_TRAINING:
+            plot_training(
+                train_loader,
+                valid_loader,
+                trainig_losses,
+                validation_losses,
+                eqcvs,
+                ineqcvs,
+            )
+        _ = evaluate_hcnn(
+            loader=valid_loader,
+            state=state,
+            batched_objective=batched_objective,
+            prefix="Validation",
+            A=As,
+            lb=lb,
+            ub=ub,
+            cv_tol=1e-3,
+            single_instance=False,
         )
-    _ = evaluate_hcnn(
-        loader=valid_loader,
-        state=state,
-        batched_objective=batched_objective,
-        prefix="Validation",
-        A=As,
-        lb=lb,
-        ub=ub,
-        cv_tol=1e-3,
-        single_instance=False,
-    )
-    opt_obj, hcnn_obj, eq_cv, ineq_cv, ineq_perc, mean_inf_time, std_inf_time = (
-        evaluate_hcnn(
+        opt_obj, hcnn_obj, eq_cv, ineq_cv, ineq_perc, mean_inf_time, std_inf_time = (
+            evaluate_hcnn(
+                loader=test_loader,
+                state=state,
+                batched_objective=batched_objective,
+                prefix="Test",
+                A=As,
+                lb=lb,
+                ub=ub,
+                cv_tol=1e-3,
+                time_evals=10,
+                single_instance=False,
+            )
+        )
+        _, _, _, _, _, mean_inf_time_single, std_inf_time_single = evaluate_hcnn(
             loader=test_loader,
             state=state,
             batched_objective=batched_objective,
@@ -302,7 +351,20 @@ def main(
             time_evals=10,
             single_instance=True,
         )
-    )
+
+        # Log summary metrics for wandb
+        rs = (hcnn_obj - opt_obj) / jnp.abs(opt_obj)
+        cv = jnp.maximum(eq_cv, ineq_cv)
+        cvthres = 1e-3
+        data_logger.run.summary.update(
+            {
+                "Average RS Test": jnp.mean(rs),
+                "Max CV Test": jnp.max(cv),
+                "Percentage CV < tol": (1 - jnp.mean(cv > cvthres)) * 100,
+                "Average Single Inference Time": mean_inf_time_single,
+                "Average Batch Inference Time": mean_inf_time,
+            }
+        )
 
     if SAVE_RESULTS:
         current_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -393,19 +455,23 @@ if __name__ == "__main__":
     args = parse_args()
     filepath = pathlib.Path(__file__).parent.resolve() / "datasets" / args.filename
     config_path = (
-        pathlib.Path(__file__).parent.parent.parent.resolve() / "configs" / args.config
+        pathlib.Path(__file__).parent.parent.parent.resolve()
+        / "configs"
+        / (args.config + ".yaml")
     )
     SEED = args.seed
     torch.manual_seed(SEED)
     use_jax_loader = args.jax_loader
+    run_name = f"toy_MPC_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     if not args.use_saved:
         _ = main(
-            filepath,
-            config_path,
-            SEED,
-            args.plot_training,
-            args.save_results,
-            use_jax_loader,
+            filepath=filepath,
+            config_path=config_path,
+            SEED=SEED,
+            PLOT_TRAINING=args.plot_training,
+            SAVE_RESULTS=args.save_results,
+            use_jax_loader=use_jax_loader,
+            run_name=run_name,
         )
     else:
         if args.results_folder is None:
