@@ -7,7 +7,8 @@ import optax
 from flax import linen as nn
 from flax.training import train_state
 from jax import config as jconf
-from jax import custom_vjp, jit, lax
+from jax import custom_vjp as _custom_vjp
+from jax import jit, lax
 from jax import numpy as jnp
 from jax import random as jrnd
 from jax import value_and_grad, vjp
@@ -18,10 +19,19 @@ jconf.update("jax_enable_x64", True)
 
 # %%
 # Problem dimensions
-n = 50
-m = 50
+n = 100
+m = 100
 # Key
 key = jrnd.PRNGKey(42)
+
+use_custom_vjp = True
+if use_custom_vjp:
+    custom_vjp = _custom_vjp
+else:
+
+    def custom_vjp(f):
+        """No op."""
+        return f
 
 
 # %% Projections
@@ -386,12 +396,12 @@ def _project_bwd(residuals, cotangent):
                 (the right-hand side of the equality constraints).
     """
     sk, yraw, b = residuals
-    cotangent_zk1, cotangent_sk = cotangent
+    cotangent_zk1, _ = cotangent
 
     # Compute the vjp of the iteration step wrt to the DRA governing sequence
-    _, iteration_vjp = vjp(lambda xx: step_iteration(xx, yraw, b), sk)
+    _, iteration_vjp = vjp(lambda xx: step_iteration(yraw, xx, b), sk)
     # Compute the vjp of the iteration step wrt to the value to be projected
-    _, iteration_vjp2 = vjp(lambda xx: step_iteration(sk, xx, b), yraw)
+    _, iteration_vjp2 = vjp(lambda xx: step_iteration(xx, sk, b), yraw)
     # Compute the vjp of the final step wrt to DRA governing sequence
     _, equality_vjp = vjp(lambda xx: step_final(xx, b), sk)
 
@@ -410,7 +420,8 @@ def _project_bwd(residuals, cotangent):
     return (None, thevjp, None)
 
 
-project.defvjp(_project_fwd, _project_bwd)
+if use_custom_vjp:
+    project.defvjp(_project_fwd, _project_bwd)
 
 # %% Test the projection
 # To test the correctness of the projection, we can sample random points,
@@ -495,8 +506,8 @@ class HardConstrainedMLP(nn.Module):
 
 
 # %% Train the MLP
-BATCH_SIZE = 300
-N_EPOCHS = 1000
+BATCH_SIZE = 128
+N_EPOCHS = 300
 LEARNING_RATE = 1e-3
 key_train, key_init = jrnd.split(key)
 
@@ -604,3 +615,5 @@ s_pred = pred_val[:, n:]
 print_stats(
     x_pred, s_pred, val_batch["input"]["b"], val_batch["input"]["c"], val_batch["xstar"]
 )
+
+# %%
