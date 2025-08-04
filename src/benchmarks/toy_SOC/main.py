@@ -19,10 +19,10 @@ jconf.update("jax_enable_x64", True)
 
 # %%
 # Problem dimensions
-n = 50
-m = 50
+n = 250
+m = 250
 # Key
-key = jrnd.PRNGKey(42)
+key = jrnd.PRNGKey(1)
 
 use_custom_vjp = True
 if use_custom_vjp:
@@ -201,16 +201,16 @@ def print_stats(x, s, b, c, xstar):
     print(" --- Solution statistics ---")
     # mean, std, max, min
     print(
-        f"""CV (Ax = b): {jnp.mean(cv_eq):.4f} ± {jnp.std(cv_eq):.4f}
-          in [{jnp.min(cv_eq):.4f}, {jnp.max(cv_eq):.4f}]"""
+        f"""CV (Ax = b): {jnp.mean(cv_eq):.15f} ± {jnp.std(cv_eq):.15f}
+          in [{jnp.min(cv_eq):.15f}, {jnp.max(cv_eq):.15f}]"""
     )
     print(
-        f"""CV (SOC): {jnp.mean(cv_soc):.4f} ± {jnp.std(cv_soc):.4f}
-          in [{jnp.min(cv_soc):.4f}, {jnp.max(cv_soc):.4f}]"""
+        f"""CV (SOC): {jnp.mean(cv_soc):.15f} ± {jnp.std(cv_soc):.15f}
+          in [{jnp.min(cv_soc):.15f}, {jnp.max(cv_soc):.15f}]"""
     )
     print(
-        f"""RS: {jnp.mean(rs):.4f} ± {jnp.std(rs):.4f}
-          in [{jnp.min(rs):.4f}, {jnp.max(rs):.4f}]"""
+        f"""RS: {jnp.mean(rs):.15f} ± {jnp.std(rs):.15f}
+          in [{jnp.min(rs):.15f}, {jnp.max(rs):.15f}]"""
     )
 
 
@@ -507,7 +507,7 @@ class HardConstrainedMLP(nn.Module):
 
 # %% Train the MLP
 BATCH_SIZE = 512
-N_EPOCHS = 300
+N_EPOCHS = 1000
 LEARNING_RATE = 1e-3
 key_train, key_init = jrnd.split(key)
 
@@ -536,7 +536,7 @@ def make_batch(key, batch_size=BATCH_SIZE):
 
 
 # %% Initialize the model
-model = HardConstrainedMLP(layers=[64, 64])
+model = HardConstrainedMLP(layers=[200, 200])
 
 # Sample one batch only to create shapes for initialisation
 batch, key = make_batch(key_init, batch_size=1)
