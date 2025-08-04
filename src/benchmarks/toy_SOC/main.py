@@ -19,8 +19,8 @@ jconf.update("jax_enable_x64", True)
 
 # %%
 # Problem dimensions
-n = 100
-m = 100
+n = 50
+m = 50
 # Key
 key = jrnd.PRNGKey(42)
 
@@ -250,7 +250,7 @@ print_stats(x_cvxpy, s_cvxpy, b, c, xstar)
 
 # %% Use our solver
 n_iter_forward = 1e3
-n_iter_backward = 50
+n_iter_backward = 200
 sigma = 0.1
 omega = 1.8
 
@@ -506,7 +506,7 @@ class HardConstrainedMLP(nn.Module):
 
 
 # %% Train the MLP
-BATCH_SIZE = 128
+BATCH_SIZE = 512
 N_EPOCHS = 300
 LEARNING_RATE = 1e-3
 key_train, key_init = jrnd.split(key)
@@ -562,14 +562,11 @@ def loss_fn(params, input):
             - aux (tuple): Auxiliary values containing constraint violations.
     """
     c = input["c"]
-    b = input["b"]
     pred = model.apply(params, input)
     x = pred[:, :n]
     s = pred[:, n:]
-    cv_eq = constraint_violation_eq(x, s, b)
-    cv_soc = constraint_violation_soc(s)
     objective_value = objective(x, c)
-    return jnp.mean(objective_value), (cv_eq, cv_soc)
+    return jnp.mean(objective_value), (x, s)
 
 
 @jit
@@ -597,10 +594,18 @@ for epoch in range(1, N_EPOCHS + 1):
     epoch_losses = []
     key_train, key = jrnd.split(key_train)
     batch, key_train = make_batch(key)
-    state, l, (cv_eq, cv_soc) = train_step(state, batch)
+    state, l, (x, s) = train_step(state, batch)
+    cv_eq = constraint_violation_eq(x, s, batch["input"]["b"])
+    cv_soc = constraint_violation_soc(s)
+    rs = relative_suboptimality(x, batch["xstar"], batch["input"]["c"])
     if epoch % 10 == 0 or epoch == 1:
         print(
-            f"[{epoch:03d}/{N_EPOCHS}]  loss = {l:.4e} {cv_eq.max()=}, {cv_soc.max()=}"
+            f"""[{epoch:03d}/{N_EPOCHS}]
+            \tloss = {l:.4e}
+            \t{cv_eq.max()=}
+            \t{cv_soc.max()=}
+            \t{rs.max()=}
+            """
         )
 
 # %% Validation
