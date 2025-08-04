@@ -149,7 +149,7 @@ def constraint_violation_eq(x, s, b):
     Returns:
         jnp.ndarray: Constraint violation, shape (B, 1).
     """
-    return jnp.linalg.norm(A @ x + s - b, axis=-1)
+    return jnp.linalg.norm(A @ x + s - b, ord=jnp.inf, axis=-1)
 
 
 def constraint_violation_soc(s):
