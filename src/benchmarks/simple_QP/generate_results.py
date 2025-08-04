@@ -90,14 +90,20 @@ def generate_learning_curves(id, config, filename, opt_obj_valid, plotting=False
     optimal_objective_columns = []
     objective_columns = []
     train_time = []
+    setup_time = []
     # Find all available runs with id and config
     for folder in subfolders:
         lc_file = folder / "learning_curves.npz"
         lc_data = jnp.load(lc_file)
+        res_file = folder / "results.npz"
+        res_data = jnp.load(res_file, allow_pickle=True)
         optimal_objective_columns.append(opt_obj_valid)
         objective_columns.append(lc_data["objective"])
         cv_columns.append(jnp.maximum(lc_data["eqcv"], lc_data["ineqcv"]))
         train_time.append(lc_data["train_time"].reshape(-1, 1))
+        setup_time.append(
+            res_data["setup_time"] if res_data["setup_time"].item() is not None else 0.0
+        )
 
     # Create a matrix where each column corresponds to a subfolder's objective values
     optimal_objective_matrix = jnp.concatenate(optimal_objective_columns, axis=1)
@@ -107,7 +113,10 @@ def generate_learning_curves(id, config, filename, opt_obj_valid, plotting=False
     objective_matrix = jnp.concatenate(objective_columns, axis=2)
     cv_matrix = jnp.concatenate(cv_columns, axis=2)
     train_time_matrix = jnp.concatenate(train_time, axis=1)
-    train_time_matrix = jnp.mean(jnp.cumsum(train_time_matrix, axis=0), axis=1)
+    train_time_matrix = (
+        jnp.mean(jnp.cumsum(train_time_matrix, axis=0), axis=1)
+        + jnp.array(setup_time).mean()
+    )
     # Compute relative suboptimality for each run and instance
     rs_runs = (objective_matrix - optimal_objective_matrix) / jnp.abs(
         optimal_objective_matrix

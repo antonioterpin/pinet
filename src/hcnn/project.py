@@ -14,23 +14,11 @@ from hcnn.equilibration import ruiz_equilibration
 from hcnn.solver.admm import build_iteration_step
 from hcnn.utils import Inputs
 
-# TODO: Update the docstrings.
 
-
-# TODO: During inference, it would be nice to
-#       implement some constraint violation checking to reduce runtime.
 # TODO: Make the output of project more consistent.
 #       For single constraints the output is an array.
 #       For parsed/multiple constraints the output is a tuple.
-# TODO: Remove the __call__ method, and maybe rename the currently
-#   used `call` method to something else, e.g., project.
 # TODO: Remove the interpolation value. This should be done on the NN layer.
-# TODO: When using var_A, we should rename the Apinv argument that is passed around
-# to something that generically represents a factorization of A.
-# TODO: Break down the iteration vjps, so they
-#   do not have to be computed every time we back prop.
-#   It does not seem to be taking very long so
-#   maybe we can leave this for a later stage.
 class Project:
     """Projection layer implemented via Douglas-Rachford."""
 
