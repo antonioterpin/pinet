@@ -17,38 +17,35 @@ from hcnn.project import Project
 from hcnn.utils import EqualityInputs, Inputs
 
 
-def setup_pinet(A, b, C, ub, setup_reps, hyperparameters):
+def setup_pinet(
+    hyperparameters,
+    eq_constraint=None,
+    ineq_constraint=None,
+    box_constraint=None,
+    setup_reps=10,
+):
     """Setup of pinet projection layer."""
-    eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(
-        C=C, ub=ub, lb=-jnp.inf * jnp.ones_like(ub)
-    )
     projection_layer = Project(
         ineq_constraint=ineq_constraint,
         eq_constraint=eq_constraint,
+        box_constraint=box_constraint,
         unroll=hyperparameters["unroll"],
         equilibrate=hyperparameters["equilibrate"],
     )
 
     # Measure setup time
     start_setup_time = time.time()
-    if setup_reps > 0:
-        for _ in range(setup_reps):
-            eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
-            ineq_constraint = AffineInequalityConstraint(
-                C=C, ub=ub, lb=-jnp.inf * jnp.ones_like(ub)
-            )
-            _ = Project(
-                ineq_constraint=ineq_constraint,
-                eq_constraint=eq_constraint,
-                unroll=hyperparameters["unroll"],
-                equilibrate=hyperparameters["equilibrate"],
-            )
-        setup_time = (time.time() - start_setup_time) / setup_reps
+    for _ in range(max(0, setup_reps)):
+        _ = Project(
+            ineq_constraint=ineq_constraint,
+            eq_constraint=eq_constraint,
+            box_constraint=box_constraint,
+            unroll=hyperparameters["unroll"],
+            equilibrate=hyperparameters["equilibrate"],
+        )
+    setup_time = (time.time() - start_setup_time) / (max(setup_reps, 1))
 
-        print(f"Time to create constraints: {setup_time:.5f} seconds")
-    else:
-        setup_time = 0.0
+    print(f"Time to create constraints: {setup_time:.5f} seconds")
 
     # Define HCNN model
     if hyperparameters["unroll"]:
@@ -176,12 +173,10 @@ class HardConstrainedMLP(nn.Module):
             x = nn.Dense(features)(x)
             x = self.activation(x)
         x = nn.Dense(self.dim)(x)
-        if not test:
-            if not self.raw_train:
-                x = self.project(x, b)
-        else:
-            if not self.raw_test:
-                x = self.project_test(x, b)
+        if test and (not self.raw_test):
+            x = self.project_test(x, b)
+        elif (not test) and (not self.raw_train):
+            x = self.project(x, b)
         return x
 
 
@@ -206,9 +201,20 @@ def setup_model(
     if proj_method not in setups:
         raise ValueError(f"Projection method not valid: {proj_method}")
 
-    project, project_test, setup_time = setups[proj_method](
-        A=A, b=X, C=G, ub=h, setup_reps=setup_reps, hyperparameters=hyperparameters
-    )
+    if proj_method == "pinet":
+        eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
+        ineq_constraint = AffineInequalityConstraint(
+            C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
+        )
+        project, project_test, setup_time = setups[proj_method](
+            eq_constraint=eq_constraint,
+            ineq_constraint=ineq_constraint,
+            hyperparameters=hyperparameters,
+        )
+    else:
+        project, project_test, setup_time = setups[proj_method](
+            A=A, b=X, C=G, ub=h, setup_reps=setup_reps, hyperparameters=hyperparameters
+        )
 
     model = HardConstrainedMLP(
         project=project,

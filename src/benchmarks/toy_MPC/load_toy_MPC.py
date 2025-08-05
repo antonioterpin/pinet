@@ -7,6 +7,8 @@ import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
+from src.benchmarks.simple_QP.load_simple_QP import JaxDataLoader
+
 
 # Load Instance Dataset
 class ToyMPCDataset(Dataset):
@@ -72,7 +74,7 @@ def create_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-class JaxDataLoader:
+class JaxDataLoaderMPC(JaxDataLoader):
     """Dataloader for toy MPC dataset in JAX."""
 
     def __init__(
@@ -86,33 +88,9 @@ class JaxDataLoader:
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
         # Batch indices for the current epoch
-        if self.shuffle:
-            self._perm = self._get_perm()
-        else:
-            self._perm = jnp.arange(len(self.dataset))
-
-    def __len__(self):
-        """Length of dataset."""
-        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
-
-    def __iter__(self):
-        """Iterate over the dataset."""
-        for start in range(0, len(self.dataset), self.batch_size):
-            batch_idx = self._perm[start : start + self.batch_size]
-            yield self.dataset[batch_idx]
-
-        if self.shuffle:
-            self._perm = self._get_perm()
-
-    def _advance_rng(self):
-        self.rng_key, self._last_key = jax.random.split(self.rng_key)
-
-    def _get_perm(self):
-        self._advance_rng()
-        perm = jax.random.permutation(self._last_key, len(self.dataset))
-        return perm
+        self._perm = self._get_perm() if self.shuffle else jnp.arange(len(self.dataset))
 
 
 def load_data(
@@ -166,19 +144,19 @@ def load_data(
         test_dataset = ToyMPCDataset(test_dataset, all_data)
 
         loader_keys = jax.random.split(rng_key, 3)
-        train_loader = JaxDataLoader(
+        train_loader = JaxDataLoaderMPC(
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=True,
             rng_key=loader_keys[0],
         )
-        valid_loader = JaxDataLoader(
+        valid_loader = JaxDataLoaderMPC(
             dataset=val_dataset,
             batch_size=val_size,
             shuffle=False,
             rng_key=loader_keys[1],
         )
-        test_loader = JaxDataLoader(
+        test_loader = JaxDataLoaderMPC(
             dataset=test_dataset,
             batch_size=test_size,
             shuffle=False,

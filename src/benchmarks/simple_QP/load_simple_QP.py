@@ -115,12 +115,9 @@ class JaxDataLoader:
         self.dataset = DC3Dataset(filepath, use_convex)
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
         # Batch indices for the current epoch
-        if self.shuffle:
-            self._perm = self._get_perm()
-        else:
-            self._perm = jnp.arange(len(self.dataset))
+        self._perm = self._get_perm() if self.shuffle else jnp.arange(len(self.dataset))
 
     def __len__(self):
         """Length of dataset."""
@@ -136,7 +133,7 @@ class JaxDataLoader:
             self._perm = self._get_perm()
 
     def _get_perm(self):
-        self.rng_key, last_key = jax.random.split(self.rng_key)
+        self.rng_key, last_key = jax.random.split(self._rng_key)
         perm = jax.random.permutation(last_key, len(self.dataset))
         return perm
 
