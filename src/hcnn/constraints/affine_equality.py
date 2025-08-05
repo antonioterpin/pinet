@@ -94,17 +94,9 @@ class EqualityConstraint(Constraint):
 
     def get_params(self, inp: Inputs) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Get A, b, Apinv depending on varying constraints."""
-        if self.var_b:
-            b = inp.eq.b
-        else:
-            b = self.b
-
-        if self.var_A:
-            A = inp.eq.A
-            Apinv = inp.eq.Apinv
-        else:
-            A = self.A
-            Apinv = self.Apinv
+        b = inp.eq.b if self.var_b else self.b
+        A = inp.eq.A if self.var_A else self.A
+        Apinv = inp.eq.Apinv if self.var_A else self.Apinv
 
         return b, A, Apinv
 

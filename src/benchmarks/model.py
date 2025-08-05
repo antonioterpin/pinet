@@ -48,59 +48,40 @@ def setup_pinet(
     print(f"Time to create constraints: {setup_time:.5f} seconds")
 
     # Define HCNN model
-    if hyperparameters["unroll"]:
+    kw = (
+        {}
+        if hyperparameters["unroll"]
+        else {
+            "n_iter_bwd": hyperparameters["n_iter_bwd"],
+            "fpi": hyperparameters["fpi"],
+        }
+    )
 
-        def project(x, b):
-            inp = Inputs(x=x, eq=EqualityInputs(b=b))
-            return projection_layer.call(
-                y0=projection_layer.get_init(inp),
-                inp=inp,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_train"],
-            )[0]
+    def project(x, b):
+        inp = Inputs(x=x, eq=EqualityInputs(b=b))
+        return projection_layer.call(
+            y0=projection_layer.get_init(inp),
+            inp=inp,
+            interpolation_value=0.0,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_train"],
+            **kw,
+        )[0]
 
-        def project_test(x, b):
-            inp = Inputs(x=x, eq=EqualityInputs(b=b))
-            return projection_layer.call(
-                y0=projection_layer.get_init(inp),
-                inp=inp,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_test"],
-            )[0]
+    def project_test(x, b):
+        inp = Inputs(x=x, eq=EqualityInputs(b=b))
+        return projection_layer.call(
+            y0=projection_layer.get_init(inp),
+            inp=inp,
+            interpolation_value=0.0,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_test"],
+            **kw,
+        )[0]
 
-    else:
-
-        def project(x, b):
-            inp = Inputs(x=x, eq=EqualityInputs(b=b))
-            return projection_layer.call(
-                y0=projection_layer.get_init(inp),
-                inp=inp,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_train"],
-                n_iter_bwd=hyperparameters["n_iter_bwd"],
-                fpi=hyperparameters["fpi"],
-            )[0]
-
-        def project_test(x, b):
-            inp = Inputs(x=x, eq=EqualityInputs(b=b))
-            return projection_layer.call(
-                y0=projection_layer.get_init(inp),
-                inp=inp,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_test"],
-                n_iter_bwd=hyperparameters["n_iter_bwd"],
-                fpi=hyperparameters["fpi"],
-            )[0]
-
-        return project, project_test, setup_time
+    return project, project_test, setup_time
 
 
 def setup_jaxopt(A, b, C, ub, setup_reps, hyperparameters):
