@@ -10,6 +10,7 @@ from flax.training import train_state
 
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.project import Project
+from hcnn.utils import Inputs
 
 jax.config.update("jax_enable_x64", True)
 
@@ -31,8 +32,8 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(1)(x)
         alpha = self.schedule(step)
         x = self.project.call(
-            self.project.get_init(x),
-            x,
+            self.project.get_init(Inputs(x=x)),
+            Inputs(x=x),
             interpolation_value=alpha,
             sigma=sigma,
             omega=omega,

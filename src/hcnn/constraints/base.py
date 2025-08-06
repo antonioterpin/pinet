@@ -4,21 +4,23 @@ from abc import abstractmethod
 
 import jax.numpy as jnp
 
+from hcnn.utils import Inputs
+
 
 class Constraint:
     """Abstract class for constraint sets."""
 
     @abstractmethod
-    def project(self, x: jnp.ndarray) -> jnp.ndarray:
+    def project(self, x: Inputs) -> jnp.ndarray:
         """Project the input to the feasible region."""
         pass
 
     @abstractmethod
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.

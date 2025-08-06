@@ -1,6 +1,7 @@
-"""Flax implementation of the projection layer."""
+"""Implementation of the projection layer."""
 
 from functools import partial
+from typing import Callable
 
 import jax
 from jax import numpy as jnp
@@ -10,29 +11,16 @@ from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.constraints.constraint_parser import ConstraintParser
 from hcnn.equilibration import ruiz_equilibration
-from hcnn.solver.admm import (
-    build_iteration_step,
-    build_iteration_step_vAb,
-    build_iteration_step_vb,
-)
+from hcnn.solver.admm import build_iteration_step
+from hcnn.utils import Inputs
 
 
-# TODO: During inference, it would be nice to
-#       implement some constraint violation checking to reduce runtime.
 # TODO: Make the output of project more consistent.
 #       For single constraints the output is an array.
 #       For parsed/multiple constraints the output is a tuple.
-# TODO: Remove the __call__ method, and maybe rename the currently
-#   used `call` method to something else, e.g., project.
 # TODO: Remove the interpolation value. This should be done on the NN layer.
-# TODO: When using var_A, we should rename the Apinv argument that is passed around
-# to something that generically represents a factorization of A.
-# TODO: Break down the iteration vjps, so they
-#   do not have to be computed every time we back prop.
-#   It does not seem to be taking very long so
-#   maybe we can leave this for a later stage.
 class Project:
-    """Projection layer implemented via iterative projections."""
+    """Projection layer implemented via Douglas-Rachford."""
 
     eq_constraint: EqualityConstraint = None
     ineq_constraint: AffineInequalityConstraint = None
@@ -53,15 +41,13 @@ class Project:
             "update_mode": "Gauss",
             "safeguard": False,
         },
-    ):
+    ) -> None:
         """Initialize projection layer.
 
         Args:
             eq_constraint (EqualityConstraint): Equality constraint.
             ineq_constraint (AffineInequalityConstraint): Inequality constraint.
             box_constraint (BoxConstraint): Box constraint.
-            sigma (float): ADMM scaling parameter.
-            omega (float): ADMM relaxation parameter.
             unroll (bool): Use loop unrolling for backpropagation.
             equilibrate (dict): Dictionary with equilibration parameters.
         """
@@ -72,7 +58,7 @@ class Project:
         self.equilibrate = equilibrate
         self.setup()
 
-    def setup(self):
+    def setup(self) -> None:
         """Setup the projection layer."""
         self.constraints = [
             c
@@ -144,28 +130,31 @@ class Project:
                 self.lifted_eq_constraint.method = "pinv"
                 self.lifted_eq_constraint.setup()
 
+            self.step_iteration, self.step_final = build_iteration_step(
+                self.lifted_eq_constraint,
+                self.lifted_box_constraint,
+                self.dim,
+                self.d_c[:, : self.dim, :],
+            )
             # Equality constraint has variable A
             if self.lifted_eq_constraint.var_A:
-                self.step_iteration, self.step_final = build_iteration_step_vAb(
-                    self.lifted_eq_constraint,
-                    self.lifted_box_constraint,
-                    self.dim,
-                )
                 self._project = jax.jit(
-                    self._project_general_vAb, static_argnames=["n_iter"]
+                    partial(
+                        _project_general,
+                        self.step_iteration,
+                        self.step_final,
+                        self.dim_lifted,
+                        self.d_r,
+                        self.d_c,
+                    ),
+                    static_argnames=["n_iter"],
                 )
             # Equality constraint has variable b
             elif self.lifted_eq_constraint.var_b:
-                self.step_iteration, self.step_final = build_iteration_step_vb(
-                    self.lifted_eq_constraint,
-                    self.lifted_box_constraint,
-                    self.dim,
-                    self.d_c[:, : self.dim, :],
-                )
                 if self.unroll:
                     self._project = jax.jit(
                         partial(
-                            _project_general_vb,
+                            _project_general,
                             self.step_iteration,
                             self.step_final,
                             self.dim_lifted,
@@ -177,7 +166,7 @@ class Project:
                 else:
                     self._project = jax.jit(
                         partial(
-                            _project_general_vb_custom,
+                            _project_general_custom,
                             self.step_iteration,
                             self.step_final,
                             self.dim_lifted,
@@ -188,12 +177,6 @@ class Project:
                     )
             # Equality constraint does not vary
             else:
-                self.step_iteration, self.step_final = build_iteration_step(
-                    self.lifted_eq_constraint,
-                    self.lifted_box_constraint,
-                    self.dim,
-                    self.d_c[:, : self.dim, :],
-                )
                 if self.unroll:
                     self._project = jax.jit(
                         partial(
@@ -221,176 +204,247 @@ class Project:
 
         else:
             self.single_constraint = self.constraints[0]
-            if self.eq_constraint is not None:
-                if self.eq_constraint.var_A:
-                    self._project = jax.jit(self._project_single_vAb)
-                elif self.eq_constraint.var_b:
-                    self._project = jax.jit(self._project_single_vb)
-                else:
-                    self._project = jax.jit(self._project_single)
-            else:
-                self._project = jax.jit(self._project_single)
+            self._project = jax.jit(self._project_single)
 
         # jit correctly the call method
         self.call = self._project
 
-    def cv(self, x):
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
-
-        If there are equality constraints that have variable A or b,
-        then these should be changed accordingly before calling.
 
         Args:
             x (jnp.ndarray): Point to be evaluated.
+                Shape (batch_size, dimension, 1).
+
+        Returns:
+            jnp.ndarray: Constraint violation for each point in the batch.
         """
-        x = x.reshape(x.shape[0], x.shape[1], 1)
-        cv = jnp.zeros((x.shape[0], 1, 1))
+        inp = inp.update(x=inp.x.reshape(inp.x.shape[0], inp.x.shape[1], 1))
+        cv = jnp.zeros((inp.x.shape[0], 1, 1))
         for c in self.constraints:
             if c is not None:
-                cv = jnp.maximum(cv, c.cv(x))
+                cv = jnp.maximum(cv, c.cv(inp))
 
         return cv
 
-    def _project_general_vAb(
+    def call_and_check(
         self,
-        y0: jnp.ndarray,
-        x: jnp.ndarray,
-        b: jnp.ndarray,
-        A: jnp.ndarray,
-        interpolation_value: float = 0,
-        n_iter: int = 0,
+        sigma=1.0,
+        omega=1.7,
+        check_every=10,
+        tol=1e-3,
+        max_iter=100,
+        reduction="max",
+    ) -> Callable:
+        """Returns a function that projects input and checks constraint violation.
+
+        Args:
+            check_every (int): Frequency of checking constraint violation.
+            tol (float): Tolerance for constraint violation.
+            max_iter (int): Maximum number of iterations for checking.
+            reduction (str): Method to reduce constraint violations among a batch.
+            Valid options are: "max" meaning that maximum cv is less that tol;
+            "mean" meaning that mean cv is less than tol;
+            or a number in [0,1] meaning the percentage of instances
+            with cv less than tol.
+
+        Returns:
+            Callable: Takes as input the points to be projected and any specifications for
+            the constraints (e.g., the value of b for variable b equality constraints.).
+            Returns an approximately project and a flag showing whether the termination
+            condition was satisfied.
+        """
+
+        @jax.jit
+        def check(inp: Inputs) -> bool:
+            if reduction == "max":
+                return jnp.max(self.cv(inp)) < tol
+            elif reduction == "mean":
+                return jnp.mean(self.cv(inp)) < tol
+            elif isinstance(reduction, float) and 0 < reduction < 1:
+                return jnp.mean(self.cv(inp) < tol) >= reduction
+            else:
+                raise ValueError(
+                    f"Invalid reduction method {reduction}. "
+                    "Valid options are: 'max', 'mean', or a float in (0, 1)."
+                )
+
+        def project_and_check(inp: Inputs) -> tuple[jnp.ndarray, bool, int]:
+            y0 = self.get_init(inp)
+            # Executed iterations
+            iter_exec = 0
+            terminate = False
+            # Call the projection function with all given arguments.
+            while not (terminate or iter_exec >= max_iter):
+                xproj, y = self.call(
+                    y0,
+                    inp,
+                    interpolation_value=0.0,
+                    sigma=sigma,
+                    omega=omega,
+                    n_iter=check_every,
+                    n_iter_bwd=0,  # only used when backproping
+                    fpi=False,  # only used when backproping
+                )
+                y0 = y0.update(x=y)
+                iter_exec += check_every
+                terminate = check(inp.update(x=xproj))
+
+            return xproj.reshape(inp.x.shape), terminate, iter_exec
+
+        return project_and_check
+
+    def _project_single(
+        self, inp: Inputs, interpolation_value: float = 0, _: int = 0
     ) -> jnp.ndarray:
-        # First write in lifted formulation
-        b_lifted = jnp.concatenate(
-            [
-                b,
-                jnp.zeros(shape=(b.shape[0], self.ineq_constraint.n_constraints, 1)),
-            ],
-            axis=1,
-        )
-        if self.lifted_eq_constraint.method == "pinv":
-            if self.ineq_constraint is not None or self.n_constraints > 1:
+        """Project a batch of points with single constraint.
+
+        Args:
+            x (jnp.ndarray): Point to be projected.
+                Shape (batch_size, dimension, 1).
+            interpolation_value (float): Interpolation value between x and y.
+            _ (int): Unused argument for compatibility.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+        """
+        if (self.eq_constraint is not None) and (self.eq_constraint.var_A):
+            Apinv = jnp.linalg.pinv(inp.eq.A)
+            inp = inp.update(eq=inp.eq.update(Apinv=Apinv))
+
+        y = self.single_constraint.project(
+            inp.update(x=inp.x.reshape((inp.x.shape[0], inp.x.shape[1], 1)))
+        ).reshape(inp.x.shape)
+        return interpolation_value * inp.x + (1 - interpolation_value) * y
+
+    def get_init(self, inp: Inputs) -> Inputs:
+        """Returns a zero initial value for the governing sequence.
+
+        Args:
+            inp (Inputs): Point to be projected data.
+
+        Returns:
+            Inputs: Initial value for the governing sequence.
+        """
+        inp = self.preprocess(inp)
+        return inp.update(x=jnp.zeros((inp.x.shape[0], self.dim_lifted, 1)))
+
+    def preprocess(self, inp: Inputs) -> Inputs:
+        """Preprocess inputs to ease the projection process.
+
+        For example, adds zeros to the RHS of changing equality
+        constraints.
+
+        Args:
+            inp (Inputs): Point to be projected data.
+
+        Returns:
+            Inputs: Appropriately preprocessed inputs.
+        """
+        if self.eq_constraint is not None:
+            if self.eq_constraint.var_A:
                 parser = ConstraintParser(
-                    eq_constraint=EqualityConstraint(A, b, method="pinv"),
+                    eq_constraint=EqualityConstraint(inp.eq.A, inp.eq.b, method="pinv"),
                     ineq_constraint=self.ineq_constraint,
                     box_constraint=self.box_constraint,
                 )
                 lifted_eq_constraint, _ = parser.parse(method="pinv")
-        else:
-            assert False
+                inp = inp.update(
+                    eq=inp.eq.update(
+                        A=lifted_eq_constraint.A, Apinv=lifted_eq_constraint.Apinv
+                    )
+                )
 
-        y = y0
-        y, _ = jax.lax.scan(
-            lambda y, _: (
-                self.step_iteration(
-                    y,
-                    x.reshape((x.shape[0], x.shape[1], 1)),
-                    b_lifted,
-                    lifted_eq_constraint.A,
-                    lifted_eq_constraint.Apinv,
-                ),
-                None,
-            ),
-            y,
-            None,
-            length=n_iter,
-        )
-        y = self.step_final(
-            y, b_lifted, lifted_eq_constraint.A, lifted_eq_constraint.Apinv
-        ).reshape(x.shape)
-        return interpolation_value * x + (1 - interpolation_value) * y
+            if self.eq_constraint.var_b:
+                b_lifted = (
+                    jnp.concatenate(
+                        [
+                            inp.eq.b,
+                            jnp.zeros(
+                                shape=(inp.eq.b.shape[0], self.dim_lifted - self.dim, 1)
+                            ),
+                        ],
+                        axis=1,
+                    )
+                    * self.d_r
+                )
+                inp = inp.update(eq=inp.eq.update(b=b_lifted))
 
-    def _project_single(
-        self, x: jnp.ndarray, interpolation_value: float = 0, _: int = 0
-    ) -> jnp.ndarray:
-        y = self.single_constraint.project(
-            x.reshape((x.shape[0], x.shape[1], 1))
-        ).reshape(x.shape)
-        return interpolation_value * x + (1 - interpolation_value) * y
-
-    def _project_single_vb(
-        self, x: jnp.ndarray, b: jnp.ndarray, interpolation_value: float = 0, _: int = 0
-    ) -> jnp.ndarray:
-        y = self.single_constraint.project(
-            x.reshape((x.shape[0], x.shape[1], 1)), b
-        ).reshape(x.shape)
-        return interpolation_value * x + (1 - interpolation_value) * y
-
-    def _project_single_vAb(
-        self,
-        x: jnp.ndarray,
-        b: jnp.ndarray,
-        A: jnp.ndarray,
-        interpolation_value: float = 0,
-        _: int = 0,
-    ) -> jnp.ndarray:
-        if self.eq_constraint.method == "pinv":
-            Apinv = jnp.linalg.pinv(A)
-        else:
-            assert False
-        y = self.single_constraint.project(
-            x.reshape((x.shape[0], x.shape[1], 1)), b, A, Apinv
-        ).reshape(x.shape)
-        return interpolation_value * x + (1 - interpolation_value) * y
-
-    def get_init(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Returns a zero initial value for the governing sequence.
-
-        Args:
-            x (jnp.ndarray): Point to be projected data.
-
-        Returns:
-            jnp.ndarray: Initial value for the governing sequence.
-        """
-        return jnp.zeros((x.shape[0], self.dim_lifted, 1))
+        return inp
 
 
 # Project general
 def _project_general(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[[Inputs, jnp.ndarray, float, float], Inputs],
+    step_final: Callable[[Inputs], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
-    y0: jnp.ndarray,
-    x: jnp.ndarray,
+    y0: Inputs,
+    inp: Inputs,
     interpolation_value: float = 0,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
-) -> jnp.ndarray:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Project a batch of points using Douglas-Rachford.
+
+    Args:
+        step_iteration (callable): Function for the iteration step.
+        step_final (callable): Function for the final step.
+        dim_lifted (int): Dimension of the lifted space.
+        d_r (jnp.ndarray): Scaling factor for the rows.
+        d_c (jnp.ndarray): Scaling factor for the columns.
+        y0 (jnp.ndarray): Initial value for the governing sequence.
+            Shape (batch_size, dim_lifted, 1).
+        x (jnp.ndarray): Point to be projected.
+            Shape (batch_size, dimension, 1).
+        interpolation_value (float): Interpolation value between x and y.
+        sigma (float): ADMM parameter.
+        omega (float): ADMM parameter.
+        n_iter (int): Number of iterations to run.
+
+    Returns:
+        tuple[jnp.ndarray, jnp.ndarray]: First output is the projected
+            point, and second output is the value of the governing sequence.
+    """
     y = y0
     y, _ = jax.lax.scan(
         lambda y, _: (
-            step_iteration(y, x.reshape((x.shape[0], x.shape[1], 1)), sigma, omega),
+            step_iteration(
+                y, inp.x.reshape((inp.x.shape[0], inp.x.shape[1], 1)), sigma, omega
+            ),
             None,
         ),
         y,
         None,
         length=n_iter,
     )
-    y_aux = y
+    y_aux = y.x
     # Unscale and reshape the output
-    y = (step_final(y)[:, : x.shape[1], :] * d_c[:, : x.shape[1], :]).reshape(x.shape)
-    return interpolation_value * x + (1 - interpolation_value) * y, y_aux
+    y = (step_final(y)[:, : inp.x.shape[1], :] * d_c[:, : inp.x.shape[1], :]).reshape(
+        inp.x.shape
+    )
+    return interpolation_value * inp.x + (1 - interpolation_value) * y, y_aux
 
 
 @partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 10, 11, 12])
 def _project_general_custom(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[[Inputs, jnp.ndarray, float, float], Inputs],
+    step_final: Callable[[Inputs], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
-    y0: jnp.ndarray,
-    x: jnp.ndarray,
+    y0: Inputs,
+    inp: Inputs,
     interpolation_value: float = 0,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
-):
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Auxiliary function to define custom vjp."""
     return _project_general(
         step_iteration,
         step_final,
@@ -398,7 +452,7 @@ def _project_general_custom(
         d_r,
         d_c,
         y0,
-        x,
+        inp,
         interpolation_value,
         sigma,
         omega,
@@ -407,13 +461,13 @@ def _project_general_custom(
 
 
 def _project_general_fwd(
-    step_iteration,
-    step_final,
+    step_iteration: Callable[[jnp.ndarray, jnp.ndarray, float, float], jnp.ndarray],
+    step_final: Callable[[jnp.ndarray], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
-    y0: jnp.ndarray,
-    x: jnp.ndarray,
+    y0: Inputs,
+    inp: Inputs,
     interpolation_value: float = 0,
     sigma: float = 1.0,
     omega: float = 1.7,
@@ -421,6 +475,7 @@ def _project_general_fwd(
     n_iter_bwd: int = 5,
     fpi: bool = False,
 ):
+    """Forward pass for custom vjp."""
     y, y_aux = _project_general_custom(
         step_iteration,
         step_final,
@@ -428,7 +483,7 @@ def _project_general_fwd(
         d_r,
         d_c,
         y0,
-        x,
+        inp,
         interpolation_value,
         sigma,
         omega,
@@ -437,8 +492,8 @@ def _project_general_fwd(
         fpi,
     )
     return (y, y_aux), (
-        y_aux,
-        x.reshape((x.shape[0], x.shape[1], 1)),
+        y0.update(x=y_aux),
+        inp.update(x=inp.x.reshape((inp.x.shape[0], inp.x.shape[1], 1))),
         d_r,
         d_c,
         sigma,
@@ -447,20 +502,53 @@ def _project_general_fwd(
 
 
 def _project_general_bwd(
-    step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
-):
+    step_iteration: Callable[[Inputs, jnp.ndarray, float, float], Inputs],
+    step_final: Callable[[Inputs], jnp.ndarray],
+    dim_lifted: int,
+    n_iter: int,
+    n_iter_bwd: int,
+    fpi: bool,
+    res: tuple,
+    g: jnp.ndarray,
+) -> tuple:
+    """Backward pass for custom vjp.
+
+    This function computes the vjp for the projection using the
+    implicit function theorem.
+    Note that, the arguments are:
+    (i) any arguments for the
+    forward that are not jnp.ndarray;
+    (ii) res: tuple with auxiliary data from the forward pass;
+    (iii) g: incoming cotangents.
+    The function returns a tuple where each element corresponds
+    to a jnp.ndarray from the input.
+
+    Args:
+        step_iteration (callable): Function for the iteration step.
+        step_final (callable): Function for the final step.
+        dim_lifted (int): Dimension of the lifted space.
+        n_iter (int): Number of iterations to run.
+        n_iter_bwd (int): Number of iterations for backward pass.
+        fpi (bool): Whether to use fixed-point iteration.
+        res (tuple): Auxiliary data from the forward pass.
+        g (tuple): Incoming cotangents.
+
+    Returns:
+        tuple: The computed cotangent for the projection.
+    """
     aux_proj, xproj, d_r, d_c, sigma, omega = res
     _, iteration_vjp = jax.vjp(
-        lambda xx: step_iteration(xx, xproj, sigma, omega), aux_proj
+        lambda xx: step_iteration(aux_proj.update(x=xx), xproj.x, sigma, omega).x,
+        aux_proj.x,
     )
     _, iteration_vjp2 = jax.vjp(
-        lambda xx: step_iteration(aux_proj, xx, sigma, omega), xproj
+        lambda xx: step_iteration(aux_proj, xx, sigma, omega).x, xproj.x
     )
-    _, equality_vjp = jax.vjp(lambda xx: step_final(xx), aux_proj)
+    _, equality_vjp = jax.vjp(lambda xx: step_final(aux_proj.update(x=xx)), aux_proj.x)
 
     # Rescale the gradient
     g_scaled = (
-        g[0].reshape(g[0].shape[0], g[0].shape[1], 1) * d_c[:, : xproj.shape[1], :]
+        g[0].reshape(g[0].shape[0], g[0].shape[1], 1) * d_c[:, : xproj.x.shape[1], :]
     )
 
     # Compute VJP of cotangent with projection before auxiliary
@@ -489,206 +577,7 @@ def _project_general_bwd(
 
         vjp_iter = jax.scipy.sparse.linalg.bicgstab(Aop, gg, maxiter=n_iter_bwd)[0]
     thevjp = iteration_vjp2(vjp_iter)[0].reshape((g[0].shape[0], g[0].shape[1]))
-    return (None, None, None, thevjp, None, None, None)
+    return (None, None, None, Inputs(x=thevjp), None, None, None)
 
 
 _project_general_custom.defvjp(_project_general_fwd, _project_general_bwd)
-
-
-# Project general variable b
-def _project_general_vb(
-    step_iteration,
-    step_final,
-    dim_lifted: int,
-    d_r: jnp.ndarray,
-    d_c: jnp.ndarray,
-    y0: jnp.ndarray,
-    x: jnp.ndarray,
-    b: jnp.ndarray,
-    interpolation_value: float = 0,
-    sigma: float = 1.0,
-    omega: float = 1.7,
-    n_iter: int = 0,
-) -> jnp.ndarray:
-    dim = x.shape[1]
-    # First write in lifted formulation
-    b_lifted = (
-        jnp.concatenate(
-            [
-                b,
-                jnp.zeros(shape=(b.shape[0], dim_lifted - dim, 1)),
-            ],
-            axis=1,
-        )
-        * d_r
-    )
-    y = y0
-    y, _ = jax.lax.scan(
-        lambda y, _: (
-            step_iteration(
-                y, x.reshape((x.shape[0], x.shape[1], 1)), b_lifted, sigma, omega
-            ),
-            None,
-        ),
-        y,
-        None,
-        length=n_iter,
-    )
-    y_aux = y
-    # Unscale and reshape the output
-    y = (step_final(y, b_lifted)[:, : x.shape[1], :] * d_c[:, : x.shape[1], :]).reshape(
-        x.shape
-    )
-    return interpolation_value * x + (1 - interpolation_value) * y, y_aux
-
-
-@partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 11, 12, 13])
-def _project_general_vb_custom(
-    step_iteration,
-    step_final,
-    dim_lifted: int,
-    d_r: jnp.ndarray,
-    d_c: jnp.ndarray,
-    y0: jnp.ndarray,
-    x: jnp.ndarray,
-    b: jnp.ndarray,
-    interpolation_value: float = 0,
-    sigma: float = 1.0,
-    omega: float = 1.7,
-    n_iter: int = 0,
-    n_iter_bwd: int = 5,
-    fpi: bool = False,
-):
-    return _project_general_vb(
-        step_iteration,
-        step_final,
-        dim_lifted,
-        d_r,
-        d_c,
-        y0,
-        x,
-        b,
-        interpolation_value,
-        sigma,
-        omega,
-        n_iter,
-    )
-
-
-def _project_general_vb_fwd(
-    step_iteration,
-    step_final,
-    dim_lifted: int,
-    d_r: jnp.ndarray,
-    d_c: jnp.ndarray,
-    y0: jnp.ndarray,
-    x: jnp.ndarray,
-    b: jnp.ndarray,
-    interpolation_value: float = 0,
-    sigma: float = 1.0,
-    omega: float = 1.7,
-    n_iter: int = 0,
-    n_iter_bwd: int = 5,
-    fpi: bool = False,
-):
-    dim = x.shape[1]
-    # First write in lifted formulation
-    b_lifted = (
-        jnp.concatenate(
-            [
-                b,
-                jnp.zeros(shape=(b.shape[0], dim_lifted - dim, 1)),
-            ],
-            axis=1,
-        )
-        * d_r
-    )
-    y, y_aux = _project_general_vb_custom(
-        step_iteration,
-        step_final,
-        dim_lifted,
-        d_r,
-        d_c,
-        y0,
-        x,
-        b,
-        interpolation_value,
-        sigma,
-        omega,
-        n_iter,
-        n_iter_bwd,
-        fpi,
-    )
-    return (y, y_aux), (
-        y_aux,
-        x.reshape((x.shape[0], x.shape[1], 1)),
-        b_lifted,
-        d_r,
-        d_c,
-        sigma,
-        omega,
-    )
-
-
-def _project_general_vb_bwd(
-    step_iteration, step_final, dim_lifted, n_iter, n_iter_bwd, fpi, res, g
-):
-    aux_proj, xproj, b_lifted, d_r, d_c, sigma, omega = res
-    _, iteration_vjp = jax.vjp(
-        lambda xx: step_iteration(xx, xproj, b_lifted, sigma, omega), aux_proj
-    )
-    _, iteration_vjp2 = jax.vjp(
-        lambda xx: step_iteration(aux_proj, xx, b_lifted, sigma, omega), xproj
-    )
-    _, equality_vjp = jax.vjp(lambda xx: step_final(xx, b_lifted), aux_proj)
-
-    # Rescale the gradient
-    g_scaled = (
-        g[0].reshape(g[0].shape[0], g[0].shape[1], 1) * d_c[:, : xproj.shape[1], :]
-    )
-    # Compute VJP of cotangent with projection before auxiliary
-    gg = equality_vjp(
-        jnp.concatenate(
-            [
-                g_scaled,
-                jnp.zeros((g[0].shape[0], dim_lifted - g[0].shape[1], 1)),
-            ],
-            axis=1,
-        )
-    )[0]
-    # Run iteration
-    if fpi:
-        vjp_iter = jnp.zeros((g[0].shape[0], dim_lifted, 1))
-        vjp_iter, _ = jax.lax.scan(
-            lambda vjp_iter, _: (iteration_vjp(vjp_iter)[0] + gg, None),
-            vjp_iter,
-            None,
-            length=n_iter_bwd,
-        )
-    else:
-
-        def Aop(xx):
-            return xx - iteration_vjp(xx)[0]
-
-        vjp_iter = jax.scipy.sparse.linalg.bicgstab(Aop, gg, maxiter=n_iter_bwd)[0]
-    thevjp = iteration_vjp2(vjp_iter)[0].reshape((g[0].shape[0], g[0].shape[1]))
-    return (None, None, None, thevjp, None, None, None, None)
-
-
-_project_general_vb_custom.defvjp(_project_general_vb_fwd, _project_general_vb_bwd)
-
-# An interesting take away from this iterative approach
-# is that you need to get the active constraints right.
-# Once you have the correct active constraints,
-# then you can just compute the gradient
-# using the VJPs.
-# Even more interesting, we might be able to seriously bring
-# down the size of the backpropagation iteration,
-# by exploiting the fact that we only care about the active
-# constraints.
-# Concretely, we can ran the back iteration
-# for a much smaller size of augment auxiliary variable.
-##################
-# Regardles of the previous (but leading there), I can
-# implement a solution guessing, where I round the
-# constraints that appear active.

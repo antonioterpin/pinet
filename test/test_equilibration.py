@@ -11,6 +11,7 @@ from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.project import Project
+from hcnn.utils import EqualityInputs, Inputs
 
 jax.config.update("jax_enable_x64", True)
 
@@ -151,43 +152,26 @@ def test_general_eq_ineq(seed, batch_size):
         # Check that the projection is computed correctly
         n_iter = 1000
         if var_b:
-            y_unroll = pl_unroll.call(
-                pl_unroll.get_init(x), x, b, n_iter=n_iter, sigma=sigma, omega=omega
-            )[0]
-            y_impl = pl_unroll_equil.call(
-                pl_unroll_equil.get_init(x),
-                x,
-                b,
-                n_iter=n_iter,
-                sigma=sigma_equil,
-                omega=omega,
-            )[0]
-            y_impl_equil = pl_impl_equil.call(
-                pl_impl_equil.get_init(x),
-                x,
-                b,
-                n_iter=n_iter,
-                sigma=sigma_equil,
-                omega=omega,
-            )[0]
+            inp = Inputs(x=x, eq=EqualityInputs(b=b))
         else:
-            y_unroll = pl_unroll.call(
-                pl_unroll.get_init(x), x, n_iter=n_iter, sigma=sigma, omega=omega
-            )[0]
-            y_impl = pl_unroll_equil.call(
-                pl_unroll_equil.get_init(x),
-                x,
-                n_iter=n_iter,
-                sigma=sigma_equil,
-                omega=omega,
-            )[0]
-            y_impl_equil = pl_impl_equil.call(
-                pl_impl_equil.get_init(x),
-                x,
-                n_iter=n_iter,
-                sigma=sigma_equil,
-                omega=omega,
-            )[0]
+            inp = Inputs(x=x)
+        y_unroll = pl_unroll.call(
+            pl_unroll.get_init(inp), inp, n_iter=n_iter, sigma=sigma, omega=omega
+        )[0]
+        y_impl = pl_unroll_equil.call(
+            pl_unroll_equil.get_init(inp),
+            inp,
+            n_iter=n_iter,
+            sigma=sigma_equil,
+            omega=omega,
+        )[0]
+        y_impl_equil = pl_impl_equil.call(
+            pl_impl_equil.get_init(inp),
+            inp,
+            n_iter=n_iter,
+            sigma=sigma_equil,
+            omega=omega,
+        )[0]
         assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
         assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
         assert jnp.allclose(y_impl_equil, yqp, atol=1e-4, rtol=1e-4)
@@ -199,82 +183,45 @@ def test_general_eq_ineq(seed, batch_size):
         vec = jnp.array(jax.random.normal(key[4], shape=(dim, batch_size)))
 
         def loss(x, v, mode, n_iter_bwd, fpi):
+            if var_b:
+                inp = Inputs(x=x, eq=EqualityInputs(b=b))
+            else:
+                inp = Inputs(x=x)
             if mode == "unroll":
-                if var_b:
-                    return (
-                        pl_unroll.call(
-                            pl_unroll.get_init(x),
-                            x,
-                            b,
-                            n_iter=n_iter,
-                            sigma=sigma,
-                            omega=omega,
-                        )[0]
-                        @ v
-                    ).mean()
-                else:
-                    return (
-                        pl_unroll.call(
-                            pl_unroll.get_init(x),
-                            x,
-                            n_iter=n_iter,
-                            sigma=sigma,
-                            omega=omega,
-                        )[0]
-                        @ v
-                    ).mean()
+                return (
+                    pl_unroll.call(
+                        pl_unroll.get_init(inp),
+                        inp,
+                        n_iter=n_iter,
+                        sigma=sigma,
+                        omega=omega,
+                    )[0]
+                    @ v
+                ).mean()
             elif mode == "unroll_equil":
-                if var_b:
-                    return (
-                        pl_unroll_equil.call(
-                            pl_unroll_equil.get_init(x),
-                            x,
-                            b,
-                            n_iter=n_iter,
-                            sigma=sigma_equil,
-                            omega=omega,
-                        )[0]
-                        @ v
-                    ).mean()
-                else:
-                    return (
-                        pl_unroll_equil.call(
-                            pl_unroll_equil.get_init(x),
-                            x,
-                            n_iter=n_iter,
-                            sigma=sigma_equil,
-                            omega=omega,
-                        )[0]
-                        @ v
-                    ).mean()
+                return (
+                    pl_unroll_equil.call(
+                        pl_unroll_equil.get_init(inp),
+                        inp,
+                        n_iter=n_iter,
+                        sigma=sigma_equil,
+                        omega=omega,
+                    )[0]
+                    @ v
+                ).mean()
             elif mode == "impl_equil":
-                if var_b:
-                    return (
-                        pl_impl_equil.call(
-                            pl_impl_equil.get_init(x),
-                            x,
-                            b,
-                            n_iter=n_iter,
-                            sigma=sigma_equil,
-                            omega=omega,
-                            n_iter_bwd=n_iter_bwd,
-                            fpi=fpi,
-                        )[0]
-                        @ v
-                    ).mean()
-                else:
-                    return (
-                        pl_impl_equil.call(
-                            pl_impl_equil.get_init(x),
-                            x,
-                            n_iter=n_iter,
-                            sigma=sigma_equil,
-                            omega=omega,
-                            n_iter_bwd=n_iter_bwd,
-                            fpi=fpi,
-                        )[0]
-                        @ v
-                    ).mean()
+                return (
+                    pl_impl_equil.call(
+                        pl_impl_equil.get_init(inp),
+                        inp,
+                        n_iter=n_iter,
+                        sigma=sigma_equil,
+                        omega=omega,
+                        n_iter_bwd=n_iter_bwd,
+                        fpi=fpi,
+                    )[0]
+                    @ v
+                ).mean()
 
         grad_unroll = jax.grad(loss, argnums=0)(
             x, vec, "unroll", n_iter_bwd=-1, fpi=True

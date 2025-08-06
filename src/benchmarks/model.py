@@ -14,95 +14,74 @@ from benchmarks.simple_QP.other_projections import (
 from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.project import Project
+from hcnn.utils import EqualityInputs, Inputs
 
 
-def setup_pinet(A, b, C, ub, setup_reps, hyperparameters):
+def setup_pinet(
+    hyperparameters,
+    eq_constraint=None,
+    ineq_constraint=None,
+    box_constraint=None,
+    setup_reps=10,
+):
     """Setup of pinet projection layer."""
-    eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(
-        C=C, ub=ub, lb=-jnp.inf * jnp.ones_like(ub)
-    )
     projection_layer = Project(
         ineq_constraint=ineq_constraint,
         eq_constraint=eq_constraint,
+        box_constraint=box_constraint,
         unroll=hyperparameters["unroll"],
         equilibrate=hyperparameters["equilibrate"],
     )
 
     # Measure setup time
     start_setup_time = time.time()
-    if setup_reps > 0:
-        for _ in range(setup_reps):
-            eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
-            ineq_constraint = AffineInequalityConstraint(
-                C=C, ub=ub, lb=-jnp.inf * jnp.ones_like(ub)
-            )
-            _ = Project(
-                ineq_constraint=ineq_constraint,
-                eq_constraint=eq_constraint,
-                unroll=hyperparameters["unroll"],
-                equilibrate=hyperparameters["equilibrate"],
-            )
-        setup_time = (time.time() - start_setup_time) / setup_reps
+    for _ in range(max(0, setup_reps)):
+        _ = Project(
+            ineq_constraint=ineq_constraint,
+            eq_constraint=eq_constraint,
+            box_constraint=box_constraint,
+            unroll=hyperparameters["unroll"],
+            equilibrate=hyperparameters["equilibrate"],
+        )
+    setup_time = (time.time() - start_setup_time) / (max(setup_reps, 1))
 
-        print(f"Time to create constraints: {setup_time:.5f} seconds")
-    else:
-        setup_time = 0.0
+    print(f"Time to create constraints: {setup_time:.5f} seconds")
 
     # Define HCNN model
-    if hyperparameters["unroll"]:
+    kw = (
+        {}
+        if hyperparameters["unroll"]
+        else {
+            "n_iter_bwd": hyperparameters["n_iter_bwd"],
+            "fpi": hyperparameters["fpi"],
+        }
+    )
 
-        def project(x, b):
-            return projection_layer.call(
-                y0=projection_layer.get_init(x),
-                x=x,
-                b=b,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_train"],
-            )[0]
+    def project(x, b):
+        inp = Inputs(x=x, eq=EqualityInputs(b=b))
+        return projection_layer.call(
+            y0=projection_layer.get_init(inp),
+            inp=inp,
+            interpolation_value=0.0,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_train"],
+            **kw,
+        )[0]
 
-        def project_test(x, b):
-            return projection_layer.call(
-                y0=projection_layer.get_init(x),
-                x=x,
-                b=b,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_test"],
-            )[0]
+    def project_test(x, b):
+        inp = Inputs(x=x, eq=EqualityInputs(b=b))
+        return projection_layer.call(
+            y0=projection_layer.get_init(inp),
+            inp=inp,
+            interpolation_value=0.0,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter=hyperparameters["n_iter_test"],
+            **kw,
+        )[0]
 
-    else:
-
-        def project(x, b):
-            return projection_layer.call(
-                y0=projection_layer.get_init(x),
-                x=x,
-                b=b,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_train"],
-                n_iter_bwd=hyperparameters["n_iter_bwd"],
-                fpi=hyperparameters["fpi"],
-            )[0]
-
-        def project_test(x, b):
-            return projection_layer.call(
-                y0=projection_layer.get_init(x),
-                x=x,
-                b=b,
-                interpolation_value=0.0,
-                sigma=hyperparameters["sigma"],
-                omega=hyperparameters["omega"],
-                n_iter=hyperparameters["n_iter_test"],
-                n_iter_bwd=hyperparameters["n_iter_bwd"],
-                fpi=hyperparameters["fpi"],
-            )[0]
-
-        return project, project_test, setup_time
+    return project, project_test, setup_time
 
 
 def setup_jaxopt(A, b, C, ub, setup_reps, hyperparameters):
@@ -160,6 +139,8 @@ class HardConstrainedMLP(nn.Module):
     dim: int
     features_list: list
     activation: nn.Module = nn.relu
+    raw_train: bool = False
+    raw_test: bool = False
 
     @nn.compact
     def __call__(
@@ -173,10 +154,10 @@ class HardConstrainedMLP(nn.Module):
             x = nn.Dense(features)(x)
             x = self.activation(x)
         x = nn.Dense(self.dim)(x)
-        if not test:
-            x = self.project(x, b)
-        else:
+        if test and (not self.raw_test):
             x = self.project_test(x, b)
+        elif (not test) and (not self.raw_train):
+            x = self.project(x, b)
         return x
 
 
@@ -188,7 +169,7 @@ def setup_model(
     X,
     G,
     h,
-    batched_objective,
+    batched_loss,
     setup_reps=10,
 ):
     """Receives problem (hyper)parameters and returns the model and its parameters."""
@@ -201,9 +182,20 @@ def setup_model(
     if proj_method not in setups:
         raise ValueError(f"Projection method not valid: {proj_method}")
 
-    project, project_test, setup_time = setups[proj_method](
-        A=A, b=X, C=G, ub=h, setup_reps=setup_reps, hyperparameters=hyperparameters
-    )
+    if proj_method == "pinet":
+        eq_constraint = EqualityConstraint(A=A, b=X, method=None, var_b=True)
+        ineq_constraint = AffineInequalityConstraint(
+            C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h)
+        )
+        project, project_test, setup_time = setups[proj_method](
+            eq_constraint=eq_constraint,
+            ineq_constraint=ineq_constraint,
+            hyperparameters=hyperparameters,
+        )
+    else:
+        project, project_test, setup_time = setups[proj_method](
+            A=A, b=X, C=G, ub=h, setup_reps=setup_reps, hyperparameters=hyperparameters
+        )
 
     model = HardConstrainedMLP(
         project=project,
@@ -211,6 +203,8 @@ def setup_model(
         dim=A.shape[2],
         features_list=hyperparameters["features_list"],
         activation=activation,
+        raw_train=hyperparameters.get("raw_train", False),
+        raw_test=hyperparameters.get("raw_test", False),
     )
     params = model.init(
         rng_key,
@@ -234,7 +228,7 @@ def setup_model(
                 b=b_batch,
                 test=False,
             )
-            return batched_objective(predictions).mean()
+            return batched_loss(predictions, b_batch).mean()
 
         loss, grads = jax.value_and_grad(loss_fn)(state.params)
         return loss, state.apply_gradients(grads=grads)

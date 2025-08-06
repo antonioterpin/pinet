@@ -3,23 +3,27 @@
 from jax import numpy as jnp
 
 from hcnn.constraints.base import Constraint
+from hcnn.utils import Inputs
 
 
 class AffineInequalityConstraint(Constraint):
     """Affine inequality constraint set.
 
     The (affine) inequality constraint set is defined as:
-    l <= C @ x <= u
-    where the matrix C and the vectors l and u are the parameters.
+    lb <= C @ x <= ub
+    where the matrix C and the vectors lb and ub are the parameters.
     """
 
-    def __init__(self, C: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray):
+    def __init__(self, C: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray) -> None:
         """Initialize the affine inequality constraint.
 
         Args:
             C (jnp.ndarray): The matrix C in the inequality.
+                Shape (batch_size, n_constraints, dimension).
             lb (jnp.ndarray): The lower bound in the inequality.
+                Shape (batch_size, n_constraints, 1).
             ub (jnp.ndarray): The upper bound in the inequality.
+                Shape (batch_size, n_constraints, 1).
         """
         self.C = C
         self.lb = lb
@@ -48,18 +52,23 @@ class AffineInequalityConstraint(Constraint):
             self.C.shape[1] == self.ub.shape[1]
         ), "Number of rows in C must equal size of u."
 
-    def project(self, x):
+    def project(self, inp: Inputs) -> jnp.ndarray:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            x (numpy.ndarray): The point to be projected. Shape (batch_size, n_dims).
+            inp (Inputs): Inputs to projection.
+                The .x attribute is the point to project.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+                Shape (batch_size, dimension, 1).
         """
         raise NotImplementedError(
             "The 'project' method is not implemented and should not be called."
         )
 
     @property
-    def dim(self):
+    def dim(self) -> int:
         """Return the dimension of the constraint set."""
         return self.C.shape[-1]
 
@@ -68,17 +77,17 @@ class AffineInequalityConstraint(Constraint):
         """Return the number of constraints."""
         return self.C.shape[1]
 
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        Cx = self.C @ x
+        Cx = self.C @ inp.x
         cv_ub = jnp.maximum(Cx - self.ub, 0)
         cv_lb = jnp.maximum(self.lb - Cx, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)

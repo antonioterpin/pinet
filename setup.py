@@ -12,7 +12,7 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     install_requires=[
-        "jax>=0.4.38",
+        "jax>=0.6.2",
         "tqdm>=4.67.1",
         "h5py>=3.13.0",
         "ruamel.yaml>=0.18.10",
@@ -20,7 +20,7 @@ setup(
         "matplotlib>=3.10.1",
         "optax>=0.2.4",
         "flax>=0.10.2",
-        "cvxpy==1.6.0",
+        "cvxpy>=1.6.6",
         "torch>=2.6.0",
         "cvxpylayers>=0.1.9",
         "jaxopt>=0.8.5",

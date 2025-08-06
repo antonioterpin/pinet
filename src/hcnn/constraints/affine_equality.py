@@ -2,10 +2,10 @@
 
 from typing import Optional
 
-import jax
 import jax.numpy as jnp
 
 from hcnn.constraints.base import Constraint
+from hcnn.utils import Inputs
 
 
 class EqualityConstraint(Constraint):
@@ -25,17 +25,19 @@ class EqualityConstraint(Constraint):
         method: Optional[str] = "pinv",
         var_b: Optional[bool] = False,
         var_A: Optional[bool] = False,
-    ):
+    ) -> None:
         """Initialize the equality constraint.
 
         Args:
-            A: Left hand side matrix.
-            b: Right hand side vector.
-            method: A string that specifies the method used to solve
-                linear systems. Valid method "pinv", "cholesky", None.
-            var_b: Boolean that indicates whether the b vector
+            A (jnp.ndarray): Left hand side matrix.
+                Shape (batch_size, n_constraints, dimension).
+            b (jnp.ndarray): Right hand side vector.
+                Shape (batch_size, n_constraints, 1).
+            method (str): A string that specifies the method used to solve
+                linear systems. Valid methods are "pinv", and None.
+            var_b (bool): Boolean that indicates whether the b vector
                 changes or is constant.
-            var_A: Boolean that indicates whether the A matrix
+            var_A (bool): Boolean that indicates whether the A matrix
                 changes or is constant.
         """
         assert A is not None, "Matrix A must be provided."
@@ -49,13 +51,15 @@ class EqualityConstraint(Constraint):
 
         self.setup()
 
-    def setup(self):
+    def setup(self) -> None:
         """Sets up the equality constraint."""
         assert (
             self.A.ndim == 3
-        ), "A is a matrix with shape (n_batch, n_constraints, dimension)."
-        assert self.b.ndim == 3, "b is a matrix with shape (n_batch, n_constraints, 1)."
-        assert self.b.shape[2] == 1, "b must have shape (n_batch, n_constraints, 1)."
+        ), "A is a matrix with shape (batch_size, n_constraints, dimension)."
+        assert (
+            self.b.ndim == 3
+        ), "b is a matrix with shape (batch_size, n_constraints, 1)."
+        assert self.b.shape[2] == 1, "b must have shape (batch_size, n_constraints, 1)."
 
         # Check if batch sizes are consistent.
         # They should either be the same, or one of them should be 1.
@@ -70,88 +74,46 @@ class EqualityConstraint(Constraint):
         ), "Number of rows in A must equal size of b."
 
         # List of valid methods
-        valid_methods = ["pinv", "cholesky", None]
+        valid_methods = ["pinv", None]
 
-        # TODO: Maybe include checks on if the chosen method
-        # is applicable.
         if self.method == "pinv":
-            if self.var_A:
-                self.project = self.project_pinv_vAb
-            else:
-                # Compute pseudo-inverse
-                self.Apinv = jnp.linalg.pinv(self.A)
-                # Instantiate projection method
-                if self.var_b:
-                    self.project = self.project_pinv_vb
-                else:
-                    self.project = self.project_pinv
-        # TODO: Implement cholesky projection methods for variable A, b.
-        elif self.method == "cholesky":
-            # Compute gramian of A
-            Agram = self.A @ jnp.matrix_transpose(self.A)
-            # Compute Cholesky factorization (pretty efficient for PSD matrices)
-            cfac = jax.scipy.linalg.cho_factor(Agram, lower=False)
-            # Handling of batch dimension
-            if self.A.shape[0] == 1:
-                self.cho_solve = jax.vmap(
-                    lambda x: jax.scipy.linalg.cho_solve((cfac[0][0, :, :], False), x)
-                )
-            else:
-                self.cho_solve = lambda x: jax.scipy.linalg.cho_solve(cfac, x)
-            # Instantiate projection method
-            self.project = self.project_cholesky
+            if not self.var_A:
+                self.Apinv = self.Apinv = jnp.linalg.pinv(self.A)
+
+            self.project = self.project_pinv
         elif self.method is None:
 
             def raise_not_implemented_error():
                 raise NotImplementedError("No projection method set.")
 
-            self.project = lambda _: raise_not_implemented_error()
+            self.project = lambda *args: raise_not_implemented_error()
         else:
             raise Exception(
                 f"Invalid method {self.method}. Valid methods are: {valid_methods}"
             )
 
-    def project_pinv(self, x: jnp.ndarray):
+    def get_params(self, inp: Inputs) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Get A, b, Apinv depending on varying constraints."""
+        b = inp.eq.b if self.var_b else self.b
+        A = inp.eq.A if self.var_A else self.A
+        Apinv = inp.eq.Apinv if self.var_A else self.Apinv
+
+        return b, A, Apinv
+
+    def project_pinv(self, inp: Inputs) -> jnp.ndarray:
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
-            x: Point to be projected. Shape (n_batch, dimension, 1)
+            inp (Inputs): Inputs to projection.
+                The .x attribute is the point to project.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+                Shape (batch_size, dimension, 1).
         """
-        return x - self.Apinv @ (self.A @ x - self.b)
+        b, A, Apinv = self.get_params(inp)
 
-    def project_pinv_vb(self, x: jnp.ndarray, b: jnp.ndarray):
-        """Project onto equality constraints using pseudo-inverse.
-
-        Args:
-            x: Point to be projected. Shape (n_batch, dimension, 1)
-            b: Right hand side vector.
-        """
-        return x - self.Apinv @ (self.A @ x - b)
-
-    def project_pinv_vAb(
-        self,
-        x: jnp.ndarray,
-        b: jnp.ndarray,
-        A: jnp.ndarray,
-        Apinv: jnp.ndarray,
-    ):
-        """Project onto equality constraints using pseudo-inverse.
-
-        Args:
-            x: Point to be projected. Shape (n_batch, dimension, 1)
-            b: Right hand side vector.
-            A: Left hand side matrix.
-            Apinv: Pseudo-inverse of A.
-        """
-        return x - Apinv @ (A @ x - b)
-
-    def project_cholesky(self, x: jnp.ndarray):
-        """Project onto equality contraints using cholesky factorization.
-
-        Args:
-            x: Point to be projected. Shape (n_batch, dimension, 1)
-        """
-        return x - jnp.matrix_transpose(self.A) @ self.cho_solve(self.A @ x - self.b)
+        return inp.x - Apinv @ (A @ inp.x - b)
 
     @property
     def dim(self) -> int:
@@ -163,14 +125,16 @@ class EqualityConstraint(Constraint):
         """Return the number of constraints."""
         return self.A.shape[1]
 
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x: Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        return jnp.linalg.norm(self.A @ x - self.b, ord=jnp.inf, axis=1, keepdims=True)
+        b, A, _ = self.get_params(inp)
+
+        return jnp.linalg.norm(A @ inp.x - b, ord=jnp.inf, axis=1, keepdims=True)

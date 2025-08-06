@@ -278,6 +278,7 @@ def main(
         train_loader,
         valid_loader,
         test_loader,
+        batched_loss,
     ) = load_data(
         use_DC3_dataset=use_DC3_dataset,
         use_convex=use_convex,
@@ -289,6 +290,7 @@ def main(
         rng_key=loader_key,
         batch_size=hyperparameters.get("batch_size", 2048),
         use_jax_loader=use_jax_loader,
+        penalty=hyperparameters.get("penalty", 0.0),
     )
 
     model, params, setup_time, train_step = setup_model(
@@ -299,7 +301,7 @@ def main(
         X=X,
         G=G,
         h=h,
-        batched_objective=batched_objective,
+        batched_loss=batched_loss,
     )
 
     LEARNING_RATE = hyperparameters["learning_rate"]
@@ -333,7 +335,7 @@ def main(
     ineqcvs = []
     logging_dict = LoggingDict()
     with (
-        Logger(run_name) as data_logger,
+        Logger(run_name=run_name, project_name="hcnn") as data_logger,
         GracefulShutdown("Stop detected, finish epoch...") as g,
     ):
         data_logger.run.config.update(hyperparameters)

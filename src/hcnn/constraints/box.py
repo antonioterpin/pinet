@@ -7,6 +7,7 @@ from jax import numpy as jnp
 from jax.experimental.checkify import checkify
 
 from hcnn.constraints.base import Constraint
+from hcnn.utils import Inputs
 
 
 class BoxConstraint(Constraint):
@@ -14,7 +15,7 @@ class BoxConstraint(Constraint):
 
     The box constraint set is defined as the Cartesian product of intervals.
     The interval is defined by a lower and an upper bound.
-    The constraint possibly act only on a subset of the dimensions,
+    The constraint possibly acts only on a subset of the dimensions,
     defined by a mask.
     """
 
@@ -26,15 +27,17 @@ class BoxConstraint(Constraint):
         lower_bound: jnp.ndarray,
         upper_bound: jnp.ndarray,
         mask: Optional[np.ndarray] = None,
-    ):
+    ) -> None:
         """Initialize the box constraint.
 
         Args:
             lower_bound (jnp.ndarray): Lower bound of the box.
+                Shape (batch_size, n_constraints, 1).
             upper_bound (jnp.ndarray): Upper bound of the box.
-            mask (np.ndarray): Mask to apply the constraint only to some dimensions.
+                Shape (batch_size, n_constraints, 1).
+            mask (jnp.ndarray): Mask to apply the constraint only to some dimensions.
                 The same mask is applied to the entire batch.
-                Must be a np.ndarray to be compatible with jit.
+                Must be a jnp.ndarray to be compatible with jit.
         """
         if mask is None:
             mask = np.ones(shape=(lower_bound.shape[1]), dtype=jnp.bool_)
@@ -64,34 +67,41 @@ class BoxConstraint(Constraint):
         self.mask = mask
         self.masked_idx = tuple(np.where(mask)[0])
 
-    def project(self, x: jnp.ndarray) -> jnp.ndarray:
+    def project(self, inp: Inputs) -> jnp.ndarray:
         """Project the input to the feasible region.
 
         Args:
-            x: Input to be projected. jnp.ndarray with shape (n, d).
+            inp (Inputs): Inputs to projection.
+                The .x attribute is the point to project.
+
+        Returns:
+            jnp.ndarray: The projected point for each point in the batch.
+                Shape (batch_size, dimension, 1).
         """
-        return x.at[:, self.masked_idx, :].set(
-            jnp.clip(x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
+        return inp.x.at[:, self.masked_idx, :].set(
+            jnp.clip(inp.x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
         )
 
-    def cv(self, x: jnp.ndarray) -> jnp.ndarray:
+    def cv(self, inp: Inputs) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            x (jnp.ndarray): Point to be evaluated. Shape (batch_size, dimension, 1).
+            inp (Inputs): Inputs to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
         tmp = jnp.maximum(
-            jnp.max(x[:, self.mask, :] - self.upper_bound, axis=1, keepdims=True),
-            jnp.max(self.lower_bound - x[:, self.masked_idx, :], axis=1, keepdims=True),
+            jnp.max(inp.x[:, self.mask, :] - self.upper_bound, axis=1, keepdims=True),
+            jnp.max(
+                self.lower_bound - inp.x[:, self.masked_idx, :], axis=1, keepdims=True
+            ),
         )
         return jnp.maximum(tmp, 0)
 
     @property
-    def dim(self):
+    def dim(self) -> int:
         """Return the dimension of the constraint set."""
         return self.lower_bound.shape[1]
 

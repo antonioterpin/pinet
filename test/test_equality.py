@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import pytest
 
 from hcnn.constraints.affine_equality import EqualityConstraint
+from hcnn.utils import Inputs
 
 # Set JAX precision to 64 bits.
 jax.config.update("jax_enable_x64", True)
@@ -19,7 +20,7 @@ DIM = 100
 # Random seeds
 SEEDS = [0, 24]
 # Methods for equality constraints (paired with above seeds)
-VALID_METHODS = ["pinv", "cholesky"]
+VALID_METHODS = ["pinv"]
 # Number of equality constraints (for QP test)
 N_EQ = 50
 # Batch size options
@@ -90,7 +91,9 @@ def test_equality_eye(method, seed, n_batch_A, n_batch_b, n_batch_x):
 
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
-    z = eq_constraint.project(x)
+    # Prepare input
+    inp = Inputs(x=x)
+    z = eq_constraint.project(inp)
     assert jnp.allclose(z, y)
 
 
@@ -116,7 +119,9 @@ def test_equality_diagonal(method, seed, n_batch_A, n_batch_b, n_batch_x):
 
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
-    z = eq_constraint.project(x)
+    # Prepare input
+    inp = Inputs(x=x)
+    z = eq_constraint.project(inp)
     assert jnp.allclose(z, y)
 
 
@@ -142,7 +147,9 @@ def test_equality_generic_invertible(method, seed, n_batch_A, n_batch_b, n_batch
 
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
-    z = eq_constraint.project(x)
+    # Prepare input
+    inp = Inputs(x=x)
+    z = eq_constraint.project(inp)
     assert jnp.allclose(z, y)
 
 
@@ -182,7 +189,8 @@ def test_equality_QP(method, seed, n_batch_A, n_batch_b, n_batch_x):
     # Vectors should have shape (dimension,). If (dimension,1) it crashes
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
-    z = eq_constraint.project(x)
+    inp = Inputs(x=x)
+    z = eq_constraint.project(inp)
     # Compute true projection by solving equality constrained QP
     for ii in range(n_batch_x):
         ycp = cp.Variable(DIM)

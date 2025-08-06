@@ -1,16 +1,23 @@
 """Test vjp of the projection layer."""
 
+from functools import partial
+from itertools import product
+
+import cvxpy as cp
 import jax
+import jax.test_util
+import pytest
 from jax import numpy as jnp
 
+from hcnn.constraints.affine_equality import EqualityConstraint
 from hcnn.constraints.affine_inequality import AffineInequalityConstraint
 from hcnn.constraints.box import BoxConstraint
 from hcnn.project import Project
+from hcnn.utils import Inputs
 
 jax.config.update("jax_enable_x64", True)
 
 
-# TODO: Add tests for generic polyhedral set.
 def test_triangle():
     PLOT_RESULTS = False
     # bottom left corner
@@ -121,11 +128,13 @@ def test_triangle():
         ineq_constraint=affine_constraint,
         unroll=False,
     )
-    fun_layer = jax.jit(
-        lambda x, v, fpi: (
+
+    def fun_layer(x, v, fpi):
+        inp = Inputs(x=x)
+        return (
             projection_layer.call(
-                projection_layer.get_init(x),
-                x,
+                projection_layer.get_init(inp),
+                inp,
                 0.0,
                 sigma=sigma,
                 omega=omega,
@@ -134,9 +143,9 @@ def test_triangle():
                 fpi=fpi,
             )[0]
             @ v
-        ).mean(),
-        static_argnames=["fpi"],
-    )
+        ).mean()
+
+    fun_layer = jax.jit(fun_layer, static_argnames=["fpi"])
     e_1 = jnp.eye(2)[0].reshape(2, 1)
     e_2 = jnp.eye(2)[1].reshape(2, 1)
 
@@ -226,7 +235,8 @@ def test_box():
     projection_layer = Project(box_constraint=box_constraint)
 
     def fun_layer(x, v):
-        return (projection_layer.call(x, 0.0) @ v).mean()
+        inp = Inputs(x=x)
+        return (projection_layer.call(inp, 0.0) @ v).mean()
 
     e_1 = jnp.eye(2)[0]
     e_2 = jnp.eye(2)[1]
@@ -245,165 +255,196 @@ def test_box():
             ), f"J={J}, J_true={J_true} for x={x}"
 
 
-# %%
-# import cvxpy as cp
-# import jaxopt
-# def test_general_eq_ineq(method, seed, batch_size):
-#     # %%
-#     method = "pinv"
-#     seed = 42
-#     batch_size = 1
-#     #
-#     dim = 100
-#     n_eq = 50
-#     n_ineq = 40
-#     key = jax.random.PRNGKey(seed)
-#     key = jax.random.split(key, num=4)
-#     # Generate equality constraints LHS
-#     A = jax.random.normal(key[0], shape=(1, n_eq, dim))
-#     # Generate inequality constraints LHS
-#     C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
-#     # Compute RHS by solving feasibility problem
-#     xfeas = cp.Variable(dim)
-#     bfeas = cp.Variable(n_eq)
-#     lfeas = cp.Variable(n_ineq)
-#     ufeas = cp.Variable(n_ineq)
-#     constraints = [
-#         A[0, :, :] @ xfeas == bfeas,
-#         lfeas <= C[0, :, :] @ xfeas,
-#         C[0, :, :] @ xfeas <= ufeas,
-#         -1 <= xfeas,
-#         xfeas <= 1,
-#     ]
-#     objective = cp.Minimize(jnp.ones(shape=(dim)) @ xfeas)
-#     problem = cp.Problem(objective=objective, constraints=constraints)
-#     problem.solve()
-#     # Extract RHS parameters
-#     b = jnp.tile(jnp.array(bfeas.value).reshape((1, n_eq, 1)), (1, 1, 1))
-#     lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
-#     ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
+SEEDS = [8, 24, 42]
+BATCH_SIZE = [1, 10]
 
-#     # Define projection layer ingredients
-#     eq_constraint = EqualityConstraint(A=A, b=b, method=method)
-#     ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
-#     sigma = 1.0
-#     omega = 1.0
 
-#     # Projection layer with unrolling differentiation
-#     projection_layer_unroll = Project(
-#         eq_constraint=eq_constraint,
-#         ineq_constraint=ineq_constraint,
-#         unroll=True,
-#         sigma=sigma,
-#         omega=omega,
-#     )
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
+def test_general_eq_ineq(seed, batch_size):
+    method = "pinv"
+    dim = 100
+    n_eq = 50
+    n_ineq = 40
+    key = jax.random.PRNGKey(seed)
+    key = jax.random.split(key, num=5)
+    # Generate equality constraints LHS
+    A = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    # Generate inequality constraints LHS
+    C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    # Compute RHS by solving feasibility problem
+    xfeas = cp.Variable(dim)
+    bfeas = cp.Variable(n_eq)
+    lfeas = cp.Variable(n_ineq)
+    ufeas = cp.Variable(n_ineq)
+    constraints = [
+        A[0, :, :] @ xfeas == bfeas,
+        lfeas <= C[0, :, :] @ xfeas,
+        C[0, :, :] @ xfeas <= ufeas,
+        -1 <= xfeas,
+        xfeas <= 1,
+    ]
+    objective = cp.Minimize(jnp.ones(shape=(dim)) @ xfeas)
+    problem = cp.Problem(objective=objective, constraints=constraints)
+    problem.solve(solver=cp.CLARABEL)
+    # Extract RHS parameters
+    b = jnp.tile(jnp.array(bfeas.value).reshape((1, n_eq, 1)), (1, 1, 1))
+    lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
+    ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
 
-#     # Projection layer with implicit differentiation
-#     projection_layer_impl = Project(
-#         eq_constraint=eq_constraint,
-#         ineq_constraint=ineq_constraint,
-#         unroll=False,
-#         sigma=sigma,
-#         omega=omega,
-#     )
+    # Define projection layer ingredients
+    eq_constraint = EqualityConstraint(A=A, b=b, method=method)
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
 
-#     # Point to be projected
-#     x = jax.random.uniform(key[2], shape=(batch_size, dim), minval=-2, maxval=2)
+    # Projection layer with unrolling differentiation
+    projection_layer_unroll = Project(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        unroll=True,
+    )
 
-#     # Compute the projection by solving QP
-#     yqp = jnp.zeros(shape=(batch_size, dim))
-#     for ii in range(batch_size):
-#         yproj = cp.Variable(dim)
-#         constraints = [
-#             A[0, :, :] @ yproj == b[0, :, 0],
-#             lb[0, :, 0] <= C[0, :, :] @ yproj,
-#             C[0, :, :] @ yproj <= ub[0, :, 0],
-#         ]
-#         objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
-#         problem_qp = cp.Problem(objective=objective, constraints=constraints)
-#         problem_qp.solve()
-#         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
+    # Projection layer with implicit differentiation
+    projection_layer_impl = Project(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        unroll=False,
+    )
 
-#     # Check that the projection are computed correctly
-#     n_iter = 200
-#     y_unroll = projection_layer_unroll.call(x, n_iter=n_iter)[0]
-#     y_impl = projection_layer_impl.call(x, n_iter=n_iter)[0]
-#     assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
-#     assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
+    # Point to be projected
+    x = jax.random.uniform(key[2], shape=(batch_size, dim), minval=-2, maxval=2)
 
-#     # %%
-#     # Simple "loss" function as inner product
-#     n_iter = 200
-#     vec = jnp.array(jax.random.normal(key[3], shape=(dim, batch_size)))
-#     def loss(x, v, unroll, n_iter_bwd, fpi):
-#         if unroll:
-#             return (projection_layer_unroll.call(x, n_iter=n_iter)[0] @ v).mean()
-#         else:
-#             return (projection_layer_impl.call(
-#                 x,
-#                 n_iter=n_iter,
-#                 n_iter_bwd=n_iter_bwd,
-#                 fpi=fpi,
-#             )[0] @ v).mean()
+    # Compute the projection by solving QP
+    yqp = jnp.zeros(shape=(batch_size, dim))
+    for ii in range(batch_size):
+        yproj = cp.Variable(dim)
+        constraints = [
+            A[0, :, :] @ yproj == b[0, :, 0],
+            lb[0, :, 0] <= C[0, :, :] @ yproj,
+            C[0, :, :] @ yproj <= ub[0, :, 0],
+        ]
+        objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
+        problem_qp = cp.Problem(objective=objective, constraints=constraints)
+        problem_qp.solve(
+            solver=cp.CLARABEL, verbose=True, tol_gap_abs=1e-10, tol_gap_rel=1e-10
+        )
+        yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
 
-#     grad_unroll = jax.grad(loss, argnums=0)(x, vec, True, n_iter_bwd=-1, fpi=True)
-#     grad_fpi = jax.grad(loss, argnums=0)(x, vec, False, n_iter_bwd=200, fpi=True)
-#     grad_ls = jax.grad(loss, argnums=0)(x, vec, False, n_iter_bwd=20, fpi=False)
+    # Check that the projection are computed correctly
+    n_iter = 200
+    y_unroll = projection_layer_unroll.call(
+        projection_layer_unroll.get_init(Inputs(x=x)), Inputs(x=x), n_iter=n_iter
+    )[0]
+    y_impl = projection_layer_impl.call(
+        projection_layer_impl.get_init(Inputs(x=x)), Inputs(x=x), n_iter=n_iter
+    )[0]
+    assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
+    assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
 
-#     assert jnp.allclose(grad_unroll, grad_fpi, atol=1e-4, rtol=1e-4)
-#     assert jnp.allclose(grad_unroll, grad_ls, atol=1e-4, rtol=1e-4)
-#     # %% Compute the gradient using a different method
-#     # %% TODO: Compare with JAXopt, or cvxpylayers, or KKT computation
-#     qp = jaxopt.OSQP(tol=1e-5)
-#     Q = jnp.eye(dim)
-#     Cqp = jnp.concatenate((C, -C), axis=1)
-#     d = jnp.concatenate((ub, -lb), axis=1)
-#     y_jaxopt, exact_project_vjp = jax.vjp(
-#         lambda xx: qp.run(
-#             params_obj=(Q, -xx), params_eq=(A[0, :, :], b[0, :, 0]),
-#             params_ineq=(Cqp[0, :, :], d[0, :, 0])
-#         ).params.primal,
-#         x[0],
-#     )
-#     exact_project_vjp_jit = jax.jit(exact_project_vjp)
-#     exact_project_vjp_jit(vec[:, 0])
-#     # %%
-#     print(exact_project_vjp_jit(vec[:, 0])[0])
-#     print(grad_unroll[0,:10])
-#     # %%
-#     @jax.jit
-#     def qp_proj_solver(infeas):
-#         """Solve projection on polytope as a QP."""
-#         sol = qp.run(params_obj=(Q, -infeas), params_eq=(A[0, :, :], b[0, :, 0]),
-#              params_ineq=(Cqp[0, :, :], d[0, :, 0])).params
+    # Simple "loss" function as inner product
+    n_iter = 500
+    vec = jnp.array(jax.random.normal(key[3], shape=(dim, batch_size)))
 
-#         # Scalarize the output to compute the vjp
-#         loss = jnp.dot(vec[:, 0], sol.primal)
+    def loss(x, v, unroll, n_iter_bwd, fpi):
+        inp = Inputs(x=x)
+        if unroll:
+            return (
+                projection_layer_unroll.call(
+                    projection_layer_unroll.get_init(inp), inp, n_iter=n_iter
+                )[0]
+                @ v
+            ).mean()
+        else:
+            return (
+                projection_layer_impl.call(
+                    projection_layer_impl.get_init(inp),
+                    inp,
+                    n_iter=n_iter,
+                    n_iter_bwd=n_iter_bwd,
+                    fpi=fpi,
+                )[0]
+                @ v
+            ).mean()
 
-#         return loss
-#     # %%
-#     print(f"Loss {qp_proj_solver(x[0])}")
-#     # Compute the VJP with the cotvec
-#     jaxopt_grad = jax.jit(lambda infeas: jax.grad(qp_proj_solver)(infeas))
-#     jaxopt_grad(x[0])
-#     # %%
-#     from cvxpylayers.jax import CvxpyLayer
-#     yproj = cp.Variable(dim)
-#     xproj = cp.Parameter(dim)
-#     constraints = [
-#         A[0, :, :] @ yproj == b[0, :, 0],
-#         lb[0, :, 0] <= C[0, :, :] @ yproj,
-#         C[0, :, :] @ yproj <= ub[0, :, 0],
-#     ]
-#     objective = cp.Minimize(cp.sum_squares(yproj - xproj))
-#     problem_qp = cp.Problem(objective=objective, constraints=constraints)
-#     assert problem_qp.is_dpp()
-#     x[ii, :]
+    grad_unroll = jax.vmap(
+        lambda x, vec: jax.grad(loss, argnums=0)(
+            x.reshape(1, dim), vec.reshape(dim, 1), True, n_iter_bwd=-1, fpi=True
+        ),
+        in_axes=[0, 1],
+    )(x, vec).reshape(batch_size, -1)
+    grad_fpi = jax.vmap(
+        lambda x, vec: jax.grad(loss, argnums=0)(
+            x.reshape(1, dim), vec.reshape(dim, 1), False, n_iter_bwd=200, fpi=True
+        ),
+        in_axes=[0, 1],
+    )(x, vec).reshape(batch_size, -1)
+    grad_linsys = jax.vmap(
+        lambda x, vec: jax.grad(loss, argnums=0)(
+            x.reshape(1, dim), vec.reshape(dim, 1), False, n_iter_bwd=50, fpi=False
+        ),
+        in_axes=[0, 1],
+    )(x, vec).reshape(batch_size, -1)
+    assert jnp.allclose(grad_unroll, grad_fpi, atol=1e-4, rtol=1e-4)
+    assert jnp.allclose(grad_unroll, grad_linsys, atol=1e-4, rtol=1e-4)
 
-#     cvxpylayer = CvxpyLayer(problem_qp, parameters=[xproj], variables=[yproj])
-#     solution, = cvxpylayer(x[ii, :])
-#     dcvxpylayer = jax.grad(lambda x: vec[:, 0] @ cvxpylayer(x)[0])
-#     gradx = dcvxpylayer(x[ii, :])
-#     # %%
-#     print(jnp.linalg.norm(gradx - grad_unroll))
-#     print(jnp.linalg.norm(gradx - exact_project_vjp_jit(vec[:, 0])[0]))
+    # Compute the gradient with finite differences
+    epsilon = 1e-5
+    # Random direction
+    dir = jax.random.uniform(key[4], shape=(batch_size, dim), minval=-1, maxval=1)
+    direps = dir * epsilon
+    # Compute the loss
+    lossvmapped = jax.vmap(
+        lambda x, vec: loss(
+            x.reshape(1, dim), vec.reshape(dim, 1), True, n_iter_bwd=-1, fpi=True
+        ),
+        in_axes=[0, 1],
+    )
+    thelossp = lossvmapped(x + direps, vec)
+    thelossm = lossvmapped(x - direps, vec)
+    grad_fd = (thelossp - thelossm) / (2 * epsilon)
+    for name, grad in zip(
+        ["grad_unroll", "grad_fpi", "grad_linsys"], [grad_unroll, grad_fpi, grad_linsys]
+    ):
+        dirgrad = jnp.vecdot(grad, dir)
+        if not jnp.allclose(dirgrad, grad_fd, atol=1e-3, rtol=1e-3):
+            print(
+                f"Assertion failed for {name}: dirgrad = {dirgrad}, grad_fd = {grad_fd}"
+            )
+            assert False, f"Assertion failed for {name}"
+
+    # Use jax utils for checking
+    def unroll_f(y):
+        return projection_layer_unroll.call(
+            projection_layer_unroll.get_init(Inputs(x=x)),
+            Inputs(x=y),
+            n_iter=200,
+        )[0]
+
+    def fpi_f(y):
+        return projection_layer_impl.call(
+            projection_layer_impl.get_init(Inputs(x=x)),
+            Inputs(x=y),
+            n_iter=200,
+            n_iter_bwd=200,
+            fpi=True,
+        )[0]
+
+    def linsys_f(y):
+        return projection_layer_impl.call(
+            projection_layer_impl.get_init(Inputs(x=x)),
+            Inputs(x=y),
+            n_iter=200,
+            n_iter_bwd=50,
+            fpi=False,
+        )[0]
+
+    for name, f in [("unroll_f", unroll_f), ("fpi_f", fpi_f), ("linsys_f", linsys_f)]:
+        try:
+            jax.test_util.check_vjp(
+                f,
+                partial(jax.vjp, f),
+                (x,),
+                eps=1e-5,
+                atol=1e-3,
+                rtol=1e-3,
+            )
+        except AssertionError as err:
+            print(f"Assertion failed for {name}: {err}")
