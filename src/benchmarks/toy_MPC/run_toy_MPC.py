@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import torch
-import yaml
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
@@ -19,16 +18,9 @@ from tqdm import tqdm
 from benchmarks.toy_MPC.load_toy_MPC import load_data
 from benchmarks.toy_MPC.model import setup_model
 from benchmarks.toy_MPC.plotting import generate_trajectories, plot_training
-from src.tools.utils import GracefulShutdown, Logger
+from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
 jax.config.update("jax_enable_x64", True)
-
-
-def load_yaml(file_path: str) -> dict:
-    """Load hyperparameters for HCNN."""
-    with open(file_path, "r") as file:
-        hyperparameters = yaml.safe_load(file)
-    return hyperparameters
 
 
 def evaluate_hcnn(
@@ -150,7 +142,7 @@ def main(
     run_name,
 ):
     """Main for running toy MPC benchmarks."""
-    hyperparameters = load_yaml(config_path)
+    hyperparameters = load_configuration(config_path)
     key = jax.random.PRNGKey(SEED)
     loader_key, key = jax.random.split(key, 2)
     # Parse data
@@ -477,7 +469,7 @@ if __name__ == "__main__":
         if args.results_folder is None:
             raise ValueError("Please provide the name of the results file.")
 
-        hyperparameters = load_yaml(config_path)
+        hyperparameters = load_configuration(config_path)
         key = jax.random.PRNGKey(SEED)
         loader_key, key = jax.random.split(key, 2)
         # Parse data

@@ -6,8 +6,23 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 import wandb
+import yaml
 
 logger = logging.getLogger(__name__)
+
+
+def load_configuration(file_path: str) -> dict:
+    """Load configuration file from yaml.
+
+    Args:
+        file_path (str): Path to the configuration file.
+
+    Returns:
+        dict: A dictionary containing the configuration parameters.
+    """
+    with open(file_path, "r") as file:
+        hyperparameters = yaml.safe_load(file)
+    return hyperparameters
 
 
 class Logger:
