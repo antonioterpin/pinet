@@ -8,7 +8,7 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from pinet import AffineInequalityConstraint, Inputs, Project
+from pinet import AffineInequalityConstraint, Project, ProjectionInstance
 
 jax.config.update("jax_enable_x64", True)
 
@@ -18,9 +18,6 @@ class HardConstrainedMLP(nn.Module):
 
     project: Project
 
-    def setup(self):
-        self.schedule = optax.linear_schedule(1.0, 0, 100, 2500)
-
     @nn.compact
     def __call__(self, x, step, sigma=1.0, omega=1.7):
         x = nn.Dense(64)(x)
@@ -28,11 +25,9 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
-        alpha = self.schedule(step)
         x = self.project.call(
-            self.project.get_init(Inputs(x=x)),
-            Inputs(x=x),
-            interpolation_value=alpha,
+            self.project.get_init(ProjectionInstance(x=x)),
+            ProjectionInstance(x=x),
             sigma=sigma,
             omega=omega,
             n_iter=100,

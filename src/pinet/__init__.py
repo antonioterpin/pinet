@@ -6,7 +6,11 @@ from .constraints import (
     ConstraintParser,
     EqualityConstraint,
 )
-from .dataclasses import EqualityInputs, Inputs
+from .dataclasses import (
+    EqualityConstraintsSpecification,
+    EquilibrationParams,
+    ProjectionInstance,
+)
 from .equilibration import ruiz_equilibration
 from .project import Project
 from .solver import build_iteration_step
@@ -19,6 +23,7 @@ __all__ = [
     "ruiz_equilibration",
     "Project",
     "build_iteration_step",
-    "Inputs",
-    "EqualityInputs",
+    "ProjectionInstance",
+    "EqualityConstraintsSpecification",
+    "EquilibrationParams",
 ]

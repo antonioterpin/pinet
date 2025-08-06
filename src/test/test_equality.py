@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from pinet import EqualityConstraint, Inputs
+from pinet import EqualityConstraint, ProjectionInstance
 
 # Set JAX precision to 64 bits.
 jax.config.update("jax_enable_x64", True)
@@ -91,7 +91,7 @@ def test_equality_eye(method, seed, n_batch_A, n_batch_b, n_batch_x):
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
     # Prepare input
-    inp = Inputs(x=x)
+    inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp)
     assert jnp.allclose(z, y)
 
@@ -119,7 +119,7 @@ def test_equality_diagonal(method, seed, n_batch_A, n_batch_b, n_batch_x):
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
     # Prepare input
-    inp = Inputs(x=x)
+    inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp)
     assert jnp.allclose(z, y)
 
@@ -147,7 +147,7 @@ def test_equality_generic_invertible(method, seed, n_batch_A, n_batch_b, n_batch
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
     # Prepare input
-    inp = Inputs(x=x)
+    inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp)
     assert jnp.allclose(z, y)
 
@@ -188,7 +188,7 @@ def test_equality_QP(method, seed, n_batch_A, n_batch_b, n_batch_x):
     # Vectors should have shape (dimension,). If (dimension,1) it crashes
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
-    inp = Inputs(x=x)
+    inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp)
     # Compute true projection by solving equality constrained QP
     for ii in range(n_batch_x):

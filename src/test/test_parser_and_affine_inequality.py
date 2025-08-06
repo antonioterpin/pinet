@@ -12,7 +12,7 @@ from pinet import (
     BoxConstraint,
     ConstraintParser,
     EqualityConstraint,
-    Inputs,
+    ProjectionInstance,
     build_iteration_step,
 )
 
@@ -96,7 +96,7 @@ def test_simple_2d(method, seed, batch_size):
     # Compute the projection with iterative
     n_iter = 200
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
-    xk = Inputs(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
+    xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=0.1, omega=1.0)
 
@@ -194,7 +194,7 @@ def test_general_eq_ineq(method, seed, batch_size):
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     iteration_step = jax.jit(iteration_step)
-    xk = Inputs(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
+    xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
 
@@ -393,7 +393,7 @@ def test_general_eq_ineq_box(
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     iteration_step = jax.jit(iteration_step)
-    xk = Inputs(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1)))
+    xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
 
@@ -437,7 +437,7 @@ def test_general_eq_ineq_box(
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     iteration_step = jax.jit(iteration_step)
-    xk = Inputs(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1)))
+    xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
 
@@ -475,7 +475,7 @@ def test_simple_no_equality(seed, batch_size):
 
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
-    xk = Inputs(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
+    xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
         xk = iteration_step(xk, x, sigma=0.1, omega=1.0)
 

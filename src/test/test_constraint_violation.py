@@ -11,9 +11,9 @@ from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
     EqualityConstraint,
-    EqualityInputs,
-    Inputs,
+    EqualityConstraintsSpecification,
     Project,
+    ProjectionInstance,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -35,12 +35,12 @@ def test_box_cv():
         axis=0,
     )
     gt_cv = jnp.array([0.5, 1.0, 1.5, 2.0]).reshape(-1, 1, 1)
-    box_cv = box_constraint.cv(Inputs(x=x))
+    box_cv = box_constraint.cv(ProjectionInstance(x=x))
     assert jnp.allclose(box_cv, gt_cv), f"Expected {gt_cv}, but got {box_cv}."
 
     # Check that the projection has zero cv
-    x_proj = box_constraint.project(Inputs(x=x))
-    box_cv_proj = box_constraint.cv(Inputs(x=x_proj))
+    x_proj = box_constraint.project(ProjectionInstance(x=x))
+    box_cv_proj = box_constraint.cv(ProjectionInstance(x=x_proj))
     assert jnp.allclose(box_cv_proj, 0.0), f"Expected 0.0, but got {box_cv_proj}."
 
 
@@ -60,12 +60,12 @@ def test_equality_cv():
     )
 
     gt_cv = jnp.array([2.0, 4.0, 4.0, 6.0]).reshape(-1, 1, 1)
-    eq_cv = eq_constraint.cv(Inputs(x=x))
+    eq_cv = eq_constraint.cv(ProjectionInstance(x=x))
     assert jnp.allclose(eq_cv, gt_cv), f"Expected {gt_cv}, but got {eq_cv}."
 
     # Check that the projection has zero cv
-    x_proj = eq_constraint.project(Inputs(x=x))
-    eq_cv_proj = eq_constraint.cv(Inputs(x=x_proj))
+    x_proj = eq_constraint.project(ProjectionInstance(x=x))
+    eq_cv_proj = eq_constraint.cv(ProjectionInstance(x=x_proj))
     assert jnp.allclose(eq_cv_proj, 0.0), f"Expected 0.0, but got {eq_cv_proj}."
 
     # Do a random test
@@ -81,12 +81,12 @@ def test_equality_cv():
 
     # Ground truth
     gt_cv = jnp.max(jnp.abs(A @ x - b), axis=1, keepdims=True)
-    eq_cv = eq_constraint.cv(Inputs(x=x))
+    eq_cv = eq_constraint.cv(ProjectionInstance(x=x))
     assert jnp.allclose(eq_cv, gt_cv), f"Expected {gt_cv}, but got {eq_cv}."
 
     # Check that the projection has zero cv
-    x_proj = eq_constraint.project(Inputs(x=x))
-    eq_cv_proj = eq_constraint.cv(Inputs(x=x_proj))
+    x_proj = eq_constraint.project(ProjectionInstance(x=x))
+    eq_cv_proj = eq_constraint.cv(ProjectionInstance(x=x_proj))
     assert jnp.allclose(eq_cv_proj, 0.0), f"Expected 0.0, but got {eq_cv_proj}."
 
 
@@ -107,16 +107,18 @@ def test_inequality_cv():
     )
 
     gt_cv = jnp.array([3.0, 5.0, 1.0, 3.0]).reshape(-1, 1, 1)
-    ineq_cv = ineq_constraint.cv(Inputs(x=x))
+    ineq_cv = ineq_constraint.cv(ProjectionInstance(x=x))
     assert jnp.allclose(ineq_cv, gt_cv), f"Expected {gt_cv}, but got {ineq_cv}."
 
     # Check that the projection has zero cv
     # The inequality constraint does not implement project.
     projection_layer = Project(ineq_constraint=ineq_constraint)
     x_proj = projection_layer.call(
-        projection_layer.get_init(Inputs(x=x)), Inputs(x=x), n_iter=100
+        projection_layer.get_init(ProjectionInstance(x=x)),
+        ProjectionInstance(x=x),
+        n_iter=100,
     )[0]
-    ineq_cv_proj = ineq_constraint.cv(Inputs(x=x_proj))
+    ineq_cv_proj = ineq_constraint.cv(ProjectionInstance(x=x_proj))
     assert jnp.allclose(ineq_cv_proj, 0.0), f"Expected 0.0, but got {ineq_cv_proj}."
     # Do a random test
     m = 10
@@ -136,15 +138,17 @@ def test_inequality_cv():
         axis=1,
         keepdims=True,
     )
-    ineq_cv = ineq_constraint.cv(Inputs(x=x))
+    ineq_cv = ineq_constraint.cv(ProjectionInstance(x=x))
     assert jnp.allclose(ineq_cv, gt_cv), f"Expected {gt_cv}, but got {ineq_cv}."
 
     # Check that the projection has zero cv
     projection_layer = Project(ineq_constraint=ineq_constraint)
     x_proj = projection_layer.call(
-        projection_layer.get_init(Inputs(x=x)), Inputs(x=x), n_iter=100
+        projection_layer.get_init(ProjectionInstance(x=x)),
+        ProjectionInstance(x=x),
+        n_iter=100,
     )[0]
-    ineq_cv_proj = ineq_constraint.cv(Inputs(x=x_proj))
+    ineq_cv_proj = ineq_constraint.cv(ProjectionInstance(x=x_proj))
     assert jnp.allclose(ineq_cv_proj, 0.0), f"Expected 0.0, but got {ineq_cv_proj}."
 
 
@@ -174,14 +178,16 @@ def test_inequality_box_cv():
         axis=0,
     )
     gt_cv = jnp.array([2.0, 1.5, 0.5 * 2.5 + 1.0 * 1.0 - 1.0]).reshape(-1, 1, 1)
-    cv = projection_layer.cv(Inputs(x=x))
+    cv = projection_layer.cv(ProjectionInstance(x=x))
     assert jnp.allclose(cv, gt_cv), f"Expected {gt_cv}, but got {cv}."
 
     # Check that the projection has zero cv
     x_proj = projection_layer.call(
-        projection_layer.get_init(Inputs(x=x)), Inputs(x=x), n_iter=100
+        projection_layer.get_init(ProjectionInstance(x=x)),
+        ProjectionInstance(x=x),
+        n_iter=100,
     )[0]
-    cv_proj = projection_layer.cv(Inputs(x=x_proj))
+    cv_proj = projection_layer.cv(ProjectionInstance(x=x_proj))
     assert jnp.allclose(cv_proj, 0.0), f"Expected 0.0, but got {cv_proj}."
 
 
@@ -273,17 +279,24 @@ def test_equality_inequality_box_cv(seed, batch_size):
         keepdims=True,
     )
     gt_cv = jnp.maximum(jnp.maximum(eq_cv, ineq_cv), box_cv)
-    cv = projection_layer.cv(Inputs(x=x, eq=EqualityInputs(b=b)))
+    cv = projection_layer.cv(
+        ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
+    )
     assert jnp.allclose(cv, gt_cv), f"Expected {gt_cv}, but got {cv}."
 
     # Check that the projection has zero cv
     for ii in range(batch_size):
-        inp = Inputs(x=x, eq=EqualityInputs(b=b[ii : ii + 1]))
+        inp = ProjectionInstance(
+            x=x, eq=EqualityConstraintsSpecification(b=b[ii : ii + 1])
+        )
         x_proj = projection_layer.call(
             projection_layer.get_init(inp), inp, n_iter=1000
         )[0]
         cv_proj = projection_layer.cv(
-            Inputs(x=x_proj[ii : ii + 1], eq=EqualityInputs(b=b[ii : ii + 1]))
+            ProjectionInstance(
+                x=x_proj[ii : ii + 1],
+                eq=EqualityConstraintsSpecification(b=b[ii : ii + 1]),
+            )
         )
         assert jnp.allclose(
             cv_proj, 0.0, rtol=1e-4, atol=1e-4

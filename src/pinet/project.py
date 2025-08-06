@@ -12,7 +12,7 @@ from .constraints import (
     ConstraintParser,
     EqualityConstraint,
 )
-from .dataclasses import Inputs
+from .dataclasses import EquilibrationParams, ProjectionInstance
 from .equilibration import ruiz_equilibration
 from .solver import build_iteration_step
 
@@ -31,14 +31,7 @@ class Project:
         ineq_constraint: AffineInequalityConstraint = None,
         box_constraint: BoxConstraint = None,
         unroll: bool = False,
-        equilibrate: dict = {
-            "max_iter": 0,
-            "tol": 1e-3,
-            "ord": 2.0,
-            "col_scaling": False,
-            "update_mode": "Gauss",
-            "safeguard": False,
-        },
+        equilibration_params: EquilibrationParams = EquilibrationParams(),
     ) -> None:
         """Initialize projection layer.
 
@@ -47,13 +40,13 @@ class Project:
             ineq_constraint (AffineInequalityConstraint): Inequality constraint.
             box_constraint (BoxConstraint): Box constraint.
             unroll (bool): Use loop unrolling for backpropagation.
-            equilibrate (dict): Dictionary with equilibration parameters.
+            equilibration_params (EquilibrationParams): Parameters for equilibration.
         """
         self.eq_constraint = eq_constraint
         self.ineq_constraint = ineq_constraint
         self.box_constraint = box_constraint
         self.unroll = unroll
-        self.equilibrate = equilibrate
+        self.equilibration_params = equilibration_params
         self.setup()
 
     def setup(self) -> None:
@@ -87,13 +80,7 @@ class Project:
                 and self.lifted_eq_constraint.A.shape[0] == 1
             ):
                 scaled_A, d_r, d_c = ruiz_equilibration(
-                    self.lifted_eq_constraint.A[0],
-                    self.equilibrate["max_iter"],
-                    self.equilibrate["tol"],
-                    self.equilibrate["ord"],
-                    self.equilibrate["col_scaling"],
-                    self.equilibrate["update_mode"],
-                    self.equilibrate["safeguard"],
+                    self.lifted_eq_constraint.A[0], self.equilibration_params
                 )
                 self.d_r = d_r.reshape(1, -1, 1)
                 self.d_c = d_c.reshape(1, -1, 1)
@@ -207,7 +194,7 @@ class Project:
         # jit correctly the call method
         self.call = self._project
 
-    def cv(self, inp: Inputs) -> jnp.ndarray:
+    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
@@ -254,7 +241,7 @@ class Project:
         """
 
         @jax.jit
-        def check(inp: Inputs) -> bool:
+        def check(inp: ProjectionInstance) -> bool:
             if reduction == "max":
                 return jnp.max(self.cv(inp)) < tol
             elif reduction == "mean":
@@ -267,7 +254,7 @@ class Project:
                     "Valid options are: 'max', 'mean', or a float in (0, 1)."
                 )
 
-        def project_and_check(inp: Inputs) -> tuple[jnp.ndarray, bool, int]:
+        def project_and_check(inp: ProjectionInstance) -> tuple[jnp.ndarray, bool, int]:
             y0 = self.get_init(inp)
             # Executed iterations
             iter_exec = 0
@@ -277,7 +264,6 @@ class Project:
                 xproj, y = self.call(
                     y0,
                     inp,
-                    interpolation_value=0.0,
                     sigma=sigma,
                     omega=omega,
                     n_iter=check_every,
@@ -292,15 +278,12 @@ class Project:
 
         return project_and_check
 
-    def _project_single(
-        self, inp: Inputs, interpolation_value: float = 0, _: int = 0
-    ) -> jnp.ndarray:
+    def _project_single(self, inp: ProjectionInstance, _: int = 0) -> jnp.ndarray:
         """Project a batch of points with single constraint.
 
         Args:
             x (jnp.ndarray): Point to be projected.
                 Shape (batch_size, dimension, 1).
-            interpolation_value (float): Interpolation value between x and y.
             _ (int): Unused argument for compatibility.
 
         Returns:
@@ -310,34 +293,33 @@ class Project:
             Apinv = jnp.linalg.pinv(inp.eq.A)
             inp = inp.update(eq=inp.eq.update(Apinv=Apinv))
 
-        y = self.single_constraint.project(
+        return self.single_constraint.project(
             inp.update(x=inp.x.reshape((inp.x.shape[0], inp.x.shape[1], 1)))
         ).reshape(inp.x.shape)
-        return interpolation_value * inp.x + (1 - interpolation_value) * y
 
-    def get_init(self, inp: Inputs) -> Inputs:
+    def get_init(self, inp: ProjectionInstance) -> ProjectionInstance:
         """Returns a zero initial value for the governing sequence.
 
         Args:
-            inp (Inputs): Point to be projected data.
+            inp (ProjectionInstance): Point to be projected data.
 
         Returns:
-            Inputs: Initial value for the governing sequence.
+            ProjectionInstance: Initial value for the governing sequence.
         """
         inp = self.preprocess(inp)
         return inp.update(x=jnp.zeros((inp.x.shape[0], self.dim_lifted, 1)))
 
-    def preprocess(self, inp: Inputs) -> Inputs:
+    def preprocess(self, inp: ProjectionInstance) -> ProjectionInstance:
         """Preprocess inputs to ease the projection process.
 
         For example, adds zeros to the RHS of changing equality
         constraints.
 
         Args:
-            inp (Inputs): Point to be projected data.
+            inp (ProjectionInstance): Point to be projected data.
 
         Returns:
-            Inputs: Appropriately preprocessed inputs.
+            ProjectionInstance: Appropriately preprocessed inputs.
         """
         if self.eq_constraint is not None:
             if self.eq_constraint.var_A:
@@ -373,14 +355,15 @@ class Project:
 
 # Project general
 def _project_general(
-    step_iteration: Callable[[Inputs, jnp.ndarray, float, float], Inputs],
-    step_final: Callable[[Inputs], jnp.ndarray],
+    step_iteration: Callable[
+        [ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance
+    ],
+    step_final: Callable[[ProjectionInstance], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
-    y0: Inputs,
-    inp: Inputs,
-    interpolation_value: float = 0,
+    y0: ProjectionInstance,
+    inp: ProjectionInstance,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
@@ -397,7 +380,6 @@ def _project_general(
             Shape (batch_size, dim_lifted, 1).
         x (jnp.ndarray): Point to be projected.
             Shape (batch_size, dimension, 1).
-        interpolation_value (float): Interpolation value between x and y.
         sigma (float): ADMM parameter.
         omega (float): ADMM parameter.
         n_iter (int): Number of iterations to run.
@@ -423,19 +405,20 @@ def _project_general(
     y = (step_final(y)[:, : inp.x.shape[1], :] * d_c[:, : inp.x.shape[1], :]).reshape(
         inp.x.shape
     )
-    return interpolation_value * inp.x + (1 - interpolation_value) * y, y_aux
+    return y, y_aux
 
 
 @partial(jax.custom_vjp, nondiff_argnums=[0, 1, 2, 10, 11, 12])
 def _project_general_custom(
-    step_iteration: Callable[[Inputs, jnp.ndarray, float, float], Inputs],
-    step_final: Callable[[Inputs], jnp.ndarray],
+    step_iteration: Callable[
+        [ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance
+    ],
+    step_final: Callable[[ProjectionInstance], jnp.ndarray],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
-    y0: Inputs,
-    inp: Inputs,
-    interpolation_value: float = 0,
+    y0: ProjectionInstance,
+    inp: ProjectionInstance,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
@@ -451,7 +434,6 @@ def _project_general_custom(
         d_c,
         y0,
         inp,
-        interpolation_value,
         sigma,
         omega,
         n_iter,
@@ -464,9 +446,8 @@ def _project_general_fwd(
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
-    y0: Inputs,
-    inp: Inputs,
-    interpolation_value: float = 0,
+    y0: ProjectionInstance,
+    inp: ProjectionInstance,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
@@ -482,7 +463,6 @@ def _project_general_fwd(
         d_c,
         y0,
         inp,
-        interpolation_value,
         sigma,
         omega,
         n_iter,
@@ -500,8 +480,10 @@ def _project_general_fwd(
 
 
 def _project_general_bwd(
-    step_iteration: Callable[[Inputs, jnp.ndarray, float, float], Inputs],
-    step_final: Callable[[Inputs], jnp.ndarray],
+    step_iteration: Callable[
+        [ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance
+    ],
+    step_final: Callable[[ProjectionInstance], jnp.ndarray],
     dim_lifted: int,
     n_iter: int,
     n_iter_bwd: int,
@@ -575,7 +557,7 @@ def _project_general_bwd(
 
         vjp_iter = jax.scipy.sparse.linalg.bicgstab(Aop, gg, maxiter=n_iter_bwd)[0]
     thevjp = iteration_vjp2(vjp_iter)[0].reshape((g[0].shape[0], g[0].shape[1]))
-    return (None, None, None, Inputs(x=thevjp), None, None, None)
+    return (None, None, None, ProjectionInstance(x=thevjp), None, None)
 
 
 _project_general_custom.defvjp(_project_general_fwd, _project_general_bwd)

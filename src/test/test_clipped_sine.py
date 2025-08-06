@@ -7,7 +7,7 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from pinet import BoxConstraint, Inputs, Project
+from pinet import BoxConstraint, Project, ProjectionInstance
 
 
 class HardConstrainedMLP(nn.Module):
@@ -16,7 +16,6 @@ class HardConstrainedMLP(nn.Module):
     box_constraint: BoxConstraint
 
     def setup(self):
-        self.schedule = optax.linear_schedule(1.0, 0.0, 200)
         self.project = Project(box_constraint=self.box_constraint)
 
     @nn.compact
@@ -26,8 +25,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
-        alpha = self.schedule(step)
-        x = self.project.call(Inputs(x=x), interpolation_value=alpha)
+        x = self.project.call(ProjectionInstance(x=x))
         return x
 
 

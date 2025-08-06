@@ -2,7 +2,7 @@
 
 from jax import numpy as jnp
 
-from pinet.dataclasses import Inputs
+from pinet.dataclasses import ProjectionInstance
 
 from .base import Constraint
 
@@ -53,11 +53,11 @@ class AffineInequalityConstraint(Constraint):
             self.C.shape[1] == self.ub.shape[1]
         ), "Number of rows in C must equal size of u."
 
-    def project(self, inp: Inputs) -> jnp.ndarray:
+    def project(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            inp (Inputs): Inputs to projection.
+            inp (ProjectionInstance): ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
@@ -78,11 +78,11 @@ class AffineInequalityConstraint(Constraint):
         """Return the number of constraints."""
         return self.C.shape[1]
 
-    def cv(self, inp: Inputs) -> jnp.ndarray:
+    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp (Inputs): Inputs to evaluate.
+            inp (ProjectionInstance): ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.

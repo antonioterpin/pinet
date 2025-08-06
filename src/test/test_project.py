@@ -10,9 +10,9 @@ import pytest
 from pinet import (
     AffineInequalityConstraint,
     EqualityConstraint,
-    EqualityInputs,
-    Inputs,
+    EqualityConstraintsSpecification,
     Project,
+    ProjectionInstance,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -49,13 +49,17 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     # Compute projection with Project
     eq_constraint = EqualityConstraint(A, b, method="pinv", var_b=True)
     projection_layer = Project(eq_constraint=eq_constraint)
-    yprojiter = projection_layer.call(Inputs(x=xinfeas, eq=EqualityInputs(b=b)))
+    yprojiter = projection_layer.call(
+        ProjectionInstance(x=xinfeas, eq=EqualityConstraintsSpecification(b=b))
+    )
 
     assert jnp.allclose(yprojiter, yqp)
 
     # Generate new RHS
     b_new = A @ jax.random.normal(key[3], (batch_size, dim, 1))
-    yprojiter = projection_layer.call(Inputs(x=xinfeas, eq=EqualityInputs(b=b_new)))
+    yprojiter = projection_layer.call(
+        ProjectionInstance(x=xinfeas, eq=EqualityConstraintsSpecification(b=b_new))
+    )
     # New cvxpy problem
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
@@ -103,8 +107,8 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
     xprojiter_novarb = projection_layer_novarb.call(
-        projection_layer_novarb.get_init(Inputs(x=xinfeas)),
-        Inputs(x=xinfeas),
+        projection_layer_novarb.get_init(ProjectionInstance(x=xinfeas)),
+        ProjectionInstance(x=xinfeas),
         n_iter=500,
     )[0]
     # Check projection layer with var_b
@@ -114,7 +118,7 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    inp_varb = Inputs(x=xinfeas, eq=EqualityInputs(b=b))
+    inp_varb = ProjectionInstance(x=xinfeas, eq=EqualityConstraintsSpecification(b=b))
     xprojiter = projection_layer.call(
         projection_layer.get_init(inp_varb), inp_varb, n_iter=500
     )[0]
@@ -159,8 +163,10 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
             max_iter=max_iter,
             reduction=reduction,
         )
-        _, flag, _ = check(Inputs(x=xinfeas, eq=EqualityInputs(b=b)))
-        _, flag_novarb, _ = check_novarb(Inputs(x=xinfeas))
+        _, flag, _ = check(
+            ProjectionInstance(x=xinfeas, eq=EqualityConstraintsSpecification(b=b))
+        )
+        _, flag_novarb, _ = check_novarb(ProjectionInstance(x=xinfeas))
 
         assert flag
         assert flag_novarb
@@ -191,7 +197,9 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     b_new = A_new @ jax.random.normal(key[7], (batch_size, dim, 1))
     eq_constraint = EqualityConstraint(A=A_new, b=b_new, method=method, var_A=True)
     projection_layer = Project(eq_constraint=eq_constraint)
-    inp = Inputs(x=xinfeas, eq=EqualityInputs(A=A_new, b=b_new))
+    inp = ProjectionInstance(
+        x=xinfeas, eq=EqualityConstraintsSpecification(A=A_new, b=b_new)
+    )
     xprojiter = projection_layer.call(inp)
     # New cvxpy problem
     yqp = jnp.zeros(shape=(batch_size, dim))
@@ -224,7 +232,9 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    inp = Inputs(x=xinfeas, eq=EqualityInputs(b=b_new, A=A_new))
+    inp = ProjectionInstance(
+        x=xinfeas, eq=EqualityConstraintsSpecification(b=b_new, A=A_new)
+    )
     xprojiter = projection_layer.call(projection_layer.get_init(inp), inp, n_iter=500)[
         0
     ]

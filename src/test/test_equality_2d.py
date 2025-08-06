@@ -10,7 +10,7 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from pinet import EqualityConstraint, Inputs, Project
+from pinet import EqualityConstraint, Project, ProjectionInstance
 
 jax.config.update("jax_enable_x64", True)
 # Random seeds
@@ -24,7 +24,6 @@ class HardConstrainedMLP(nn.Module):
     eq_constraint: EqualityConstraint
 
     def setup(self):
-        self.schedule = optax.linear_schedule(0.0, 0.0, 200)
         self.project = Project(eq_constraint=self.eq_constraint)
 
     @nn.compact
@@ -34,8 +33,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(2)(x)
-        alpha = self.schedule(step)
-        x = self.project.call(Inputs(x=x), interpolation_value=alpha)
+        x = self.project.call(ProjectionInstance(x=x))
         return x
 
 

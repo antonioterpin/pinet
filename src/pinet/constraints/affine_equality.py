@@ -4,7 +4,7 @@ from typing import Optional
 
 import jax.numpy as jnp
 
-from pinet.dataclasses import Inputs
+from pinet.dataclasses import ProjectionInstance
 
 from .base import Constraint
 
@@ -93,7 +93,9 @@ class EqualityConstraint(Constraint):
                 f"Invalid method {self.method}. Valid methods are: {valid_methods}"
             )
 
-    def get_params(self, inp: Inputs) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def get_params(
+        self, inp: ProjectionInstance
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Get A, b, Apinv depending on varying constraints."""
         b = inp.eq.b if self.var_b else self.b
         A = inp.eq.A if self.var_A else self.A
@@ -101,11 +103,11 @@ class EqualityConstraint(Constraint):
 
         return b, A, Apinv
 
-    def project_pinv(self, inp: Inputs) -> jnp.ndarray:
+    def project_pinv(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
-            inp (Inputs): Inputs to projection.
+            inp (ProjectionInstance): ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
@@ -126,11 +128,11 @@ class EqualityConstraint(Constraint):
         """Return the number of constraints."""
         return self.A.shape[1]
 
-    def cv(self, inp: Inputs) -> jnp.ndarray:
+    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp (Inputs): Inputs to evaluate.
+            inp (ProjectionInstance): ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.

@@ -11,9 +11,10 @@ from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
     EqualityConstraint,
-    EqualityInputs,
-    Inputs,
+    EqualityConstraintsSpecification,
+    EquilibrationParams,
     Project,
+    ProjectionInstance,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -92,30 +93,23 @@ def test_general_eq_ineq(seed, batch_size):
             ineq_constraint=ineq_constraint,
             box_constraint=box_constraint,
             unroll=True,
-            equilibrate={
-                "max_iter": 0,
-                "tol": 1e-3,
-                "ord": 2.0,
-                "col_scaling": False,
-                "update_mode": "Gauss",
-                "safeguard": False,
-            },
         )
 
         # Projection layer with unrolling plus equilibration
+        equilibration_params = EquilibrationParams(
+            max_iter=25,
+            tol=1e-3,
+            ord=2.0,
+            col_scaling=False,
+            update_mode="Gauss",
+            safeguard=False,
+        )
         pl_unroll_equil = Project(
             eq_constraint=eq_constraint,
             ineq_constraint=ineq_constraint,
             box_constraint=box_constraint,
             unroll=True,
-            equilibrate={
-                "max_iter": 25,
-                "tol": 1e-3,
-                "ord": 2.0,
-                "col_scaling": False,
-                "update_mode": "Gauss",
-                "safeguard": False,
-            },
+            equilibration_params=equilibration_params,
         )
 
         # Projection layer with implicit differentiation
@@ -124,14 +118,7 @@ def test_general_eq_ineq(seed, batch_size):
             ineq_constraint=ineq_constraint,
             box_constraint=box_constraint,
             unroll=False,
-            equilibrate={
-                "max_iter": 25,
-                "tol": 1e-3,
-                "ord": 2.0,
-                "col_scaling": False,
-                "update_mode": "Gauss",
-                "safeguard": False,
-            },
+            equilibration_params=equilibration_params,
         )
         # Point to be projected
         x = jax.random.uniform(key[3], shape=(batch_size, dim), minval=-2, maxval=2)
@@ -155,9 +142,9 @@ def test_general_eq_ineq(seed, batch_size):
         # Check that the projection is computed correctly
         n_iter = 1000
         if var_b:
-            inp = Inputs(x=x, eq=EqualityInputs(b=b))
+            inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
         else:
-            inp = Inputs(x=x)
+            inp = ProjectionInstance(x=x)
         y_unroll = pl_unroll.call(
             pl_unroll.get_init(inp), inp, n_iter=n_iter, sigma=sigma, omega=omega
         )[0]
@@ -187,9 +174,9 @@ def test_general_eq_ineq(seed, batch_size):
 
         def loss(x, v, mode, n_iter_bwd, fpi):
             if var_b:
-                inp = Inputs(x=x, eq=EqualityInputs(b=b))
+                inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
             else:
-                inp = Inputs(x=x)
+                inp = ProjectionInstance(x=x)
             if mode == "unroll":
                 return (
                     pl_unroll.call(

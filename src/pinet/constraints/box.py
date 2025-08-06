@@ -6,7 +6,7 @@ import numpy as np
 from jax import numpy as jnp
 from jax.experimental.checkify import checkify
 
-from pinet.dataclasses import Inputs
+from pinet.dataclasses import ProjectionInstance
 
 from .base import Constraint
 
@@ -68,11 +68,11 @@ class BoxConstraint(Constraint):
         self.mask = mask
         self.masked_idx = tuple(np.where(mask)[0])
 
-    def project(self, inp: Inputs) -> jnp.ndarray:
+    def project(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Project the input to the feasible region.
 
         Args:
-            inp (Inputs): Inputs to projection.
+            inp (ProjectionInstance): ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
@@ -83,11 +83,11 @@ class BoxConstraint(Constraint):
             jnp.clip(inp.x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
         )
 
-    def cv(self, inp: Inputs) -> jnp.ndarray:
+    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp (Inputs): Inputs to evaluate.
+            inp (ProjectionInstance): ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.

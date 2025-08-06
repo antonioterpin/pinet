@@ -5,7 +5,7 @@ from typing import Callable
 import jax.numpy as jnp
 
 from pinet.constraints import BoxConstraint, EqualityConstraint
-from pinet.dataclasses import Inputs
+from pinet.dataclasses import ProjectionInstance
 
 
 def build_iteration_step(
@@ -14,8 +14,8 @@ def build_iteration_step(
     dim: int,
     scale: jnp.ndarray = 1.0,
 ) -> tuple[
-    Callable[[Inputs, jnp.ndarray, float, float], Inputs],
-    Callable[[Inputs], jnp.ndarray],
+    Callable[[ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance],
+    Callable[[ProjectionInstance], jnp.ndarray],
 ]:
     """Build the iteration and result retrieval step for the ADMM solver.
 
@@ -28,19 +28,19 @@ def build_iteration_step(
 
     Returns:
         tuple[
-            Callable[[Inputs, jnp.ndarray, float, float], Inputs],
-            Callable[[Inputs], Inputs]
+            Callable[[ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance],
+            Callable[[ProjectionInstance], ProjectionInstance]
         ]:
             The first element is the iteration step,
             the second element is the result retrieval step.
     """
 
     def iteration_step(
-        xk: Inputs,
+        xk: ProjectionInstance,
         xproj: jnp.ndarray,
         sigma: float = 1.0,
         omega: float = 1.7,
-    ) -> Inputs:
+    ) -> ProjectionInstance:
         """One iteration of the ADMM solver.
 
         Args:

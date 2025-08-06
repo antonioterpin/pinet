@@ -149,7 +149,6 @@ def project(init, x, b, sigma, n_iter):
         y0=init,
         x=x,
         b=b,
-        interpolation_value=0.0,
         sigma=sigma,
         omega=omega,
         n_iter=n_iter,

@@ -4,23 +4,23 @@ from abc import abstractmethod
 
 import jax.numpy as jnp
 
-from pinet.dataclasses import Inputs
+from pinet.dataclasses import ProjectionInstance
 
 
 class Constraint:
     """Abstract class for constraint sets."""
 
     @abstractmethod
-    def project(self, x: Inputs) -> jnp.ndarray:
+    def project(self, x: ProjectionInstance) -> jnp.ndarray:
         """Project the input to the feasible region."""
         pass
 
     @abstractmethod
-    def cv(self, inp: Inputs) -> jnp.ndarray:
+    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp (Inputs): Inputs to evaluate.
+            inp (ProjectionInstance): ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
