@@ -326,7 +326,7 @@ def test_general_eq_ineq(seed, batch_size):
         objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
         problem_qp = cp.Problem(objective=objective, constraints=constraints)
         problem_qp.solve(
-            solver=cp.CLARABEL, verbose=True, tol_gap_abs=1e-10, tol_gap_rel=1e-10
+            solver=cp.CLARABEL, verbose=False, tol_gap_abs=1e-10, tol_gap_rel=1e-10
         )
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
 

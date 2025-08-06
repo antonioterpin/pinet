@@ -242,7 +242,7 @@ def test_equality_inequality_box_cv(seed, batch_size):
         ]
     objective = cp.Minimize(cp.sum(xfeas))
     problem = cp.Problem(objective=objective, constraints=constraints)
-    problem.solve(verbose=True)
+    problem.solve(verbose=False)
     # Extract RHS parameters
     b = jnp.tile(jnp.array(bfeas.value).reshape((batch_size, n_eq, 1)), (1, 1, 1))
     lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
