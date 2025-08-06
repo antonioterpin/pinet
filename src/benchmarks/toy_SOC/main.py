@@ -198,7 +198,7 @@ def print_stats(x, s, b, c, xstar):
     cv_soc = constraint_violation_soc(s)
     rs = relative_suboptimality(x, xstar, c)
 
-    print(" --- Solution statistics ---")
+    print("=========== Solution statistics ===========")
     # mean, std, max, min
     print(
         f"""CV (Ax = b): {jnp.mean(cv_eq):.15f} ± {jnp.std(cv_eq):.15f}

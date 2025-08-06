@@ -273,20 +273,20 @@ results_sigma = generate_results(
 )
 
 # %%
-print("Results for fixed n_iter")
+print("=========== Results for fixed n_iter ===========")
 best_sigma, best_n_iter, best_result = get_best(
     results_sigma, sigma_candidates, fixed_n_iter_step, target_cv_sigma, target_rs_sigma
 )
-print(best_sigma)
-print(best_n_iter)
+print(f"Best sigma: {best_sigma}")
 best_sigma = jnp.array([best_sigma])
 
 # %%
 results_n_iter = generate_results(best_sigma, n_iter_candidates, eval_fn)
 
 # %%
+print("=========== Results for n_iter tuning ===========")
 best_sigma, best_n_iter, best_result = get_best(
     results_n_iter, best_sigma, n_iter_step, target_cv_n_iter, target_rs_n_iter
 )
-print(best_sigma)
-print(best_n_iter)
+print(f"Best sigma: {best_sigma}")
+print(f"Best n_iter: {best_n_iter}")
