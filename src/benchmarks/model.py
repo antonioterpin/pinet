@@ -11,10 +11,13 @@ from benchmarks.simple_QP.other_projections import (
     get_cvxpy_projection,
     get_jaxopt_projection,
 )
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.project import Project
-from hcnn.utils import EqualityInputs, Inputs
+from pinet import (
+    AffineInequalityConstraint,
+    EqualityConstraint,
+    EqualityInputs,
+    Inputs,
+    Project,
+)
 
 
 def setup_pinet(

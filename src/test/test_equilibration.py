@@ -7,11 +7,14 @@ import jax
 import pytest
 from jax import numpy as jnp
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.constraints.box import BoxConstraint
-from hcnn.project import Project
-from hcnn.utils import EqualityInputs, Inputs
+from pinet import (
+    AffineInequalityConstraint,
+    BoxConstraint,
+    EqualityConstraint,
+    EqualityInputs,
+    Inputs,
+    Project,
+)
 
 jax.config.update("jax_enable_x64", True)
 

@@ -4,8 +4,9 @@ from typing import Optional
 
 import jax.numpy as jnp
 
-from hcnn.constraints.base import Constraint
-from hcnn.utils import Inputs
+from pinet.dataclasses import Inputs
+
+from .base import Constraint
 
 
 class EqualityConstraint(Constraint):

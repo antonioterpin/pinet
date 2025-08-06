@@ -10,9 +10,7 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.project import Project
-from hcnn.utils import Inputs
+from pinet import EqualityConstraint, Inputs, Project
 
 jax.config.update("jax_enable_x64", True)
 # Random seeds

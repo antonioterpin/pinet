@@ -4,7 +4,7 @@ from abc import abstractmethod
 
 import jax.numpy as jnp
 
-from hcnn.utils import Inputs
+from pinet.dataclasses import Inputs
 
 
 class Constraint:

@@ -6,8 +6,9 @@ import numpy as np
 from jax import numpy as jnp
 from jax.experimental.checkify import checkify
 
-from hcnn.constraints.base import Constraint
-from hcnn.utils import Inputs
+from pinet.dataclasses import Inputs
+
+from .base import Constraint
 
 
 class BoxConstraint(Constraint):

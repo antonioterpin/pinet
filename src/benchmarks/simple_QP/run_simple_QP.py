@@ -1,8 +1,5 @@
 """Run HCNN on simple QP problem."""
 
-# TODO: Enable saving/serializing the trained network when saving results.
-# TODO: Do some ablations on the ADMM parameters.
-# TODO: Enable training with SoftMLP.
 import argparse
 import datetime
 import pathlib
@@ -21,7 +18,7 @@ from tqdm import tqdm
 from benchmarks.model import setup_model
 from benchmarks.simple_QP.load_simple_QP import load_data
 from benchmarks.simple_QP.plotting import plot_inference_boxes, plot_rs_vs_cv
-from hcnn.utils import GracefulShutdown, Logger
+from src.tools.utils import GracefulShutdown, Logger
 
 jax.config.update("jax_enable_x64", True)
 

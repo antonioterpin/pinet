@@ -4,9 +4,8 @@ from typing import Callable
 
 import jax.numpy as jnp
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.box import BoxConstraint
-from hcnn.utils import Inputs
+from pinet.constraints import BoxConstraint, EqualityConstraint
+from pinet.dataclasses import Inputs
 
 
 def build_iteration_step(

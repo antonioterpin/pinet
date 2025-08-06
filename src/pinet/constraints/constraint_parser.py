@@ -3,9 +3,9 @@
 import jax.numpy as jnp
 import numpy as np
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.constraints.box import BoxConstraint
+from .affine_equality import EqualityConstraint
+from .affine_inequality import AffineInequalityConstraint
+from .box import BoxConstraint
 
 
 class ConstraintParser:

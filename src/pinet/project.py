@@ -6,19 +6,17 @@ from typing import Callable
 import jax
 from jax import numpy as jnp
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.constraints.box import BoxConstraint
-from hcnn.constraints.constraint_parser import ConstraintParser
-from hcnn.equilibration import ruiz_equilibration
-from hcnn.solver.admm import build_iteration_step
-from hcnn.utils import Inputs
+from .constraints import (
+    AffineInequalityConstraint,
+    BoxConstraint,
+    ConstraintParser,
+    EqualityConstraint,
+)
+from .dataclasses import Inputs
+from .equilibration import ruiz_equilibration
+from .solver import build_iteration_step
 
 
-# TODO: Make the output of project more consistent.
-#       For single constraints the output is an array.
-#       For parsed/multiple constraints the output is a tuple.
-# TODO: Remove the interpolation value. This should be done on the NN layer.
 class Project:
     """Projection layer implemented via Douglas-Rachford."""
 

@@ -7,11 +7,14 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.constraints.box import BoxConstraint
-from hcnn.project import Project
-from hcnn.utils import EqualityInputs, Inputs
+from pinet import (
+    AffineInequalityConstraint,
+    BoxConstraint,
+    EqualityConstraint,
+    EqualityInputs,
+    Inputs,
+    Project,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -231,9 +234,9 @@ def test_equality_inequality_box_cv(seed, batch_size):
             xfeas <= 2,
             ii <= bfeas[ii * n_eq : (ii + 1) * n_eq],
         ]
-    objective = cp.Minimize(jnp.ones(shape=(dim * batch_size)) @ xfeas)
+    objective = cp.Minimize(cp.sum(xfeas))
     problem = cp.Problem(objective=objective, constraints=constraints)
-    problem.solve(verbose=False)
+    problem.solve(verbose=True)
     # Extract RHS parameters
     b = jnp.tile(jnp.array(bfeas.value).reshape((batch_size, n_eq, 1)), (1, 1, 1))
     lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))

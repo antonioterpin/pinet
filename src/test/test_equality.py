@@ -7,8 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.utils import Inputs
+from pinet import EqualityConstraint, Inputs
 
 # Set JAX precision to 64 bits.
 jax.config.update("jax_enable_x64", True)

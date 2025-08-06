@@ -19,7 +19,7 @@ from tqdm import tqdm
 from benchmarks.toy_MPC.load_toy_MPC import load_data
 from benchmarks.toy_MPC.model import setup_model
 from benchmarks.toy_MPC.plotting import generate_trajectories, plot_training
-from hcnn.utils import GracefulShutdown, Logger
+from src.tools.utils import GracefulShutdown, Logger
 
 jax.config.update("jax_enable_x64", True)
 

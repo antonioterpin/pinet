@@ -1,3 +1,0 @@
-"""Hard constraint neural network package."""
-
-__version__ = "0.1.0"

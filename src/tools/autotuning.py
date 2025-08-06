@@ -19,9 +19,7 @@ from benchmarks.simple_QP.load_simple_QP import (
     create_dataloaders,
     dc3_dataloader,
 )
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.project import Project
+from pinet import AffineInequalityConstraint, EqualityConstraint, Project
 
 jax.config.update("jax_enable_x64", True)
 

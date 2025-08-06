@@ -6,8 +6,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from hcnn.constraints.box import BoxConstraint
-from hcnn.utils import Inputs
+from pinet import BoxConstraint, Inputs
 
 
 def test_instantiation_error():

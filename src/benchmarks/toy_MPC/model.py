@@ -3,8 +3,7 @@
 import jax
 from flax import linen as nn
 
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.box import BoxConstraint
+from pinet import BoxConstraint, EqualityConstraint
 from src.benchmarks.model import HardConstrainedMLP, setup_pinet
 
 

@@ -3,7 +3,6 @@
 import jax.numpy as jnp
 
 
-# TODO: Add equilibration for joint constraints.
 def ruiz_equilibration(
     A: jnp.ndarray,
     max_iter: int = 0,
@@ -17,6 +16,8 @@ def ruiz_equilibration(
 
     Ruiz equilibration iteratively scales the rows and columns of A so that
     all rows have equal norms and all columns have equals norms.
+
+    TODO: Add equilibration for joint constraints.
 
     Args:
         A (jnp.ndarray): Input matrix with shape (n_r, n_c).

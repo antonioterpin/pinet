@@ -3,11 +3,8 @@
 import logging
 import signal
 import time
-from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional
 
-import jax
-import jax.numpy as jnp
 import wandb
 
 logger = logging.getLogger(__name__)
@@ -124,28 +121,6 @@ class Logger:
         return Logger.Timer(label, t, log_vars)
 
 
-if __name__ == "__main__":
-    # Example usage of Logger and Timer
-    value_a = 10
-    value_b = 20
-
-    def capture_vars() -> Dict[str, Any]:
-        """Capture variables to be logged."""
-        return {"value_a": value_a, "value_b": value_b}
-
-    # Using the Logger in a with statement
-    with Logger("test-logger") as logger:
-        print("Logger started. Check your wandb dashboard.")
-        # Timing a code block using the Timer context manager
-        with logger.timeit("processing_time", t=1, log_vars=capture_vars):
-            # Simulate some processing
-            time.sleep(2)
-            # Update the values of the variables
-            value_a = 15
-            value_b = 25
-        print("Timer block ended. Logged metrics to wandb.")
-
-
 class GracefulShutdown:
     """A context manager for graceful shutdowns."""
 
@@ -173,53 +148,3 @@ class GracefulShutdown:
     def __exit__(self, exc_type, exc_value, traceback):
         """Unregister the signal handler."""
         pass
-
-
-# Inputs dataclasses
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class EqualityInputs:
-    """Dataclass representing inputs used in forming equality constraints.
-
-    Attributes:
-        b (Optional[jnp.ndarray]): Vector representing the RHS of the equality constraint.
-            Shape (batch_size, n_constraints, 1)
-        A (Optional[jnp.ndarray]): Matrix representing the LHS of the equality constraint.
-            Shape (batch_size, n_constraints, dimension).
-        Apinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix A.
-            Shape (batch_size, dimension, n_constraints).
-    """
-
-    b: Optional[jnp.ndarray] = None
-    A: Optional[jnp.ndarray] = None
-    Apinv: Optional[jnp.ndarray] = None
-
-    def update(self, **kwargs):
-        """Update some attribute by keyword."""
-        return replace(self, **kwargs)
-
-
-# Inputs dataclasses
-# TODO: Add dataclass for box constraints.
-# TODO: Add dataclass for Inequality constraints.
-
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class Inputs:
-    """A dataclass for encapsulating model input parameters.
-
-    Attributes:
-        x (jnp.ndarray): The point to be projected.
-            Shape (batch_size, dimension, 1)
-        eq (EqualityInputs):
-            An instance containing auxiliary inputs
-            related to equality constraints.
-    """
-
-    x: jnp.ndarray
-    eq: Optional[EqualityInputs] = EqualityInputs()
-
-    def update(self, **kwargs):
-        """Update some attribute by keyword."""
-        return replace(self, **kwargs)

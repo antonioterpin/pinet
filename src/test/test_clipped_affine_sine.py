@@ -8,9 +8,7 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.project import Project
-from hcnn.utils import Inputs
+from pinet import AffineInequalityConstraint, Inputs, Project
 
 jax.config.update("jax_enable_x64", True)
 
