@@ -36,38 +36,37 @@ def build_iteration_step(
     """
 
     def iteration_step(
-        xk: ProjectionInstance,
-        xproj: jnp.ndarray,
+        sk: ProjectionInstance,
+        yraw: jnp.ndarray,
         sigma: float = 1.0,
         omega: float = 1.7,
     ) -> ProjectionInstance:
         """One iteration of the ADMM solver.
 
         Args:
-            xk (jnp.ndarray): State iterate for the ADMM solver.
+            sk (ProjectionInstance): State iterate for the ADMM solver.
                 Shape (batch_size, lifted_dimension, 1).
-            xproj (jnp.ndarray): Point to be projected.
-                Shape (batch_size, dimension, 1).
+            yraw (jnp.ndarray): Point to be projected. Shape (batch_size, dimension, 1).
             sigma (float, optional): ADMM parameter.
             omega (float, optional): ADMM parameter.
 
         Returns:
             jnp.ndarray: Next state iterate of the ADMM solver.
         """
-        dk = eq_constraint.project(xk)
+        zk = eq_constraint.project(sk)
         # Reflection
-        reflect = 2 * dk - xk.x
+        reflect = 2 * zk - sk.x
         tobox = jnp.concatenate(
             (
-                (2 * sigma * scale * xproj + reflect[:, :dim, :])
+                (2 * sigma * scale * yraw + reflect[:, :dim, :])
                 / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),
             axis=1,
         )
-        tk = box_constraint.project(xk.update(x=tobox))
-        xk = xk.update(x=xk.x + omega * (tk - dk))
-        return xk
+        tk = box_constraint.project(sk.update(x=tobox))
+        sk = sk.update(x=sk.x + omega * (tk - zk))
+        return sk
 
     # The second element is used to extract the projection from the auxiliary
     return (iteration_step, lambda y: eq_constraint.project(y))
