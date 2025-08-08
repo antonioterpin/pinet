@@ -49,7 +49,6 @@ class EqualityConstraint(Constraint):
         self.method = method
         self.var_b = var_b
         self.var_A = var_A
-
         self.setup()
 
     def setup(self) -> None:
@@ -97,26 +96,26 @@ class EqualityConstraint(Constraint):
         self, inp: ProjectionInstance
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Get A, b, Apinv depending on varying constraints."""
-        b = inp.eq.b if self.var_b else self.b
-        A = inp.eq.A if self.var_A else self.A
-        Apinv = inp.eq.Apinv if self.var_A else self.Apinv
+        b = inp.eq.b if inp.eq and inp.eq.b is not None else self.b
+        A = inp.eq.A if inp.eq and self.var_A else self.A
+        Apinv = inp.eq.Apinv if inp.eq and self.var_A else self.Apinv
 
         return b, A, Apinv
 
-    def project_pinv(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def project_pinv(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
-            inp (ProjectionInstance): ProjectionInstance to projection.
+            yraw (ProjectionInstance): ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
             jnp.ndarray: The projected point for each point in the batch.
                 Shape (batch_size, dimension, 1).
         """
-        b, A, Apinv = self.get_params(inp)
+        b, A, Apinv = self.get_params(yraw)
 
-        return inp.x - Apinv @ (A @ inp.x - b)
+        return yraw.update(x=yraw.x - Apinv @ (A @ yraw.x - b))
 
     @property
     def dim(self) -> int:

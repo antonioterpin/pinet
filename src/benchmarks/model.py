@@ -81,24 +81,22 @@ def setup_pinet(
     def project(x, b):
         inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
         return projection_layer.call(
-            y0=projection_layer.get_init(inp),
-            inp=inp,
+            yraw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_train"],
             **kw,
-        )[0]
+        )[0].x
 
     def project_test(x, b):
         inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
         return projection_layer.call(
-            y0=projection_layer.get_init(inp),
-            inp=inp,
+            yraw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_test"],
             **kw,
-        )[0]
+        )[0].x
 
     return project, project_test, setup_time
 

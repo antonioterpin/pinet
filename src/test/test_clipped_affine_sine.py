@@ -19,21 +19,20 @@ class HardConstrainedMLP(nn.Module):
     project: Project
 
     @nn.compact
-    def __call__(self, x, step, sigma=1.0, omega=1.7):
+    def __call__(self, x, _, sigma=1.0, omega=1.7):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
         x = self.project.call(
-            self.project.get_init(ProjectionInstance(x=x)),
-            ProjectionInstance(x=x),
+            yraw=ProjectionInstance(x=x.reshape((x.shape[0], x.shape[1], 1))),
             sigma=sigma,
             omega=omega,
             n_iter=100,
             n_iter_bwd=50,
             fpi=False,
-        )[0]
+        )[0].x.squeeze(-1)
         return x
 
 

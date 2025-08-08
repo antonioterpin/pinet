@@ -68,45 +68,57 @@ class BoxConstraint(Constraint):
         self.mask = mask
         self.masked_idx = tuple(np.where(mask)[0])
 
-    def project(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def project(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Project the input to the feasible region.
 
         Args:
-            inp (ProjectionInstance): ProjectionInstance to projection.
+            yraw (ProjectionInstance): ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
             jnp.ndarray: The projected point for each point in the batch.
                 Shape (batch_size, dimension, 1).
         """
-        return inp.x.at[:, self.masked_idx, :].set(
-            jnp.clip(inp.x[:, self.masked_idx, :], self.lower_bound, self.upper_bound)
+        return yraw.update(
+            x=yraw.x.at[:, self.masked_idx, :].set(
+                jnp.clip(
+                    yraw.x[:, self.masked_idx, :], self.lower_bound, self.upper_bound
+                )
+            )
         )
 
-    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, y: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp (ProjectionInstance): ProjectionInstance to evaluate.
+            y (ProjectionInstance): ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        tmp = jnp.maximum(
-            jnp.max(inp.x[:, self.mask, :] - self.upper_bound, axis=1, keepdims=True),
+        cvs = jnp.maximum(
+            jnp.max(y.x[:, self.mask, :] - self.upper_bound, axis=1, keepdims=True),
             jnp.max(
-                self.lower_bound - inp.x[:, self.masked_idx, :], axis=1, keepdims=True
+                self.lower_bound - y.x[:, self.masked_idx, :], axis=1, keepdims=True
             ),
         )
-        return jnp.maximum(tmp, 0)
+        return jnp.maximum(cvs, 0)
 
     @property
     def dim(self) -> int:
-        """Return the dimension of the constraint set."""
+        """Return the dimension of the constraint set.
+
+        Returns:
+            int: The dimension of the constraint set.
+        """
         return self.lower_bound.shape[1]
 
     @property
     def n_constraints(self) -> int:
-        """Return the number of constraints."""
+        """Return the number of constraints.
+
+        Returns:
+            int: The number of constraints.
+        """
         return self.lower_bound.shape[1]

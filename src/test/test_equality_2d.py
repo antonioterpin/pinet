@@ -33,7 +33,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(2)(x)
-        x = self.project.call(ProjectionInstance(x=x))
+        x = self.project.call(yraw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
         return x
 
 

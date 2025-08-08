@@ -146,8 +146,8 @@ omega = 1.7
 def project(init, x, b, sigma, n_iter):
     """Projection layer wrapper."""
     return projection_layer.call(
-        y0=init,
-        x=x,
+        s0=init,
+        yraw=x,
         b=b,
         sigma=sigma,
         omega=omega,

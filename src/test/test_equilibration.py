@@ -141,30 +141,25 @@ def test_general_eq_ineq(seed, batch_size):
 
         # Check that the projection is computed correctly
         n_iter = 1000
-        if var_b:
-            inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
-        else:
-            inp = ProjectionInstance(x=x)
-        y_unroll = pl_unroll.call(
-            pl_unroll.get_init(inp), inp, n_iter=n_iter, sigma=sigma, omega=omega
-        )[0]
+        inp = ProjectionInstance(
+            x=x[..., None], eq=EqualityConstraintsSpecification(b=b) if var_b else None
+        )
+        y_unroll = pl_unroll.call(yraw=inp, n_iter=n_iter, sigma=sigma, omega=omega)[0]
         y_impl = pl_unroll_equil.call(
-            pl_unroll_equil.get_init(inp),
-            inp,
+            yraw=inp,
             n_iter=n_iter,
             sigma=sigma_equil,
             omega=omega,
         )[0]
         y_impl_equil = pl_impl_equil.call(
-            pl_impl_equil.get_init(inp),
-            inp,
+            yraw=inp,
             n_iter=n_iter,
             sigma=sigma_equil,
             omega=omega,
         )[0]
-        assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
-        assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
-        assert jnp.allclose(y_impl_equil, yqp, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(y_unroll.x[..., 0], yqp, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(y_impl.x[..., 0], yqp, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(y_impl_equil.x[..., 0], yqp, atol=1e-4, rtol=1e-4)
 
         # Check that the VJP is computed correctly
         # Compare with loop unrolling
@@ -173,54 +168,53 @@ def test_general_eq_ineq(seed, batch_size):
         vec = jnp.array(jax.random.normal(key[4], shape=(dim, batch_size)))
 
         def loss(x, v, mode, n_iter_bwd, fpi):
-            if var_b:
-                inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
-            else:
-                inp = ProjectionInstance(x=x)
+            inp = ProjectionInstance(
+                x=x[..., None],
+                eq=EqualityConstraintsSpecification(b=b) if var_b else None,
+            )
             if mode == "unroll":
                 return (
                     pl_unroll.call(
-                        pl_unroll.get_init(inp),
-                        inp,
+                        yraw=inp,
                         n_iter=n_iter,
                         sigma=sigma,
                         omega=omega,
-                    )[0]
+                    )[
+                        0
+                    ].x[..., 0]
                     @ v
                 ).mean()
             elif mode == "unroll_equil":
                 return (
                     pl_unroll_equil.call(
-                        pl_unroll_equil.get_init(inp),
-                        inp,
+                        yraw=inp,
                         n_iter=n_iter,
                         sigma=sigma_equil,
                         omega=omega,
-                    )[0]
+                    )[0].x[..., 0]
                     @ v
                 ).mean()
             elif mode == "impl_equil":
                 return (
                     pl_impl_equil.call(
-                        pl_impl_equil.get_init(inp),
-                        inp,
+                        yraw=inp,
                         n_iter=n_iter,
                         sigma=sigma_equil,
                         omega=omega,
                         n_iter_bwd=n_iter_bwd,
                         fpi=fpi,
-                    )[0]
+                    )[0].x[..., 0]
                     @ v
                 ).mean()
 
         grad_unroll = jax.grad(loss, argnums=0)(
-            x, vec, "unroll", n_iter_bwd=-1, fpi=True
+            x, vec, mode="unroll", n_iter_bwd=-1, fpi=True
         )
         grad_unroll_equil = jax.grad(loss, argnums=0)(
-            x, vec, "unroll_equil", n_iter_bwd=-1, fpi=True
+            x, vec, mode="unroll_equil", n_iter_bwd=-1, fpi=True
         )
         grad_impl_equil = jax.grad(loss, argnums=0)(
-            x, vec, "impl_equil", n_iter_bwd=100, fpi=False
+            x, vec, mode="impl_equil", n_iter_bwd=100, fpi=False
         )
 
         assert jnp.allclose(grad_unroll, grad_unroll_equil, atol=1e-4, rtol=1e-4)

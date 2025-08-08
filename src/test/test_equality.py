@@ -92,7 +92,7 @@ def test_equality_eye(method, seed, n_batch_A, n_batch_b, n_batch_x):
     eq_constraint = EqualityConstraint(A, b, method=method)
     # Prepare input
     inp = ProjectionInstance(x=x)
-    z = eq_constraint.project(inp)
+    z = eq_constraint.project(inp).x
     assert jnp.allclose(z, y)
 
 
@@ -120,7 +120,7 @@ def test_equality_diagonal(method, seed, n_batch_A, n_batch_b, n_batch_x):
     eq_constraint = EqualityConstraint(A, b, method=method)
     # Prepare input
     inp = ProjectionInstance(x=x)
-    z = eq_constraint.project(inp)
+    z = eq_constraint.project(inp).x
     assert jnp.allclose(z, y)
 
 
@@ -148,7 +148,7 @@ def test_equality_generic_invertible(method, seed, n_batch_A, n_batch_b, n_batch
     eq_constraint = EqualityConstraint(A, b, method=method)
     # Prepare input
     inp = ProjectionInstance(x=x)
-    z = eq_constraint.project(inp)
+    z = eq_constraint.project(inp).x
     assert jnp.allclose(z, y)
 
 
@@ -189,7 +189,7 @@ def test_equality_QP(method, seed, n_batch_A, n_batch_b, n_batch_x):
     # Instantiate object and project
     eq_constraint = EqualityConstraint(A, b, method=method)
     inp = ProjectionInstance(x=x)
-    z = eq_constraint.project(inp)
+    z = eq_constraint.project(inp).x
     # Compute true projection by solving equality constrained QP
     for ii in range(n_batch_x):
         ycp = cp.Variable(DIM)

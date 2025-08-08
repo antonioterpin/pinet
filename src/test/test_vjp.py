@@ -132,18 +132,15 @@ def test_triangle():
     )
 
     def fun_layer(x, v, fpi):
-        inp = ProjectionInstance(x=x)
         return (
             projection_layer.call(
-                projection_layer.get_init(inp),
-                inp,
-                0.0,
+                yraw=ProjectionInstance(x=x[..., None]),
                 sigma=sigma,
                 omega=omega,
                 n_iter=100,
                 n_iter_bwd=100,
                 fpi=fpi,
-            )[0]
+            )[0].x[..., 0]
             @ v
         ).mean()
 
@@ -152,8 +149,8 @@ def test_triangle():
     e_2 = jnp.eye(2)[1].reshape(2, 1)
 
     def J_x(x, fpi):
-        grad_e1 = (jax.grad(fun_layer, argnums=0)(x, e_1, fpi)).reshape(1, 1, 2)
-        grad_e2 = (jax.grad(fun_layer, argnums=0)(x, e_2, fpi)).reshape(1, 1, 2)
+        grad_e1 = (jax.grad(fun_layer, argnums=0)(x, v=e_1, fpi=fpi)).reshape(1, 1, 2)
+        grad_e2 = (jax.grad(fun_layer, argnums=0)(x, v=e_2, fpi=fpi)).reshape(1, 1, 2)
         return jnp.concatenate((grad_e1, grad_e2), axis=1)
 
     # Check the Jacobian of the projection
@@ -237,8 +234,10 @@ def test_box():
     projection_layer = Project(box_constraint=box_constraint)
 
     def fun_layer(x, v):
-        inp = ProjectionInstance(x=x)
-        return (projection_layer.call(inp, 0.0) @ v).mean()
+        return (
+            projection_layer.call(yraw=ProjectionInstance(x=x[..., None]))[0].x[..., 0]
+            @ v
+        ).mean()
 
     e_1 = jnp.eye(2)[0]
     e_2 = jnp.eye(2)[1]
@@ -333,15 +332,13 @@ def test_general_eq_ineq(seed, batch_size):
     # Check that the projection are computed correctly
     n_iter = 200
     y_unroll = projection_layer_unroll.call(
-        projection_layer_unroll.get_init(ProjectionInstance(x=x)),
-        ProjectionInstance(x=x),
+        yraw=ProjectionInstance(x=x[..., None]),
         n_iter=n_iter,
-    )[0]
+    )[0].x[..., 0]
     y_impl = projection_layer_impl.call(
-        projection_layer_impl.get_init(ProjectionInstance(x=x)),
-        ProjectionInstance(x=x),
+        yraw=ProjectionInstance(x=x[..., None]),
         n_iter=n_iter,
-    )[0]
+    )[0].x[..., 0]
     assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
     assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
 
@@ -350,23 +347,19 @@ def test_general_eq_ineq(seed, batch_size):
     vec = jnp.array(jax.random.normal(key[3], shape=(dim, batch_size)))
 
     def loss(x, v, unroll, n_iter_bwd, fpi):
-        inp = ProjectionInstance(x=x)
+        inp = ProjectionInstance(x=x[..., None])
         if unroll:
             return (
-                projection_layer_unroll.call(
-                    projection_layer_unroll.get_init(inp), inp, n_iter=n_iter
-                )[0]
-                @ v
+                projection_layer_unroll.call(yraw=inp, n_iter=n_iter)[0].x[..., 0] @ v
             ).mean()
         else:
             return (
                 projection_layer_impl.call(
-                    projection_layer_impl.get_init(inp),
-                    inp,
+                    yraw=inp,
                     n_iter=n_iter,
                     n_iter_bwd=n_iter_bwd,
                     fpi=fpi,
-                )[0]
+                )[0].x[..., 0]
                 @ v
             ).mean()
 
@@ -419,35 +412,34 @@ def test_general_eq_ineq(seed, batch_size):
     # Use jax utils for checking
     def unroll_f(y):
         return projection_layer_unroll.call(
-            projection_layer_unroll.get_init(ProjectionInstance(x=x)),
-            ProjectionInstance(x=y),
+            yraw=ProjectionInstance(x=y),
             n_iter=200,
-        )[0]
+        )[
+            0
+        ].x[..., 0]
 
     def fpi_f(y):
         return projection_layer_impl.call(
-            projection_layer_impl.get_init(ProjectionInstance(x=x)),
-            ProjectionInstance(x=y),
+            yraw=ProjectionInstance(x=y),
             n_iter=200,
             n_iter_bwd=200,
             fpi=True,
-        )[0]
+        )[0].x[..., 0]
 
     def linsys_f(y):
         return projection_layer_impl.call(
-            projection_layer_impl.get_init(ProjectionInstance(x=x)),
-            ProjectionInstance(x=y),
+            yraw=ProjectionInstance(x=y),
             n_iter=200,
             n_iter_bwd=50,
             fpi=False,
-        )[0]
+        )[0].x[..., 0]
 
     for name, f in [("unroll_f", unroll_f), ("fpi_f", fpi_f), ("linsys_f", linsys_f)]:
         try:
             jax.test_util.check_vjp(
                 f,
                 partial(jax.vjp, f),
-                (x,),
+                (x[..., None],),
                 eps=1e-5,
                 atol=1e-3,
                 rtol=1e-3,

@@ -96,11 +96,11 @@ def test_simple_2d(method, seed, batch_size):
     # Compute the projection with iterative
     n_iter = 200
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
-    xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
+    sk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
-        xk = iteration_step(xk, x, sigma=0.1, omega=1.0)
+        sk = iteration_step(sk=sk, yraw=ProjectionInstance(x=x), sigma=0.1, omega=1.0)
 
-    yiterated = final_step(xk)[:, :dim, :]
+    yiterated = final_step(sk).x[:, :dim, :]
 
     assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
 
@@ -196,9 +196,9 @@ def test_general_eq_ineq(method, seed, batch_size):
     iteration_step = jax.jit(iteration_step)
     xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
-        xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
+        xk = iteration_step(xk, ProjectionInstance(x=x), sigma=1.0, omega=1.0)
 
-    yiterated = final_step(xk)[:, :dim, :]
+    yiterated = final_step(xk).x[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
@@ -395,9 +395,9 @@ def test_general_eq_ineq_box(
     iteration_step = jax.jit(iteration_step)
     xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq, 1)))
     for ii in range(n_iter):
-        xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
+        xk = iteration_step(xk, ProjectionInstance(x=x), sigma=1.0, omega=1.0)
 
-    yiterated = final_step(xk)[:, :dim, :]
+    yiterated = final_step(xk).x[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
     # Compute with iterative using lifting of:
@@ -439,9 +439,9 @@ def test_general_eq_ineq_box(
     iteration_step = jax.jit(iteration_step)
     xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size_x, dim + n_ineq_aug, 1)))
     for ii in range(n_iter):
-        xk = iteration_step(xk, x, sigma=1.0, omega=1.0)
+        xk = iteration_step(xk, ProjectionInstance(x=x), sigma=1.0, omega=1.0)
 
-    yiterated = final_step(xk)[:, :dim, :]
+    yiterated = final_step(xk).x[:, :dim, :]
 
     assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
 
@@ -477,9 +477,9 @@ def test_simple_no_equality(seed, batch_size):
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
     xk = ProjectionInstance(x=jnp.zeros(shape=(batch_size, dim + n_ineq, 1)))
     for ii in range(n_iter):
-        xk = iteration_step(xk, x, sigma=0.1, omega=1.0)
+        xk = iteration_step(xk, ProjectionInstance(x=x), sigma=0.1, omega=1.0)
 
-    yiterated = final_step(xk)[:, :dim, :]
+    yiterated = final_step(xk).x[:, :dim, :]
 
     # Compute the projection with QP
     for ii in range(batch_size):

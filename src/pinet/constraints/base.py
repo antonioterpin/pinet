@@ -11,16 +11,23 @@ class Constraint:
     """Abstract class for constraint sets."""
 
     @abstractmethod
-    def project(self, x: ProjectionInstance) -> jnp.ndarray:
-        """Project the input to the feasible region."""
+    def project(self, yraw: ProjectionInstance) -> jnp.ndarray:
+        """Project the input to the feasible region.
+
+        Args:
+            yraw (ProjectionInstance): ProjectionInstance to project.
+
+        Returns:
+            jnp.ndarray: The projected input, shape (batch_size, dim).
+        """
         pass
 
     @abstractmethod
-    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp (ProjectionInstance): ProjectionInstance to evaluate.
+            yraw (ProjectionInstance): ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
@@ -31,11 +38,19 @@ class Constraint:
     @property
     @abstractmethod
     def dim(self) -> int:
-        """Return the dimension of the constraint set."""
+        """Return the dimension of the constraint set.
+
+        Returns:
+            int: The dimension of the constraint set.
+        """
         pass
 
     @property
     @abstractmethod
     def n_constraints(self) -> int:
-        """Return the number of constraints."""
+        """Return the number of constraints.
+
+        Returns:
+            int: The number of constraints.
+        """
         pass
