@@ -120,8 +120,9 @@ class Project:
             # Scale the lifted box constraints
             mask = self.lifted_box_constraint.mask
             scale = self.d_c[:, mask, :]
-            self.lifted_box_constraint.upper_bound /= scale
-            self.lifted_box_constraint.lower_bound /= scale
+            self.lifted_box_constraint.scale = 1 / scale
+            self.lifted_box_constraint.ub *= self.lifted_box_constraint.scale
+            self.lifted_box_constraint.lb *= self.lifted_box_constraint.scale
 
             self.step_iteration, self.step_final = build_iteration_step(
                 self.lifted_eq_constraint,

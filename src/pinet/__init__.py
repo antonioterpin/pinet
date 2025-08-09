@@ -7,6 +7,7 @@ from .constraints import (
     EqualityConstraint,
 )
 from .dataclasses import (
+    BoxConstraintSpecification,
     EqualityConstraintsSpecification,
     EquilibrationParams,
     ProjectionInstance,
@@ -26,4 +27,5 @@ __all__ = [
     "ProjectionInstance",
     "EqualityConstraintsSpecification",
     "EquilibrationParams",
+    "BoxConstraintSpecification",
 ]

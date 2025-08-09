@@ -7,14 +7,6 @@ import jax
 import jax.numpy as jnp
 
 
-def _is_array_like(x):
-    """True for numpy / jax arrays **and** tracers produced during tracing."""
-    return isinstance(x, (jnp.ndarray, jax.Array, jax.core.Tracer)) or hasattr(
-        x, "ndim"
-    )
-
-
-# Inputs dataclasses
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class EqualityConstraintsSpecification:
@@ -33,9 +25,97 @@ class EqualityConstraintsSpecification:
     A: Optional[jnp.ndarray] = None
     Apinv: Optional[jnp.ndarray] = None
 
+    def validate(self):
+        """Validate the equality constraints specification.
+
+        NOTE: This checks cannot be done after tracing, but this function
+        can be used to validate the inputs before tracing.
+        """
+        if self.A is not None and self.b is None:
+            raise ValueError("If A is provided, b must also be provided.")
+
     def update(self, **kwargs):
         """Update some attribute by keyword."""
         return replace(self, **kwargs)
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class BoxConstraintSpecification:
+    """Dataclass representing inputs used in forming box constraints.
+
+    Attributes:
+        lb (jnp.ndarray): Lower bound of the box. Shape (batch_size, n_constraints, 1).
+        ub (jnp.ndarray): Upper bound of the box. Shape (batch_size, n_constraints, 1).
+        maskidx (Optional[jnp.ndarray]):
+            Mask to apply the constraint only to some dimensions.
+    """
+
+    lb: Optional[jnp.ndarray] = None
+    ub: Optional[jnp.ndarray] = None
+    mask: Optional[jnp.ndarray] = None
+
+    def update(self, **kwargs):
+        """Update some attribute by keyword."""
+        return replace(self, **kwargs)
+
+    def validate(self):
+        """Validate the box constraint specification.
+
+        NOTE: This checks cannot be done after tracing, but this function
+        can be used to validate the inputs before tracing.
+        """
+        if self.lb is None and self.ub is None:
+            raise ValueError("At least one of lower or upper bounds must be provided.")
+
+        if self.lb is not None and hasattr(self.lb, "ndim") and self.lb.ndim != 3:
+            raise ValueError(
+                "Lower bound must have shape (batch_size, n_constraints, 1). "
+                f"Received shape: {getattr(self.lb, 'shape', None)}."
+            )
+        if self.ub is not None and hasattr(self.ub, "ndim") and self.ub.ndim != 3:
+            raise ValueError(
+                "Upper bound must have shape (batch_size, n_constraints, 1). "
+                f"Received shape: {getattr(self.ub, 'shape', None)}."
+            )
+
+        if self.lb is not None and self.ub is not None:
+            if hasattr(self.lb, "shape") and hasattr(self.ub, "shape"):
+                if self.lb.shape[1:] != self.ub.shape[1:]:
+                    raise ValueError(
+                        "Lower and upper bounds must have the same shape. "
+                        f"Received shapes: {self.lb.shape} and {self.ub.shape}."
+                    )
+                if (
+                    self.lb.shape[0] != self.ub.shape[0]
+                    and self.lb.shape[0] != 1
+                    and self.ub.shape[0] != 1
+                ):
+                    raise ValueError(
+                        "Batch size of lower and upper bounds must be the same "
+                        "or one of them must be 1. "
+                        f"Received shapes: {self.lb.shape} and {self.ub.shape}."
+                    )
+
+            if not jnp.all(self.lb <= self.ub):
+                raise ValueError(
+                    "Lower bound must be less than or equal to the upper bound."
+                )
+
+        if self.mask is not None:
+            if getattr(self.mask, "dtype", None) != jnp.bool_:
+                raise TypeError("Mask must be a boolean array.")
+            if getattr(self.mask, "ndim", None) != 1:
+                raise ValueError("Mask must be a 1D array.")
+
+            dim = getattr(self.lb, "shape", None) or getattr(self.ub, "shape", None)
+            if dim is not None:
+                if dim[1] != int(jnp.sum(self.mask)):
+                    raise ValueError(
+                        "Number of active entries in the mask must match the bounds. "
+                        f"Received mask shape: {getattr(self.mask, 'shape', None)}, "
+                        f"bound shape: {dim}."
+                    )
 
 
 @jax.tree_util.register_dataclass
@@ -48,24 +128,25 @@ class ProjectionInstance:
             Shape (batch_size, dimension, 1)
         eq (Optional[EqualityConstraintsSpecification]):
             Specification of the equality constraints, if any.
-        ineq (Optional[AffineInequalityConstraintSpecification]):
-            Specification of the affine inequality constraints, if any.
         box (Optional[BoxConstraintSpecification]):
             Specification of the box constraints, if any.
     """
 
     x: jnp.ndarray
     eq: Optional[EqualityConstraintsSpecification] = None
+    box: Optional[BoxConstraintSpecification] = None
 
-    def __post_init__(self):
-        """Post-initialization checks."""
-        if _is_array_like(self.x) and self.x.ndim != 3:
+    def validate(self):
+        """Validate the projection instance.
+
+        NOTE: This checks cannot be done after tracing, but this function
+        can be used to validate the inputs before tracing.
+        """
+        if self.x.ndim != 3:
             raise ValueError(
                 "x must have shape (batch_size, dimension, 1). "
                 f"Received shape: {self.x.shape}."
             )
-        if self.eq and self.eq.A is not None and self.eq.b is None:
-            raise ValueError("If A is provided, b must also be provided.")
 
     def update(self, **kwargs):
         """Update some attribute by keyword."""

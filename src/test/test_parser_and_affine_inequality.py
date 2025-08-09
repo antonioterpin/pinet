@@ -10,6 +10,7 @@ import pytest
 from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
+    BoxConstraintSpecification,
     ConstraintParser,
     EqualityConstraint,
     ProjectionInstance,
@@ -81,8 +82,8 @@ def test_simple_2d(method, seed, batch_size):
         yliftedcp = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedcp[lifted_box.mask],
-            yliftedcp[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_box.lb[0, :, 0] <= yliftedcp[lifted_box.mask],
+            yliftedcp[lifted_box.mask] <= lifted_box.ub[0, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedcp[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -176,8 +177,8 @@ def test_general_eq_ineq(method, seed, batch_size):
         yliftedproj = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[0, :, :] @ yliftedproj == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedproj[lifted_box.mask],
-            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_box.lb[0, :, 0] <= yliftedproj[lifted_box.mask],
+            yliftedproj[lifted_box.mask] <= lifted_box.ub[0, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedproj[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -324,7 +325,7 @@ def test_general_eq_ineq_box(
     eq_constraint = EqualityConstraint(A=A, b=b, method=method)
     ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
     box_constraint = BoxConstraint(
-        lower_bound=box_lower, upper_bound=box_upper, mask=mask
+        BoxConstraintSpecification(lb=box_lower, ub=box_upper, mask=mask)
     )
 
     # Parse constraints
@@ -374,8 +375,8 @@ def test_general_eq_ineq_box(
         yliftedproj = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[ACidx, :, :] @ yliftedproj == lifted_eq.b[bfeasidx, :, 0],
-            lifted_box.lower_bound[loweridx, :, 0] <= yliftedproj[lifted_box.mask],
-            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[upperidx, :, 0],
+            lifted_box.lb[loweridx, :, 0] <= yliftedproj[lifted_box.mask],
+            yliftedproj[lifted_box.mask] <= lifted_box.ub[upperidx, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedproj[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -499,8 +500,8 @@ def test_simple_no_equality(seed, batch_size):
         yliftedcp = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedcp[lifted_box.mask],
-            yliftedcp[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_box.lb[0, :, 0] <= yliftedcp[lifted_box.mask],
+            yliftedcp[lifted_box.mask] <= lifted_box.ub[0, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedcp[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(

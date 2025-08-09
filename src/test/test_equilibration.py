@@ -10,6 +10,7 @@ from jax import numpy as jnp
 from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
+    BoxConstraintSpecification,
     EqualityConstraint,
     EqualityConstraintsSpecification,
     EquilibrationParams,
@@ -80,7 +81,9 @@ def test_general_eq_ineq(seed, batch_size):
     for var_b in [False, True]:
         eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=var_b)
         ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
-        box_constraint = BoxConstraint(lower_bound=lbox, upper_bound=ubox, mask=mask)
+        box_constraint = BoxConstraint(
+            BoxConstraintSpecification(lb=lbox, ub=ubox, mask=mask)
+        )
 
         # Hyperparameters
         sigma = 0.1
