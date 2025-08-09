@@ -16,6 +16,7 @@ from pinet import (
     EquilibrationParams,
     Project,
     ProjectionInstance,
+    ruiz_equilibration,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -222,3 +223,108 @@ def test_general_eq_ineq(seed, batch_size):
 
         assert jnp.allclose(grad_unroll, grad_unroll_equil, atol=1e-4, rtol=1e-4)
         assert jnp.allclose(grad_unroll, grad_impl_equil, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
+def test_row_scaling_balances_rows(update_mode):
+    A = jnp.array(
+        [
+            [100.0, 0.0, 0.0],
+            [0.1, 1.0, 0.0],
+            [0.0, 0.0, 20.0],
+            [0.0, 5.0, 0.0],
+        ]
+    )
+    params = EquilibrationParams(
+        max_iter=50,
+        tol=1e-6,
+        ord=2.0,
+        col_scaling=False,
+        update_mode=update_mode,
+        safeguard=False,
+    )
+
+    def _row_ratio(A, ord_val=2.0):
+        rn = jnp.linalg.norm(A, axis=1, ord=ord_val)
+        return (rn.max() / rn.min()).item()
+
+    ratio_before = _row_ratio(A, 2.0)
+    scaled, d_r, d_c = ruiz_equilibration(A, params)
+    ratio_after = _row_ratio(scaled, 2.0)
+
+    assert ratio_after < ratio_before
+    assert ratio_after < 1.16
+    # scaled = diag(d_r) A diag(d_c)
+    recon = (A * d_r[:, None]) * d_c[None, :]
+    assert jnp.allclose(scaled, recon, atol=1e-12)
+
+
+@pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
+@pytest.mark.parametrize("col_scaling", [False, True])
+def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
+    A = jnp.array([[1.0, 2.0, -1.0], [0.0, -4.0, 5.0]])
+    # Force exactly one step in two different ways
+    p_one = EquilibrationParams(
+        max_iter=1,
+        tol=0.0,
+        ord=2.0,
+        col_scaling=col_scaling,
+        update_mode=update_mode,
+        safeguard=False,
+    )
+    p_tol = EquilibrationParams(
+        max_iter=50,
+        tol=1e9,
+        ord=2.0,
+        col_scaling=col_scaling,
+        update_mode=update_mode,
+        safeguard=False,
+    )
+    s1, dr1, dc1 = ruiz_equilibration(A, p_one)
+    s2, dr2, dc2 = ruiz_equilibration(A, p_tol)
+
+    assert jnp.allclose(s1, s2, atol=1e-12, rtol=0.0)
+    assert jnp.allclose(dr1, dr2, atol=1e-12, rtol=0.0)
+    assert jnp.allclose(dc1, dc2, atol=1e-12, rtol=0.0)
+
+
+def test_safeguard_when_condition_worsens_triggers_identity_scalings():
+    # This matrix yields a worse condition number after one step
+    A = jnp.array(
+        [
+            [-1.47236611, -0.33950648, -0.81108737],
+            [0.93786103, 0.49052747, 1.40301434],
+        ]
+    )
+    p1 = EquilibrationParams(
+        max_iter=1,
+        tol=0.0,
+        ord=2.0,
+        col_scaling=False,
+        update_mode="Gauss",
+        safeguard=False,
+    )
+    p2 = EquilibrationParams(
+        max_iter=1,
+        tol=0.0,
+        ord=2.0,
+        col_scaling=False,
+        update_mode="Gauss",
+        safeguard=True,
+    )
+
+    cond_before = jnp.linalg.cond(A).item()
+    s_no, dr_no, dc_no = ruiz_equilibration(A, p1)
+    cond_after_no = jnp.linalg.cond(s_no).item()
+
+    # Sanity: this is the branch where safeguard should matter
+    assert cond_after_no > cond_before
+
+    s_yes, dr_yes, dc_yes = ruiz_equilibration(A, p2)
+    cond_after_yes = jnp.linalg.cond(s_yes).item()
+
+    # Guard must not return something worse than original
+    assert cond_after_yes <= cond_before + 1e-12
+    # Guarded scalings should be identity
+    assert jnp.allclose(dr_yes, jnp.ones(A.shape[0]))
+    assert jnp.allclose(dc_yes, jnp.ones(A.shape[1]))
