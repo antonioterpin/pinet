@@ -12,6 +12,7 @@ from jax import numpy as jnp
 from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
+    BoxConstraintSpecification,
     EqualityConstraint,
     Project,
     ProjectionInstance,
@@ -116,8 +117,10 @@ def test_triangle():
     omega = 1.0
     # % Solve this with our projection layer
     box_constraint = BoxConstraint(
-        lower_bound=jnp.array([-jnp.inf, 0]).reshape(1, 2, 1),
-        upper_bound=jnp.array([1, jnp.inf]).reshape(1, 2, 1),
+        BoxConstraintSpecification(
+            lb=jnp.array([-jnp.inf, 0]).reshape(1, 2, 1),
+            ub=jnp.array([1, jnp.inf]).reshape(1, 2, 1),
+        )
     )
     affine_constraint = AffineInequalityConstraint(
         C=jnp.array([-1, 1]).reshape(1, 1, 2),
@@ -230,7 +233,7 @@ def test_box():
 
     lb = jnp.array([-jnp.inf, 0.0]).reshape((1, 2, 1))
     ub = jnp.array([0.0, jnp.inf]).reshape((1, 2, 1))
-    box_constraint = BoxConstraint(lower_bound=lb, upper_bound=ub)
+    box_constraint = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
     projection_layer = Project(box_constraint=box_constraint)
 
     def fun_layer(x, v):

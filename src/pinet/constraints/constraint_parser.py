@@ -3,6 +3,8 @@
 import jax.numpy as jnp
 import numpy as np
 
+from pinet.dataclasses import BoxConstraintSpecification
+
 from .affine_equality import EqualityConstraint
 from .affine_inequality import AffineInequalityConstraint
 from .box import BoxConstraint
@@ -57,17 +59,15 @@ class ConstraintParser:
         ), "Batch sizes of A and C must be consistent."
         if self.box_constraint is not None:
             assert (
-                self.ineq_constraint.lb.shape[0]
-                == self.box_constraint.lower_bound.shape[0]
+                self.ineq_constraint.lb.shape[0] == self.box_constraint.lb.shape[0]
                 or self.ineq_constraint.lb.shape[0] == 1
-                or self.box_constraint.lower_bound.shape[0] == 1
+                or self.box_constraint.lb.shape[0] == 1
             ), "Batch sizes of lb and lower_bound must be consistent."
 
             assert (
-                self.ineq_constraint.ub.shape[0]
-                == self.box_constraint.upper_bound.shape[0]
+                self.ineq_constraint.ub.shape[0] == self.box_constraint.ub.shape[0]
                 or self.ineq_constraint.ub.shape[0] == 1
-                or self.box_constraint.upper_bound.shape[0] == 1
+                or self.box_constraint.ub.shape[0] == 1
             ), "Batch sizes of ub and upper_bound must be consistent."
 
     def parse(self, method: str = "pinv") -> tuple[EqualityConstraint, BoxConstraint]:
@@ -130,9 +130,11 @@ class ConstraintParser:
                 [np.zeros(self.dim, dtype=bool), np.ones(self.n_ineq, dtype=bool)]
             )
             box_lifted = BoxConstraint(
-                lower_bound=self.ineq_constraint.lb,
-                upper_bound=self.ineq_constraint.ub,
-                mask=box_mask,
+                BoxConstraintSpecification(
+                    lb=self.ineq_constraint.lb,
+                    ub=self.ineq_constraint.ub,
+                    mask=box_mask,
+                )
             )
         else:
             # We project both the lifted and the initial box
@@ -144,14 +146,14 @@ class ConstraintParser:
             )
             # Maximum batch dimension for lower bound
             mblb = max(
-                self.box_constraint.lower_bound.shape[0],
+                self.box_constraint.lb.shape[0],
                 self.ineq_constraint.lb.shape[0],
             )
             lifted_lb = jnp.concatenate(
                 [
                     jnp.tile(
-                        self.box_constraint.lower_bound,
-                        (mblb // self.box_constraint.lower_bound.shape[0], 1, 1),
+                        self.box_constraint.lb,
+                        (mblb // self.box_constraint.lb.shape[0], 1, 1),
                     ),
                     jnp.tile(
                         self.ineq_constraint.lb,
@@ -162,14 +164,14 @@ class ConstraintParser:
             )
             # Maximum batch dimension for upper bound
             mbub = max(
-                self.box_constraint.upper_bound.shape[0],
+                self.box_constraint.ub.shape[0],
                 self.ineq_constraint.ub.shape[0],
             )
             lifted_ub = jnp.concatenate(
                 [
                     jnp.tile(
-                        self.box_constraint.upper_bound,
-                        (mbub // self.box_constraint.upper_bound.shape[0], 1, 1),
+                        self.box_constraint.ub,
+                        (mbub // self.box_constraint.ub.shape[0], 1, 1),
                     ),
                     jnp.tile(
                         self.ineq_constraint.ub,
@@ -179,8 +181,10 @@ class ConstraintParser:
                 axis=1,
             )
             box_lifted = BoxConstraint(
-                lower_bound=lifted_lb,
-                upper_bound=lifted_ub,
-                mask=box_mask,
+                BoxConstraintSpecification(
+                    lb=lifted_lb,
+                    ub=lifted_ub,
+                    mask=box_mask,
+                )
             )
         return (eq_lifted, box_lifted)

@@ -3,7 +3,7 @@
 import jax
 from flax import linen as nn
 
-from pinet import BoxConstraint, EqualityConstraint
+from pinet import BoxConstraint, BoxConstraintSpecification, EqualityConstraint
 from src.benchmarks.model import HardConstrainedMLP, setup_pinet
 
 
@@ -24,7 +24,7 @@ def setup_model(
 
     # Setup Pinet projection layer
     eq_constraint = EqualityConstraint(A=A, b=b, method=None, var_b=True)
-    box_constraint = BoxConstraint(lower_bound=lb, upper_bound=ub)
+    box_constraint = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
     project, project_test, _ = setup_pinet(
         eq_constraint=eq_constraint,
         box_constraint=box_constraint,
