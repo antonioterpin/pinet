@@ -251,8 +251,6 @@ class Project:
                     sigma=sigma,
                     omega=omega,
                     n_iter=check_every,
-                    n_iter_bwd=0,  # only used when backproping
-                    fpi=False,  # only used when backproping
                 )
                 y0 = y
                 iter_exec += check_every
