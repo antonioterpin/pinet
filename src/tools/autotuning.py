@@ -19,7 +19,13 @@ from benchmarks.simple_QP.load_simple_QP import (
     create_dataloaders,
     dc3_dataloader,
 )
-from pinet import AffineInequalityConstraint, EqualityConstraint, Project
+from pinet import (
+    AffineInequalityConstraint,
+    EqualityConstraint,
+    EqualityConstraintsSpecification,
+    Project,
+    ProjectionInstance,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -27,6 +33,7 @@ jax.config.update("jax_enable_x64", True)
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
+# NOTE: Change this to the absolute path of your datasets directory.
 dataset_dir = "absolute/path/to/datasets"
 
 
@@ -115,7 +122,7 @@ def build_evaluate_params(x, b, n_iter, project, compute_cv):
     def evaluate_params(init, sigma):
         y, init = project(init=init, x=x, b=b, sigma=sigma, n_iter=n_iter)
         cvs = compute_cv(y)
-        values = jnp.linalg.norm(y - x)
+        values = jnp.linalg.norm(y.x - x.x)
         return init, jnp.max(cvs), jnp.mean(values)
 
     return evaluate_params
@@ -145,10 +152,10 @@ omega = 1.7
 
 def project(init, x, b, sigma, n_iter):
     """Projection layer wrapper."""
+    yraw = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
     return projection_layer.call(
         s0=init,
-        yraw=x,
-        b=b,
+        yraw=yraw,
         sigma=sigma,
         omega=omega,
         n_iter=n_iter,
