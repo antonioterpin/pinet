@@ -96,7 +96,7 @@ def ruiz_equilibration(
         cond_A = jnp.linalg.cond(A)
         cond_scaled_A = jnp.linalg.cond(scaled_A_best)
         if cond_scaled_A > cond_A:
-            scaled_A_best = scaled_A
+            scaled_A_best = A
             d_r_best = jnp.ones(A.shape[0])
             d_c_best = jnp.ones(A.shape[1])
 
