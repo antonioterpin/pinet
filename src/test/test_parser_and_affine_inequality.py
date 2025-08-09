@@ -528,3 +528,48 @@ def test_affine_inequality_project_cannot_be_called_directly():
         match="The 'project' method is not implemented and should not be called.",
     ):
         ineq_constraint.project(ProjectionInstance(x=jnp.zeros((1, 2, 1))))
+
+
+def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
+    dim, n_eq = 3, 2
+    A = jnp.arange(n_eq * dim, dtype=jnp.float64).reshape(1, n_eq, dim)
+    b = jnp.zeros((1, n_eq, 1))
+    eq = EqualityConstraint(A=A, b=b, method="pinv")
+
+    parser = ConstraintParser(
+        eq_constraint=eq, ineq_constraint=None, box_constraint=None
+    )
+    eq_out, box_out = parser.parse(method="pinv")
+
+    # Still the same exact object (no lifting performed)
+    assert eq_out is eq
+    assert box_out is None
+    assert eq_out.A is A
+    assert eq_out.b is b
+
+
+def test_constraint_parser_no_ineq_with_box_returns_inputs():
+    dim, n_eq = 4, 1
+    A = jnp.ones((1, n_eq, dim))
+    b = jnp.zeros((1, n_eq, 1))
+    eq = EqualityConstraint(A=A, b=b, method="pinv")
+
+    mask = jnp.array([True, False, True, False])
+    n_box = int(mask.sum())
+    lb = jnp.array([[[-1.0], [0.0]]]).reshape(1, n_box, 1)
+    ub = jnp.array([[[1.0], [2.0]]]).reshape(1, n_box, 1)
+    box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub, mask=mask))
+
+    parser = ConstraintParser(
+        eq_constraint=eq, ineq_constraint=None, box_constraint=box
+    )
+    eq_out, box_out = parser.parse(method="pinv")
+
+    # Still the same exact objects (no lifting performed)
+    assert eq_out is eq
+    assert box_out is box
+
+    # Sanity: mask/bounds unchanged
+    assert jnp.array_equal(box_out.mask, mask)
+    assert jnp.array_equal(box_out.lb, lb)
+    assert jnp.array_equal(box_out.ub, ub)

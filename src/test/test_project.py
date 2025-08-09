@@ -241,3 +241,26 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     xprojiter = projection_layer.call(yraw=inp, n_iter=500)[0].x
 
     assert jnp.allclose(xprojiter.reshape(yqp.shape), yqp, atol=1e-3, rtol=1e-3)
+
+
+@pytest.mark.parametrize("bad_reduction", ["median", 1.5, 0.0, -0.2, 2])
+def test_call_and_check_invalid_reduction_raises(bad_reduction):
+    # Minimal feasible setup: A x = b with b constructed from a random x0
+    dim, n_eq, batch = 5, 2, 1
+    key = jax.random.PRNGKey(0)
+    kA, kx0, kx = jax.random.split(key, 3)
+
+    A = jax.random.normal(kA, (batch, n_eq, dim))
+    x0 = jax.random.normal(kx0, (batch, dim, 1))
+    b = A @ x0
+
+    eq = EqualityConstraint(A=A, b=b, method="pinv", var_b=False)
+    layer = Project(eq_constraint=eq)
+
+    xinfeas = jax.random.normal(kx, (batch, dim, 1))
+    project_and_check = layer.call_and_check(
+        reduction=bad_reduction, check_every=1, max_iter=1
+    )
+
+    with pytest.raises(ValueError, match="Invalid reduction method"):
+        project_and_check(ProjectionInstance(x=xinfeas))
