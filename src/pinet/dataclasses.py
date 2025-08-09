@@ -177,12 +177,17 @@ class EquilibrationParams:
     update_mode: str = "Gauss"
     safeguard: bool = False
 
+    def validate(self):
+        """Validate the equilibration parameters."""
+        if self.max_iter < 0:
+            raise ValueError("max_iter must be non-negative.")
+        if self.tol <= 0:
+            raise ValueError("tol must be positive.")
+        if self.ord not in [1, 2, float("inf")]:
+            raise ValueError("ord must be 1, 2, or infinity.")
+        if self.update_mode not in ["Gauss", "Jacobi"]:
+            raise ValueError('update_mode must be either "Gauss" or "Jacobi".')
+
     def update(self, **kwargs):
         """Update some attribute by keyword."""
-        if "update_mode" in kwargs:
-            assert kwargs["update_mode"] in [
-                "Gauss",
-                "Jacobi",
-            ], 'update_mode must be either "Gauss" or "Jacobi"'
-
         return replace(self, **kwargs)
