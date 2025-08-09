@@ -61,8 +61,7 @@ class BoxConstraint(Constraint):
             lb = -jnp.inf * jnp.ones_like(ub)
         if ub is None:
             ub = jnp.inf * jnp.ones_like(lb)
-        if mask is None:
-            mask = jnp.ones_like(lb, dtype=jnp.bool_)
+        # NOTE: Mask is never None
 
         return lb, ub, mask
 
