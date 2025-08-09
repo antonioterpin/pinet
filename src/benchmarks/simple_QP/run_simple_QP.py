@@ -605,7 +605,7 @@ if __name__ == "__main__":
     use_jax_loader = args.jax_loader
     # Configs path
     config_path = (
-        pathlib.Path(__file__).parent.parent.parent.resolve()
+        pathlib.Path(__file__).parent.parent.resolve()
         / "configs"
         / (args.config + ".yaml")
     )

@@ -447,7 +447,7 @@ if __name__ == "__main__":
     args = parse_args()
     filepath = pathlib.Path(__file__).parent.resolve() / "datasets" / args.filename
     config_path = (
-        pathlib.Path(__file__).parent.parent.parent.resolve()
+        pathlib.Path(__file__).parent.parent.resolve()
         / "configs"
         / (args.config + ".yaml")
     )

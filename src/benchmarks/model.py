@@ -51,6 +51,7 @@ def setup_pinet(
         equilibration_params=EquilibrationParams(**hyperparameters["equilibrate"]),
     )
 
+    setup_time = 0.0
     if setup_reps > 0:
         # Measure setup time
         start_setup_time = time.time()
@@ -79,24 +80,28 @@ def setup_pinet(
     )
 
     def project(x, b):
-        inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
+        inp = ProjectionInstance(
+            x=x[..., None], eq=EqualityConstraintsSpecification(b=b)
+        )
         return projection_layer.call(
             yraw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_train"],
             **kw,
-        )[0].x
+        )[0].x[..., 0]
 
     def project_test(x, b):
-        inp = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
+        inp = ProjectionInstance(
+            x=x[..., None], eq=EqualityConstraintsSpecification(b=b)
+        )
         return projection_layer.call(
             yraw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_test"],
             **kw,
-        )[0].x
+        )[0].x[..., 0]
 
     return project, project_test, setup_time
 
