@@ -203,3 +203,24 @@ def test_equality_QP(method, seed, n_batch_A, n_batch_b, n_batch_x):
         y = jnp.expand_dims(jnp.array(ycp.value), axis=1)
 
         assert jnp.allclose(z[ii, :], y)
+
+
+def test_equality_method_none_raises_not_implemented():
+    # Minimal valid shapes
+    A = jnp.expand_dims(jnp.eye(1), axis=0)  # (1, 1, 1)
+    b = jnp.zeros((1, 1, 1))
+    eq_constraint = EqualityConstraint(A, b, method=None)
+
+    # Calling project should raise NotImplementedError
+    inp = ProjectionInstance(x=jnp.zeros((1, 1, 1)))
+    with pytest.raises(NotImplementedError, match="No projection method set."):
+        eq_constraint.project(inp)
+
+
+def test_equality_invalid_method_raises_exception():
+    A = jnp.expand_dims(jnp.eye(1), axis=0)  # (1, 1, 1)
+    b = jnp.zeros((1, 1, 1))
+    with pytest.raises(
+        Exception, match=r"Invalid method foo\. Valid methods are: \['pinv', None\]"
+    ):
+        EqualityConstraint(A, b, method="foo")
