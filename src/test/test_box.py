@@ -8,6 +8,8 @@ import pytest
 
 from pinet import BoxConstraint, BoxConstraintSpecification, ProjectionInstance
 
+DIM = 100
+
 
 @pytest.mark.parametrize(
     "lb, ub, x, y",
@@ -54,13 +56,9 @@ def test_mask():
     assert y[0, 1, 0] == 2, "The second element should not be clipped."
 
 
-DIM = 100
-N_BATCH = [1, 10]
-SEED = [24, 42]
-
-
 @pytest.mark.parametrize(
-    "n_batch_l, n_batch_u, n_batch_x, seed", product(N_BATCH, N_BATCH, N_BATCH, SEED)
+    "n_batch_l, n_batch_u, n_batch_x, seed",
+    product([1, 10], [1, 10], [1, 10], [24, 42]),
 )
 def test_box_parametrized(n_batch_l, n_batch_u, n_batch_x, seed):
     if n_batch_l > n_batch_x or n_batch_u > n_batch_x:
@@ -86,7 +84,7 @@ def test_box_parametrized(n_batch_l, n_batch_u, n_batch_x, seed):
     )
     z = box_constraint.project(ProjectionInstance(x=x)).x
 
-    # Compute projectino with for loop
+    # Compute projection with for loop
     y = x.copy()
     for ii in range(n_batch_x):
         y = y.at[ii, mask, :].set(

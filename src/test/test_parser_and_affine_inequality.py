@@ -514,3 +514,17 @@ def test_simple_no_equality(seed, batch_size):
         # Check the projections match
         assert jnp.allclose(ylifted, y_qp[0, :, :])
         assert jnp.allclose(y_qp[0, :, :], yiterated[ii, :, :], rtol=1e-6, atol=1e-6)
+
+
+def test_affine_inequality_project_cannot_be_called_directly():
+    """Test that the project method cannot be called directly."""
+    C = jnp.array([[[1, 1]]])
+    lb = jnp.zeros(shape=(1, 1, 1))
+    ub = jnp.ones(shape=(1, 1, 1))
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    with pytest.raises(
+        NotImplementedError,
+        match="The 'project' method is not implemented and should not be called.",
+    ):
+        ineq_constraint.project(ProjectionInstance(x=jnp.zeros((1, 2, 1))))
