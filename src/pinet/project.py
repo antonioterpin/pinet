@@ -51,24 +51,22 @@ class Project:
 
     def setup(self) -> None:
         """Setup the projection layer."""
-        self.constraints = [
+        constraints = [
             c
             for c in (self.eq_constraint, self.box_constraint, self.ineq_constraint)
             if c
         ]
-        n_constraints = len(self.constraints)
-        assert n_constraints > 0, "At least one constraint must be provided."
-        self.n_constraints = n_constraints
-        self.dim = self.constraints[0].dim
+        assert len(constraints) > 0, "At least one constraint must be provided."
+        self.dim = constraints[0].dim
 
         is_single_simple_constraint = (
-            self.ineq_constraint is None and self.n_constraints == 1
+            self.ineq_constraint is None and len(constraints) == 1
         )
 
         self.dim_lifted = self.dim
         self.step_iteration = lambda s_prev, yraw, sigma, omega: s_prev
         self.step_final = self._project_single
-        self.single_constraint = self.constraints[0]
+        self.single_constraint = constraints[0]
         self.d_r = jnp.ones((1, self.single_constraint.n_constraints, 1))
         self.d_c = jnp.ones((1, self.single_constraint.dim, 1))
         if not is_single_simple_constraint:
@@ -80,7 +78,11 @@ class Project:
                 ineq_constraint=self.ineq_constraint,
                 box_constraint=self.box_constraint,
             )
-            self.lifted_eq_constraint, self.lifted_box_constraint = parser.parse(
+            (
+                self.lifted_eq_constraint, 
+                self.lifted_box_constraint,
+                self.lift
+            ) = parser.parse(
                 method=None
             )
             # Only equilibrate when we have a single A
@@ -108,9 +110,6 @@ class Project:
                 )
                 self.d_r = jnp.ones((1, self.eq_constraint.n_constraints + n_ineq, 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
-
-            # NOTE: We do not add the lifted constraints to constraints;
-            # self.constraints is meant to keep only the original specifications.
 
             self.lifted_eq_constraint.method = "pinv"
             self.lifted_eq_constraint.setup()
@@ -187,12 +186,12 @@ class Project:
         Returns:
             jnp.ndarray: Constraint violation for each point in the batch.
         """
-        y = y.update(x=y.x.reshape(y.x.shape[0], y.x.shape[1], 1))
-        cv = jnp.zeros((y.x.shape[0], 1, 1))
-        for c in self.constraints:
-            cv = jnp.maximum(cv, c.cv(y))
-
-        return cv
+        if y.x.shape[1] != self.dim_lifted:
+            y = self.lift(y)
+        return jnp.maximum(
+            self.lifted_eq_constraint.cv(y),
+            self.lifted_box_constraint.cv(y),
+        )
 
     def call_and_check(
         self,
