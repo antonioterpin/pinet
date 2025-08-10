@@ -1,8 +1,9 @@
 """Parser of constraints to lifted representation module."""
 
+from typing import Optional
+
 import jax.numpy as jnp
 import numpy as np
-from typing import Optional
 
 from pinet.dataclasses import BoxConstraintSpecification
 
@@ -193,14 +194,16 @@ class ConstraintParser:
 
         def lift(y):
             """Lift the input to the lifted dimension."""
-            y = y.update(
-                x=jnp.concatenate([y.x, self.ineq_constraint.C @ y.x], axis=1)
-            )
+            y = y.update(x=jnp.concatenate([y.x, self.ineq_constraint.C @ y.x], axis=1))
             if self.eq_constraint.var_b:
-                y = y.update(eq=y.eq.update(
-                    b=jnp.concatenate([
-                        y.eq.b, jnp.zeros((y.x.shape[0], self.n_ineq, 1))],
-                    axis=1,
-                )))
+                y = y.update(
+                    eq=y.eq.update(
+                        b=jnp.concatenate(
+                            [y.eq.b, jnp.zeros((y.x.shape[0], self.n_ineq, 1))],
+                            axis=1,
+                        )
+                    )
+                )
             return y
+
         return (eq_lifted, box_lifted, lift)

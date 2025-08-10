@@ -78,12 +78,8 @@ class Project:
                 ineq_constraint=self.ineq_constraint,
                 box_constraint=self.box_constraint,
             )
-            (
-                self.lifted_eq_constraint, 
-                self.lifted_box_constraint,
-                self.lift
-            ) = parser.parse(
-                method=None
+            (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
+                parser.parse(method=None)
             )
             # Only equilibrate when we have a single A
             if (
