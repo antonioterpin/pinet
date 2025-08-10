@@ -202,7 +202,7 @@ class Project:
         tol=1e-3,
         max_iter=100,
         reduction="max",
-    ) -> Callable:
+    ) -> Callable[[ProjectionInstance], tuple[jnp.ndarray, bool, int]]:
         """Returns a function that projects input and checks constraint violation.
 
         Args:
@@ -292,7 +292,7 @@ def _project_general(
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[ProjectionInstance, ProjectionInstance]:
     """Project a batch of points using Douglas-Rachford.
 
     Args:
@@ -303,12 +303,13 @@ def _project_general(
         d_c (jnp.ndarray): Scaling factor for the columns.
         yraw (jnp.ndarray): Point to be projected.
             Shape (batch_size, dimension, 1).
+        s0 (ProjectionInstance, optional): Initial value for the governing sequence.
         sigma (float): ADMM parameter.
         omega (float): ADMM parameter.
         n_iter (int): Number of iterations to run.
 
     Returns:
-        tuple[jnp.ndarray, jnp.ndarray]: First output is the projected
+        tuple[ProjectionInstance, ProjectionInstance]: First output is the projected
             point, and second output is the value of the governing sequence.
     """
     if n_iter > 0:
@@ -359,7 +360,7 @@ def _project_general_custom(
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
-):
+) -> tuple[ProjectionInstance, ProjectionInstance]:
     return _project_general(
         initialize_fn=initialize_fn,
         step_iteration=step_iteration,
@@ -391,7 +392,10 @@ def _project_general_fwd(
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
-):
+) -> tuple[
+    tuple[ProjectionInstance, ProjectionInstance],
+    tuple[ProjectionInstance, jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float],
+]:
     # unpack trailing options that belong only to custom vjp
     y, sK = _project_general_custom(
         initialize_fn=initialize_fn,
@@ -422,7 +426,7 @@ def _project_general_bwd(
     fpi: bool,
     residuals: tuple,
     cotangent: jnp.ndarray,
-) -> tuple:
+) -> tuple[None, None, jnp.ndarray, None, None, None]:
     """Backward pass for custom vjp.
 
     This function computes the vjp for the projection using the
