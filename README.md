@@ -40,8 +40,10 @@ To install &Pi;net, run:
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
 docker compose build
-docker compose ...
+docker compose run <the-command>
 ```
+
+See also the section on [reproducing the paper's results](#reproducing-the-papers-results) for more examples of commands.
 
 
 ### Supported platforms 💻
@@ -61,6 +63,15 @@ docker compose ...
 > [!TIP] custom
 > **TITLE**?<br/>
 > Another line
+
+To reproduce the results in the paper, you can run
+```bash
+python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 12
+```
+To generate the dataset, run
+```bash
+TODO
+```
 
 ### Works using &Pi;net ⚙️
 We collect here applications using &Pi;net. Please feel free to open a pull request to add yours! 🤗
@@ -87,6 +98,43 @@ We report the results for an optimization problem with optimization variable of 
 
 Overall, &Pi;net outperforms the state-of-the-art in accuracy and training times.
 For more comparisons and ablations, please check out our [paper](TODO).
+
+### Reproducing the paper's results
+To reproduce our benchmarks and ablations, you can run
+```bash
+python -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD>
+```
+To select `ID`, `CONFIG`, and `METHOD`, please refer to the table below.
+Experiment | ID | CONFIG | METHOD
+--|--|--|--
+&Pi;net results on the small convex benchmark | TODO | benchmark_small_autotune | pinet
+&Pi;net results on the large convex benchmark | TODO | benchmark_large_autotune | pinet
+&Pi;net results on the small non-convex benchmark | TODO | benchmark_small_autotune | pinet
+&Pi;net results on the large non-convex benchmark | TODO | benchmark_large_autotune | pinet
+&Pi;net results on the TODO benchmark with manual tuning | TODO | benchmark_config_manual | pinet
+&Pi;net results on the TODO benchmark without equilibration | TODO | benchmark_noequil_autotune | pinet
+cvxpy results on the small convex benchmark | TODO | benchmark_cvxpy | cvxpy
+jaxopt results on the small convex benchmark | TODO | benchmark_jaxopt_small | jaxopt
+jaxopt results on the large convex benchmark | TODO | benchmark_jaxopt_large | jaxopt
+jaxopt results on the small non-convex benchmark | TODO | benchmark_jaxopt_small | jaxopt
+jaxopt results on the large non-convex benchmark | TODO | benchmark_jaxopt_small | jaxopt
+
+>[!WARNING] Generating the large dataset
+> The repo contains only the data to run the small benchmark. For the large one, you need first to generate the data. For this, please run
+> ```bash
+> TODO
+> ```
+> NOTE: This may take a while... In a future release, we plan to provide several datasets with [Hugging face 🤗](https://huggingface.co/) or similar providers, and this step will be less tedious.
+
+For `DC3`, we used the [open-source implementation](https://github.com/locuslab/DC3).
+
+> [!TIP] With Docker 🐳
+> To run the above commands within th docker container, you can use
+> ```bash
+> docker compose run <the-command>
+> ```
+
+For the toy MPC, please refer to [the examples section](#a-toy-example-approximating-a-mpc-controller). For the second-order cone constraints, you can use [this notebook](./src/benchmarks/toy_SOC/main.py).
 
 ## Citation 🙏
 If you use this code in your research, please cite our paper:
