@@ -33,7 +33,7 @@ class ConstraintParser:
         """
         if ineq_constraint is None:
             # The constraints do not need lifting.
-            self.parse = lambda method: (eq_constraint, box_constraint)
+            self.parse = lambda method: (eq_constraint, box_constraint, lambda y: y)
             return
 
         self.dim = ineq_constraint.dim
