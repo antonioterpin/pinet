@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from src.benchmarks.simple_QP.load_simple_QP import JaxDataLoader
+from benchmarks.QP.load_QP import JaxDataLoader
 
 
 # Load Instance Dataset

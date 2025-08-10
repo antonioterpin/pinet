@@ -9,8 +9,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def generate_bar_data(id, config, filename, opt_obj_test, plotting=False):
-    """Generate bar plot data for relative suboptimality and constraint violation."""
+def generate_bar_data(
+    id: str, config: str, filename: str, opt_obj_test: float, plotting: bool = False
+) -> None:
+    """Generate bar plot data for RS and CV from saved results.
+
+    Args:
+        id (str): Identifier for the dataset.
+        config (str): Configuration name.
+        filename (str): Name of the file to save the results.
+        opt_obj_test (float): Optimal objective value for the test set.
+        plotting (bool): Whether to plot the results or not.
+    """
     results_folder = pathlib.Path(__file__).parent / "results" / id / config
     subfolders = [folder for folder in results_folder.iterdir() if folder.is_dir()]
     # Generate bar plot data
@@ -82,8 +92,18 @@ def generate_bar_data(id, config, filename, opt_obj_test, plotting=False):
 
 
 # Generate training curves
-def generate_learning_curves(id, config, filename, opt_obj_valid, plotting=False):
-    """Generate learning curves for relative suboptimality and constraint violation."""
+def generate_learning_curves(
+    id: str, config: str, filename: str, opt_obj_valid: float, plotting: bool = False
+) -> None:
+    """Parse results and saves learning curves for RS and CV.
+
+    Args:
+        id (str): Identifier for the dataset.
+        config (str): Configuration name.
+        filename (str): Name of the file to save the results.
+        opt_obj_valid (float): Optimal objective value for the validation set.
+        plotting (bool): Whether to plot the results or not.
+    """
     results_folder = pathlib.Path(__file__).parent / "results" / id / config
     subfolders = [folder for folder in results_folder.iterdir() if folder.is_dir()]
     cv_columns = []
@@ -173,8 +193,13 @@ def generate_learning_curves(id, config, filename, opt_obj_valid, plotting=False
     )
 
 
-def generate_time_data(id, config):
-    """Generate single and batch inference time data."""
+def generate_time_data(id: str, config: str) -> None:
+    """Parse results and save training and inference time data.
+
+    Args:
+        id (str): Identifier for the dataset.
+        config (str): Configuration name.
+    """
     single_inference_dict = {
         "ours": [],
         "dc3": [],
@@ -273,7 +298,7 @@ def generate_time_data(id, config):
                     writer.writerow(all_stats[method])
 
 
-def save_optimal_objectives(id, config):
+def save_optimal_objectives(id: str, config: str):
     """Save optimal objectives for the validation and test set.
 
     Args:
@@ -309,7 +334,7 @@ def save_optimal_objectives(id, config):
     )
 
 
-def load_optimal_objectives(id):
+def load_optimal_objectives(id: str) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Load optimal objectives for the validation and test set.
 
     Args:
