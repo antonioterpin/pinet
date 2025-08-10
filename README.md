@@ -65,9 +65,9 @@ docker compose ...
 ### Works using &Pi;net ⚙️
 We collect here applications using &Pi;net. Please feel free to open a pull request to add yours! 🤗
 
-Title | Link
+Link | Project
 --|--
-Multi-vehicle trajectory optimization with non-convex preferences | [![View Repo](https://img.shields.io/badge/GitHub-antonioterpin%2Fglitch-blue?logo=github)](https://github.com/antonioterpin/glitch)
+[![View Repo](https://img.shields.io/badge/GitHub-antonioterpin%2Fglitch-blue?logo=github)](https://github.com/antonioterpin/glitch) | **Multi-vehicle trajectory optimization with non-convex preferences**<br/>This project features contexts dimensions in the millions and tens of thousands of optimization variables.
 
 
 
