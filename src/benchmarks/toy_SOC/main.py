@@ -2,6 +2,7 @@
 
 # %% Imports
 import cvxpy as cp
+import jax
 import numpy as np
 import optax
 from flax import linen as nn
@@ -68,7 +69,12 @@ project_soc = jit(_project_soc)
 
 
 # %% Generate random data
-def rand_sparse_mask(key, shape, sparsity=0.01, dtype=jnp.float64):
+def rand_sparse_mask(
+    key: jrnd.PRNGKey,
+    shape: tuple,
+    sparsity: float = 0.01,
+    dtype: jnp.dtype = jnp.float64,
+):
     """Return a dense tensor whose entries are 0 with prob = `sparsity`.
 
     Args:
@@ -95,7 +101,7 @@ keyA, key = jrnd.split(key)
 A = rand_sparse_mask(keyA, (m, n))
 
 
-def generate_problem(key, B):
+def generate_problem(key: jrnd.PRNGKey, B: int):
     """Generate a random linear problem with SOC constraints.
 
     Args:
@@ -124,7 +130,7 @@ def generate_problem(key, B):
     return b, c, x, s
 
 
-def objective(x, c):
+def objective(x: jnp.ndarray, c: jnp.ndarray):
     """Compute the objective value for the linear problem.
 
     Args:
@@ -138,7 +144,7 @@ def objective(x, c):
 
 
 # %% CV and RS
-def constraint_violation_eq(x, s, b):
+def constraint_violation_eq(x: jnp.ndarray, s: jnp.ndarray, b: jnp.ndarray):
     """Compute the constraint violation for Ax = b.
 
     Args:
@@ -152,7 +158,7 @@ def constraint_violation_eq(x, s, b):
     return jnp.linalg.norm(A @ x + s - b, ord=jnp.inf, axis=-1)
 
 
-def constraint_violation_soc(s):
+def constraint_violation_soc(s: jnp.ndarray):
     """Compute the constraint violation for the SOC constraint.
 
     Args:
@@ -168,7 +174,7 @@ def constraint_violation_soc(s):
     return jnp.maximum(u_norm - t, 0.0)
 
 
-def relative_suboptimality(x, xstar, c):
+def relative_suboptimality(x: jnp.ndarray, xstar: jnp.ndarray, c: jnp.ndarray):
     """Compute the relative suboptimality of the solution.
 
     Args:
@@ -184,7 +190,9 @@ def relative_suboptimality(x, xstar, c):
     return jnp.abs(candidate_val - optimal_val) / (jnp.abs(optimal_val) + 1e-12)
 
 
-def print_stats(x, s, b, c, xstar):
+def print_stats(
+    x: jnp.ndarray, s: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray
+):
     """Print the statistics of the solution.
 
     Args:
@@ -263,7 +271,7 @@ assert Aaug.shape == (
 Aaug_inv = jnp.linalg.pinv(Aaug)
 
 
-def project_pinv_vb(xs, b):
+def project_pinv_vb(xs: jnp.ndarray, b: jnp.ndarray):
     """Project onto the pseudo-inverse of the augmented matrix A.
 
     Args:
@@ -277,7 +285,7 @@ def project_pinv_vb(xs, b):
     return xs - Aaug_inv @ (Aaug @ xs - b)
 
 
-def step_iteration(yraw, sk, b):
+def step_iteration(yraw: jnp.ndarray, sk: jnp.ndarray, b: jnp.ndarray):
     """Perform one iteration of the forward step.
 
     Args:
@@ -352,7 +360,7 @@ def project(
     return zk1, sk
 
 
-def _project_fwd(s0, yraw, b):
+def _project_fwd(s0: jnp.ndarray, yraw: jnp.ndarray, b: jnp.ndarray):
     """Forward pass of the projection function.
 
     Args:
@@ -371,7 +379,7 @@ def _project_fwd(s0, yraw, b):
     return (zk1, sk), (sk, yraw.reshape((yraw.shape[0], yraw.shape[1], 1)), b)
 
 
-def _project_bwd(residuals, cotangent):
+def _project_bwd(residuals: tuple, cotangent: tuple):
     """Backward pass of the projection function.
 
     Args:
@@ -428,7 +436,9 @@ if use_custom_vjp:
 # project them, and check if the result has no constraint violation.
 
 
-def test_projection(b, c, xstar, sstar):
+def test_projection(
+    b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray, sstar: jnp.ndarray
+):
     """Test the projection function on random samples.
 
     Args:
@@ -483,7 +493,7 @@ class HardConstrainedMLP(nn.Module):
     @nn.compact
     def __call__(
         self,
-        input: dict[jnp.ndarray, jnp.ndarray],
+        input: dict[str, jnp.ndarray],
     ):
         """Call the NN.
 
@@ -513,7 +523,7 @@ key_train, key_init = jrnd.split(key)
 
 
 # Batcher
-def make_batch(key, batch_size=BATCH_SIZE):
+def make_batch(key: jax.random.PRNGKey, batch_size: int = BATCH_SIZE):
     """Generate a batch of random problems.
 
     Args:
@@ -549,7 +559,7 @@ state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx
 
 # %% Training
 @jit
-def loss_fn(params, input):
+def loss_fn(params: dict, input: dict):
     """Compute the loss function and auxiliary values.
 
     Args:
@@ -570,7 +580,7 @@ def loss_fn(params, input):
 
 
 @jit
-def train_step(state, batch):
+def train_step(state: train_state.TrainState, batch: dict):
     """Perform a single training step.
 
     Args:
