@@ -274,7 +274,12 @@ def generate_time_data(id, config):
 
 
 def save_optimal_objectives(id, config):
-    """Save optimal objectives for the validation and test set."""
+    """Save optimal objectives for the validation and test set.
+
+    Args:
+        id (str): Identifier for the dataset.
+        config (str): Configuration name.
+    """
     # Setup filenames and check if they exist
     optimal_objectives_folder = (
         pathlib.Path(__file__).parent / "results" / id / "optimal_objectives"
@@ -305,7 +310,14 @@ def save_optimal_objectives(id, config):
 
 
 def load_optimal_objectives(id):
-    """Load optimal objectives for the validation and test set."""
+    """Load optimal objectives for the validation and test set.
+
+    Args:
+        id (str): Identifier for the dataset.
+
+    Returns:
+        tuple: Optimal objectives for the test and validation sets.
+    """
     optimal_objectives_folder = (
         pathlib.Path(__file__).parent / "results" / id / "optimal_objectives"
     )
@@ -325,8 +337,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default="simple_QP_fpi",
-        help="Configuration (default: simple_QP_fpi)",
+        default="pinet",
+        help="Configuration (default: pinet, options: dc3, softMLP, jaxopt, pinet)",
     )
     parser.add_argument(
         "--generate_bar_data",
@@ -357,9 +369,14 @@ if __name__ == "__main__":
         filename = "SoftMLP"
     elif "jaxopt" in args.config:
         filename = "JAXopt"
-    else:
+    elif args.config == "pinet":
         filename = "Ours"
         save_optimal_objectives(args.id, args.config)
+    else:
+        raise ValueError(
+            f"Unknown configuration: {args.config}. "
+            "Supported configurations are: dc3, softMLP, jaxopt, pinet."
+        )
 
     opt_obj_test, opt_obj_valid = load_optimal_objectives(args.id)
     if args.generate_bar_data:
