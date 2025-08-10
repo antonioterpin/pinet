@@ -84,7 +84,7 @@ eq = EqualityConstraint(
 
 > [!WARNING] `method=None`
 > `eq.project()` is only available if `method="pinv"`.
-> When you have multiple constraints and you plan on using the equality constraint only within the projection layer, you can leave `method=None` (as above), and use the `ConstraintParser` (see below).
+> When you have multiple constraints and you plan on using the equality constraint only within the projection layer, you can leave `method=None` (as above).
 
 ## AffineInequalityConstraint — enforce `lb ≤ C @ x ≤ ub`
 
