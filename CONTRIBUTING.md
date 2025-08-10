@@ -3,7 +3,6 @@
 
 - [Development workflow](#development-workflow)
 - [Testing a feature](#testing-a-feature)
-- [Code organization](#code-organization)
 - [Preparing for a PR](#preparing-for-a-pr)
 We will use [conda](https://conda.io/en/latest/user-guide/install/) to handle the virtual environment for development.
 ```sh
