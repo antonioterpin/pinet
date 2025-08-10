@@ -156,7 +156,7 @@ y, sK = proj.call(       # JIT-compiled projector
 
 cv = proj.cv(y)  # (B, 1, 1) max violation across constraints
                  # The CV can also be assessed for the different constraints separately,
-                 # e.g., eq.cv(y), if eq is a constraint for y 
+                 # e.g., eq.cv(y), if eq is a constraint for y
                  # (shapes need to match, so be careful of lifting!)
 ```
 
