@@ -1,7 +1,7 @@
 """Loading functionality for simple QP benchmark."""
 
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -27,19 +27,38 @@ class SimpleQPDataset(Dataset):
         self.objectives = data["objectives"]
         self.Ystar = data["Ystar"]
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Length of dataset."""
         return self.X.shape[0]
 
-    def __getitem__(self, idx):
-        """Get item from dataset."""
+    def __getitem__(self, idx: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Get item from dataset.
+
+        Args:
+            idx (int): Index of the item to retrieve.
+        """
         return self.X[idx], self.objectives[idx]
 
 
 def create_dataloaders(
-    filepath, batch_size=512, val_split=0.0, test_split=0.1, shuffle=True
-):
-    """Dataset loaders for training, validation and test."""
+    filepath: str,
+    batch_size: int = 512,
+    val_split: float = 0.0,
+    test_split: float = 0.1,
+    shuffle: bool = True,
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """Dataset loaders for training, validation and test.
+
+    Args:
+        filepath (str): Path to the dataset file.
+        batch_size (int): Size of each batch.
+        val_split (float): Proportion of data to use for validation.
+        test_split (float): Proportion of data to use for testing.
+        shuffle (bool): Whether to shuffle the dataset.
+
+    Returns:
+        tuple: DataLoaders for training, validation, and test datasets.
+    """
     dataset = SimpleQPDataset(filepath)
     size = len(dataset)
 
@@ -71,8 +90,13 @@ def create_dataloaders(
 class DC3Dataset(Dataset):
     """Dataset for importing DC3 problems."""
 
-    def __init__(self, filepath, use_convex):
-        """Initialize dataset."""
+    def __init__(self, filepath: str, use_convex: bool):
+        """Initialize dataset.
+
+        Args:
+            filepath (str): Path to the dataset file.
+            use_convex (bool): Whether to use convex problems.
+        """
         data = jnp.load(filepath)
         # Parameter values for each instance
         self.X = data["X"]
@@ -95,12 +119,21 @@ class DC3Dataset(Dataset):
         self.obj_fun = jax.vmap(obj_fun, in_axes=[0])
         self.objectives = self.obj_fun(self.Ystar[:, :, 0])
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Length of dataset."""
         return self.X.shape[0]
 
-    def __getitem__(self, idx):
-        """Get item from dataset."""
+    def __getitem__(self, idx: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Get item from dataset.
+
+        Args:
+            idx (int): Index of the item to retrieve.
+
+        Returns:
+            tuple: A tuple containing
+                - the input features; and
+                - the corresponding objective value.
+        """
         return self.X[idx], self.objectives[idx]
 
 
@@ -109,13 +142,21 @@ class JaxDataLoader:
 
     def __init__(
         self,
-        filepath,
-        use_convex,
+        filepath: str,
+        use_convex: bool,
         batch_size: int,
         shuffle: bool = True,
         rng_key: Optional[jax.Array] = None,
     ):
-        """Initialize JaxDataLoader."""
+        """Initialize JaxDataLoader.
+
+        Args:
+            filepath (str): Path to the dataset file.
+            use_convex (bool): Whether to use convex problems.
+            batch_size (int): Size of each batch.
+            shuffle (bool): Whether to shuffle the dataset.
+            rng_key (Optional[jax.Array]): Random key for shuffling.
+        """
         self.dataset = DC3Dataset(filepath, use_convex)
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -123,8 +164,12 @@ class JaxDataLoader:
         # Batch indices for the current epoch
         self._perm = self._get_perm() if self.shuffle else jnp.arange(len(self.dataset))
 
-    def __len__(self):
-        """Length of dataset."""
+    def __len__(self) -> int:
+        """Length of dataset.
+
+        Returns:
+            int: Number of batches in the dataset.
+        """
         return (len(self.dataset) + self.batch_size - 1) // self.batch_size
 
     def __iter__(self):
@@ -136,17 +181,17 @@ class JaxDataLoader:
         if self.shuffle:
             self._perm = self._get_perm()
 
-    def _get_perm(self):
+    def _get_perm(self) -> jax.Array:
         self.rng_key, last_key = jax.random.split(self._rng_key)
         perm = jax.random.permutation(last_key, len(self.dataset))
         return perm
 
 
 def dc3_dataloader(
-    filepath,
-    use_convex,
-    batch_size=512,
-    shuffle=True,
+    filepath: str,
+    use_convex: bool,
+    batch_size: int = 512,
+    shuffle: bool = True,
 ):
     """Dataset loader for training, or validation, or test."""
     dataset = DC3Dataset(filepath, use_convex)
@@ -163,17 +208,53 @@ def dc3_dataloader(
 
 
 def non_DC3_dataset_setup(
-    use_convex,
-    problem_seed,
-    problem_var,
-    problem_nineq,
-    problem_neq,
-    problem_examples,
-    rng_key,
-    batch_size,
-    use_jax_loader,
-):
-    """Setup function for datasets generated with our script."""
+    use_convex: bool,
+    problem_seed: int,
+    problem_var: int,
+    problem_nineq: int,
+    problem_neq: int,
+    problem_examples: int,
+    rng_key: jax.Array,
+    batch_size: int,
+    use_jax_loader: bool,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    DataLoader,
+    DataLoader,
+    DataLoader,
+]:
+    """Setup function for datasets generated with our script.
+
+    Args:
+        use_convex (bool): Whether to use convex problems.
+        problem_seed (int): Seed for random number generation.
+        problem_var (int): Variance of the problem.
+        problem_nineq (int): Number of inequality constraints.
+        problem_neq (int): Number of equality constraints.
+        problem_examples (int): Number of examples in the dataset.
+        rng_key (jax.Array): Random key for JAX operations.
+            Unused in this function but kept for consistency with other loaders.
+        batch_size (int): Size of each batch.
+        use_jax_loader (bool): Whether to use JAX DataLoader.
+            Unused in this function but kept for consistency with other loaders.
+
+    Returns:
+        tuple: A tuple containing:
+            - Q (jnp.ndarray): Quadratic coefficient matrix.
+            - p (jnp.ndarray): Linear coefficient vector.
+            - A (jnp.ndarray): Equality constraint matrix.
+            - G (jnp.ndarray): Inequality constraint matrix.
+            - h (jnp.ndarray): Inequality constraint vector.
+            - X (jnp.ndarray): Input features.
+            - train_loader (DataLoader): DataLoader for training data.
+            - valid_loader (DataLoader): DataLoader for validation data.
+            - test_loader (DataLoader): DataLoader for test data.
+    """
     # Choose problem parameters
     if use_convex:
         filename = (
@@ -196,17 +277,51 @@ def non_DC3_dataset_setup(
 
 
 def DC3_dataset_setup(
-    use_convex,
-    problem_seed,
-    problem_var,
-    problem_nineq,
-    problem_neq,
-    problem_examples,
-    rng_key,
-    batch_size,
-    use_jax_loader,
-):
-    """Setup function for datasets generated with the DC3 script."""
+    use_convex: bool,
+    problem_seed: int,
+    problem_var: int,
+    problem_nineq: int,
+    problem_neq: int,
+    problem_examples: int,
+    rng_key: jax.Array,
+    batch_size: int,
+    use_jax_loader: bool,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    JaxDataLoader,
+    JaxDataLoader,
+    JaxDataLoader,
+]:
+    """Setup function for datasets generated with the DC3 script.
+
+    Args:
+        use_convex (bool): Whether to use convex problems.
+        problem_seed (int): Seed for random number generation.
+        problem_var (int): Variance of the problem.
+        problem_nineq (int): Number of inequality constraints.
+        problem_neq (int): Number of equality constraints.
+        problem_examples (int): Number of examples in the dataset.
+        rng_key (jax.Array): Random key for JAX operations.
+        batch_size (int): Size of each batch.
+        use_jax_loader (bool): Whether to use JAX DataLoader.
+
+    Returns:
+        tuple: A tuple containing:
+            - Q (jnp.ndarray): Quadratic coefficient matrix.
+            - p (jnp.ndarray): Linear coefficient vector.
+            - A (jnp.ndarray): Equality constraint matrix.
+            - G (jnp.ndarray): Inequality constraint matrix.
+            - h (jnp.ndarray): Inequality constraint vector.
+            - X (jnp.ndarray): Input features.
+            - train_loader (JaxDataLoader): DataLoader for training data.
+            - valid_loader (JaxDataLoader): DataLoader for validation data.
+            - test_loader (JaxDataLoader): DataLoader for test data.
+    """
     # Choose the filename here
     if use_convex:
         filename = (
@@ -270,19 +385,56 @@ def DC3_dataset_setup(
 
 
 def load_data(
-    use_DC3_dataset,
-    use_convex,
-    problem_seed,
-    problem_var,
-    problem_nineq,
-    problem_neq,
-    problem_examples,
-    rng_key,
-    batch_size=2048,
-    use_jax_loader=True,
-    penalty=0.0,
-):
-    """Load problem data."""
+    use_DC3_dataset: bool,
+    use_convex: bool,
+    problem_seed: int,
+    problem_var: int,
+    problem_nineq: int,
+    problem_neq: int,
+    problem_examples: int,
+    rng_key: jax.Array,
+    batch_size: int = 2048,
+    use_jax_loader: bool = True,
+    penalty: float = 0.0,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    Callable[[jnp.ndarray], jnp.ndarray],
+    DataLoader | JaxDataLoader,
+    DataLoader | JaxDataLoader,
+    DataLoader | JaxDataLoader,
+    Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+]:
+    """Load problem data.
+
+    Args:
+        use_DC3_dataset (bool): Whether to use the DC3 dataset.
+        use_convex (bool): Whether to use convex problems.
+        problem_seed (int): Seed for random number generation.
+        problem_var (int): Variance of the problem.
+        problem_nineq (int): Number of inequality constraints.
+        problem_neq (int): Number of equality constraints.
+        problem_examples (int): Number of examples in the dataset.
+        rng_key (jax.Array): Random key for JAX operations.
+        batch_size (int): Size of each batch.
+        use_jax_loader (bool): Whether to use JAX DataLoader.
+        penalty (float): Penalty term for the loss function.
+
+    Returns:
+        tuple: A tuple containing:
+            - A (jnp.ndarray): Equality constraint matrix.
+            - G (jnp.ndarray): Inequality constraint matrix.
+            - h (jnp.ndarray): Inequality constraint vector.
+            - X (jnp.ndarray): Input features.
+            - batched_objective (Callable): Batched objective function.
+            - train_loader (DataLoader | JaxDataLoader): DataLoader for training data.
+            - valid_loader (DataLoader | JaxDataLoader): DataLoader for validation data.
+            - test_loader (DataLoader | JaxDataLoader): DataLoader for test data.
+            - batched_loss (Callable): Batched loss function.
+
+    """
     if not use_DC3_dataset:
         setup = non_DC3_dataset_setup
     else:

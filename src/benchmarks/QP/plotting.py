@@ -5,7 +5,12 @@ import matplotlib.pyplot as plt
 
 
 def plot_rs_vs_cv(
-    obj_fun_test, obj_test, eq_viol_test, ineq_viol_test, cvthres, rsthres
+    obj_fun_test: jnp.ndarray,
+    obj_test: jnp.ndarray,
+    eq_viol_test: jnp.ndarray,
+    ineq_viol_test: jnp.ndarray,
+    cvthres: float,
+    rsthres: float,
 ):
     """Plot the relative suboptimality against constraint violation.
 
@@ -57,7 +62,9 @@ def plot_rs_vs_cv(
     return fig, rs, cv
 
 
-def plot_inference_boxes(single_inference_times, batch_inference_times):
+def plot_inference_boxes(
+    single_inference_times: jnp.ndarray, batch_inference_times: jnp.ndarray
+):
     """Plot box plots for single and batch inference.
 
     Args:
