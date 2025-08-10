@@ -78,7 +78,7 @@ Contributions are more than welcome! 🙏 Please check out our [contributing pag
 ## Benchmarks 📈
 Below, we summarize the performance gains of &Pi;net over state-of-the-art methods. We consider three metrics:
 - Relative Suboptimality ($\texttt{RS}$): The suboptimality of a candidate solution $\hat{y}$ compared to the optimal objective $J(y^{\star})$, computed by a high-accuracy solver.
-- Constraint Violation ($\texttt{CV}$): We define $\texttt{CV} = \max( ||A \hat{y} - \mathrm{x}||_\infty, ||\max(C \hat{y} - u, 0)||_\infty )$. In practice, any solver achieving a $\texttt{CV}$ below $10^{-5}$ is considered to have high accuracy and there is little benefit to go below that. Instead, when methods have sufficiently low $\texttt{CV}$, having a low $\texttt{RS}$ is better.
+- Constraint Violation ($\texttt{CV}$): Maximum violation ($\infty$-norm) of any constraint (equality and inequality). In practice, any solver achieving a $\texttt{CV}$ below $10^{-5}$ is considered to have high accuracy and there is little benefit to go below that. Instead, when methods have sufficiently low $\texttt{CV}$, having a low $\texttt{RS}$ is better.
 - Learning curves: Progress on $\texttt{RS}$ and $\texttt{CV}$ over wall-clock time on the validation set.
 - Single inference time: The time required to solve one instance at test time.
 - Batch inference time: The time required to solve a batch of $1024$ instances at test time.
