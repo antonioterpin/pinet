@@ -35,13 +35,15 @@ To install &Pi;net, run:
   ```
 
 > [!WARNING] CUDA dependencies
-> If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497).
+> If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
 
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
-docker compose build
-docker compose run <the-command>
+docker compose run --rm pinet-cpu # Run the pytests on CPU
+docker compose run --rm pinet-gpu # Run the pytests on GPU
 ```
+> [!WARNING] CUDA dependencies
+> Running the Docker container with GPU support requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host.
 
 See also the section on [reproducing the paper's results](#reproducing-the-papers-results) for more examples of commands.
 
@@ -131,7 +133,7 @@ For `DC3`, we used the [open-source implementation](https://github.com/locuslab/
 > [!TIP] With Docker 🐳
 > To run the above commands within th docker container, you can use
 > ```bash
-> docker compose run <the-command>
+> docker compose run -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD>
 > ```
 
 For the toy MPC, please refer to [the examples section](#a-toy-example-approximating-a-mpc-controller). For the second-order cone constraints, you can use [this notebook](./src/benchmarks/toy_SOC/main.py).
