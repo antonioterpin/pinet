@@ -95,14 +95,27 @@ class EqualityConstraint(Constraint):
     def get_params(
         self, inp: ProjectionInstance
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Get A, b, Apinv depending on varying constraints."""
+        """Get A, b, Apinv depending on varying constraints.
+
+        Args:
+            inp (ProjectionInstance): ProjectionInstance to get parameters from.
+
+        Returns:
+            tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]: Tuple containing
+                b (jnp.ndarray): Right hand side vector.
+                    Shape (batch_size, n_constraints, 1).
+                A (jnp.ndarray): Left hand side matrix.
+                    Shape (batch_size, n_constraints, dimension).
+                Apinv (jnp.ndarray): Pseudo-inverse of A.
+                    Shape (batch_size, n_constraints, dimension).
+        """
         b = inp.eq.b if inp.eq and inp.eq.b is not None else self.b
         A = inp.eq.A if inp.eq and self.var_A else self.A
         Apinv = inp.eq.Apinv if inp.eq and self.var_A else self.Apinv
 
         return b, A, Apinv
 
-    def project_pinv(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def project_pinv(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
@@ -110,8 +123,7 @@ class EqualityConstraint(Constraint):
                 The .x attribute is the point to project.
 
         Returns:
-            jnp.ndarray: The projected point for each point in the batch.
-                Shape (batch_size, dimension, 1).
+            ProjectionInstance: The projected point for each point in the batch.
         """
         b, A, Apinv = self.get_params(yraw)
 
