@@ -57,15 +57,156 @@ See also the section on [reproducing the paper's results](#reproducing-the-paper
 
 ## Examples
 
-### A toy example: Approximating a MPC controller
+# Constraints & Projection Layer
+All tensors are **batched**. Let `B` = batch size (you may use `B=1` to broadcast across a batch).
 
-![Animation of the training values]()
-![Animation of the deployed controller]()
+- Vectors: shape `(B, n, 1)`
+- Matrices: shape `(B, n, d)`
 
-> [!TIP] custom
-> **TITLE**?<br/>
-> Another line
+## EqualityConstraint — enforce `A @ x == b`
 
+```python
+import jax.numpy as jnp
+from pinet import EqualityConstraint
+
+B, n_eq, d = 4, 3, 5
+A = jnp.zeros((1, n_eq, d))         # (1, n_eq, d)  # broadcast across batch
+b = jnp.zeros((B, n_eq, 1))         # (B, n_eq, 1)
+
+eq = EqualityConstraint(
+    A=A,
+    b=b,
+    method=None,                    # let Project decide / lift later
+    var_b=True,                     # b provided per-batch at runtime
+    var_A=False,                    # A constant (broadcasted)
+)
+```
+
+> [!WARNING] `method=None`
+> `eq.project()` is only available if `method="pinv"`.
+> When you have multiple constraints and you plan on using the equality constraint only within the projection layer, you can leave `method=None` (as above), and use the `ConstraintParser` (see below).
+
+## AffineInequalityConstraint — enforce `lb ≤ C @ x ≤ ub`
+
+```python
+import jax.numpy as jnp
+from pinet import AffineInequalityConstraint
+
+n_ineq = 7
+C  = jnp.zeros((1, n_ineq, d))      # (1, n_ineq, d)
+lb = jnp.full((B, n_ineq, 1), -1.0) # (B, n_ineq, 1)
+ub = jnp.full((B, n_ineq, 1),  1.0) # (B, n_ineq, 1)
+
+ineq = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+```
+
+> [!WARNING] `ineq.project()` intentionally `NotImplemented`
+> To improve the efficiency of the projection, we always "lift" the affine inequality constraints as described in the paper. For this, we did not even bother implementing the projection method for this type of constraints 🤗.
+
+## BoxConstraint — clip selected dimensions
+
+```python
+import numpy as np
+import jax.numpy as jnp
+from pinet import BoxConstraint, BoxConstraintSpecification
+
+lb_x = jnp.full((B, d, 1), -2.0)    # (B, d, 1)
+ub_x = jnp.full((B, d, 1),  2.0)    # (B, d, 1)
+mask = np.ones(d, dtype=bool)       # apply to all dims (use False to skip dims)
+
+box = BoxConstraint(BoxConstraintSpecification(lb=lb_x, ub=ub_x, mask=mask))
+# box.project(...) clips x[:, mask, :] into [lb_x, ub_x].
+```
+
+## Combine constraints with `Project` (Douglas–Rachford)
+
+`Project` handles:
+- **Lifting** inequalities into equalities + auxiliary variables;
+- Optional **Ruiz equilibration**;
+- JIT-compiled forward;
+- Optional custom VJP for backprop.
+
+```python
+from pinet.project import Project
+from pinet.dataclasses import ProjectionInstance
+import jax.numpy as jnp
+
+proj = Project(
+    eq_constraint=eq,              # can be None
+    ineq_constraint=ineq,          # can be None
+    box_constraint=box,            # can be None
+    unroll=False,                  # use custom VJP path by default
+)
+
+# Build a ProjectionInstance with the point to project and (optionally) runtime specs:
+x0 = jnp.zeros((B, d, 1))
+yraw = ProjectionInstance(x=x0)
+# If var_b=True and you supply per-batch b at runtime, pass it via your dataclass, e.g.:
+# yraw = yraw.update(eq=yraw.eq.update(b=b))
+
+y, sK = proj.call(       # JIT-compiled projector
+    yraw=yraw,
+    n_iter=50,                    # Douglas-Rachford iterations
+    n_iter_backward=100,          # Maximum number of iterations for the bicgstab algorithm
+    sigma=1.0, omega=1.7,
+)
+
+# If you want to resume the projection with the latest governing sequence sK,
+# you can provided to the call method via s0=sK.
+
+cv = proj.cv(y)  # (B, 1, 1) max violation across constraints
+                 # The CV can also be assessed for the different constraints separately,
+                 # e.g., eq.cv(y), if eq is a constraint for y 
+                 # (shapes need to match, so be careful of lifting!)
+```
+
+### Notes
+- **Batch rules:** For each pair of tensors `(X, Y)`, either batch sizes match or one is `1` (broadcast).
+- **Equality `method`:** Use `method="pinv"` when you rely on the equality projector standalone. When used inside `Project`, you can keep `method=None`; lifting will set up the pseudo-inverse internally.
+- **Dimensions after lifting:** If inequalities are present, the internal lifted dimension is `d + n_ineq` (auxiliary variables).
+
+---
+
+# Minimal “Toy MPC” Application
+
+The helper below wires the projector into a Pinet model; the loss is your batched objective.
+
+```python
+# benchmarks/toy_MPC/model.py
+import jax.numpy as jnp
+from flax import linen as nn
+from pinet import BoxConstraint, BoxConstraintSpecification, EqualityConstraint
+from src.benchmarks.model import build_model_and_train_step, setup_pinet
+
+def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
+    activation = getattr(nn, hyperparameters["activation"])
+    if activation is None:
+        raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
+
+    # Constraints (b varies at runtime; A is constant & broadcasted)
+    eq  = EqualityConstraint(A=A, b=b, method=None, var_b=True)
+    box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
+    project, project_test, _ = setup_pinet(eq_constraint=eq, box_constraint=box,
+                                           hyperparameters=hyperparameters)
+
+    model, params, train_step = build_model_and_train_step(
+        rng_key=rng_key,
+        dim=A.shape[2],
+        features_list=hyperparameters["features_list"],
+        activation=activation,
+        project=project,                # projector in the training graph
+        project_test=project_test,      # projector used at eval
+        raw_train=hyperparameters.get("raw_train", False),
+        raw_test=hyperparameters.get("raw_test", False),
+        loss_fn=lambda preds, _b: batched_objective(preds),
+        example_x=X[:1, :, 0],
+        example_b=b[:1],
+        jit=True,
+    )
+    return model, params, train_step
+```
+
+### Run the end-to-end script
 To reproduce the results in the paper, you can run
 ```bash
 python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 12
@@ -74,6 +215,14 @@ To generate the dataset, run
 ```bash
 TODO
 ```
+
+You’ll get:
+- **Training logs** (loss, CV, timing),
+- **Validation/Test** metrics incl. relative suboptimality & CV,
+- **Saved params & results** ready to reload and plot trajectories.
+
+> [!TIP] Troubleshooting
+> All the objects in `pinet.dataclasses` offer a `validate` methods, which can be used to verify your inputs.
 
 ### Works using &Pi;net ⚙️
 We collect here applications using &Pi;net. Please feel free to open a pull request to add yours! 🤗
