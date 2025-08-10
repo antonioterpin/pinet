@@ -133,7 +133,8 @@ For `DC3`, we used the [open-source implementation](https://github.com/locuslab/
 > [!TIP] With Docker 🐳
 > To run the above commands within th docker container, you can use
 > ```bash
-> docker compose run -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD>
+> docker compose run --rm pinet-cpu -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD> # run on CPU
+> docker compose run --rm pinet-gpu -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD> # run on GPU
 > ```
 
 For the toy MPC, please refer to [the examples section](#a-toy-example-approximating-a-mpc-controller). For the second-order cone constraints, you can use [this notebook](./src/benchmarks/toy_SOC/main.py).
