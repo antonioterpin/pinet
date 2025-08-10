@@ -62,16 +62,18 @@ docker compose ...
 > **TITLE**?<br/>
 > Another line
 
-### Multi-agent trajectory planning
-[![View Repo](https://img.shields.io/badge/GitHub-antonioterpin%2Fglitch-blue?logo=github)](https://github.com/antonioterpin/glitch)
+### Works using &Pi;net ⚙️
+We collect here applications using &Pi;net. Please feel free to open a pull request to add yours! 🤗
 
-![Animation of the trajectories]()
+Title | Link
+--|--
+Multi-vehicle trajectory optimization with non-convex preferences | [![View Repo](https://img.shields.io/badge/GitHub-antonioterpin%2Fglitch-blue?logo=github)](https://github.com/antonioterpin/glitch)
 
 
 
 
 ## Contributing ☕️
-Contributions are more than welcome! 🙏 Please check out our [how-to-contribute page](docs/contributing.md), and feel free to open an issue for problems and feature requests⚠️.
+Contributions are more than welcome! 🙏 Please check out our [contributing page](https://github.com/antonioterpin/pinet/blob/main/docs/contributing.md), and feel free to open an issue for problems and feature requests⚠️.
 
 ## Benchmarks 📈
 
@@ -81,8 +83,8 @@ If you use this code in your research, please cite our paper:
 ```bash
    @inproceedings{grontas2025pinet,
      title={Pinet: Optimizing hard-constrained neural networks with orthogonal projection layers},
-     author={Grontas, Panagiotis and Terpin, Antonio},
-     booktitle = {Advances in Neural Information Processing Systems},
+     author={Grontas, Panagiotis and Terpin, Antonio and Balta C., Efe and D'Andrea, Raffaello and Lygeros, John},
+     journal={arXiv preprint arXiv:TODO},
      year={2025}
    }
 ```
