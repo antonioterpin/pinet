@@ -11,14 +11,14 @@ class Constraint:
     """Abstract class for constraint sets."""
 
     @abstractmethod
-    def project(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
         Args:
             yraw (ProjectionInstance): ProjectionInstance to project.
 
         Returns:
-            jnp.ndarray: The projected input, shape (batch_size, dim).
+            ProjectionInstance: The projected input.
         """
 
     @abstractmethod
