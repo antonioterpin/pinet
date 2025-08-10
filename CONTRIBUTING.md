@@ -7,8 +7,8 @@
 - [Preparing for a PR](#preparing-for-a-pr)
 We will use [conda](https://conda.io/en/latest/user-guide/install/) to handle the virtual environment for development.
 ```sh
-conda create -n hcnn python=3.10
-conda activate hcnn
+conda create -n pinet python=3.10
+conda activate pinet
 ```
 
 To install the requirements, run:
@@ -72,7 +72,7 @@ We follow a [Git feature branch](https://www.atlassian.com/git/tutorials/compari
   6. Close the branch.
 
 - `main` and `dev` branches are protected from push, and require a PR.
-- We run github actions, [code-style](https://github.com/antonioterpin/hcnn/blob/main/.github/workflows/code-style.yaml) and [tests](https://github.com/antonioterpin/hcnn/blob/main/.github/workflows/tests.yaml) to check the test status on push on any branch. The rationale is that we want to know the state of each feature without polling the developer.
+- We run github actions, [code-style](https://github.com/antonioterpin/pinet/blob/main/.github/workflows/code-style.yaml) and [tests](https://github.com/antonioterpin/pinet/blob/main/.github/workflows/tests.yaml) to check the test status on push on any branch. The rationale is that we want to know the state of each feature without polling the developer.
 - We open a PR to `main` only for milestones.
 
 ### Testing a feature
@@ -82,12 +82,6 @@ To run the tests,
 ```bash
 PYTHONPATH=src pytest
 ```
-
-### Code organization
-We structure the codebase as follows:
-- `src/hcnn/` contains the different features of the project.
-- `src/hcnn/flax_project.py` contains the `nn.Module` extension to include the project as part of the [flax](https://flax.readthedocs.io) library.
-- `src/test/` contains the tests.
 
 ### Preparing for a PR
 Before opening a PR to `dev`, you need to `squash` your commits into a single one. First, review your commit history to identify how many commits need to be squashed:
