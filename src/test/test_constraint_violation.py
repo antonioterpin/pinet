@@ -196,11 +196,7 @@ def test_inequality_box_cv():
     assert jnp.allclose(cv_proj, 0.0), f"Expected 0.0, but got {cv_proj}."
 
 
-SEEDS = [24, 42]
-BATCH_SIZE = [1, 5]
-
-
-@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
+@pytest.mark.parametrize("seed, batch_size", product([24, 42], [1, 5]))
 def test_equality_inequality_box_cv(seed, batch_size):
     method = "pinv"
     dim = 100

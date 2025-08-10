@@ -36,20 +36,14 @@ class HardConstrainedMLP(nn.Module):
         return x
 
 
-SEEDS = [42]
-COEFFICIENTS = [0.25, 0.5, 0.75]
-LOWER_BOUNDS = [-1.0]
-UPPER_BOUNDS = [1.0]
-
-
 @pytest.mark.parametrize(
     "seed, C, lb, ub",
     [
         (s, c, lb, ub)
-        for s in SEEDS
-        for c in COEFFICIENTS
-        for lb in LOWER_BOUNDS
-        for ub in UPPER_BOUNDS
+        for s in [42]
+        for c in [0.25, 0.5, 0.75]
+        for lb in [-1.0]
+        for ub in [1.0]
     ],
 )  # Add more seeds as needed
 def test_clipped_sine(seed: int, C: float, lb: float, ub: float):

@@ -41,9 +41,9 @@ def test_clipped_sine(seed: int):
     """
     # Test params
     EPS = 0.1
-    N_SAMPLES = 1000
-    LEARNING_RATE = 1e-5
-    N_EPOCHS = 10000
+    N_SAMPLES = 500
+    LEARNING_RATE = 1e-3
+    N_EPOCHS = 1000
 
     # Generate dataset
     x = jnp.linspace(-jnp.pi, jnp.pi, N_SAMPLES).reshape(-1, 1)

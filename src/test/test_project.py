@@ -17,12 +17,46 @@ from pinet import (
 
 jax.config.update("jax_enable_x64", True)
 
-SEEDS = [24, 42]
-BATCH_SIZE = [1, 5]
+
+@pytest.mark.parametrize("seed, batch_size", product([0, 1], [1, 3]))
+def test_project_eq_fixed_A_b_varA_varb_false(seed, batch_size):
+    """Checks projection with fixed A and b (var_A=False, var_b=False)."""
+    dim, n_eq = 20, 8
+    method = "pinv"
+
+    key = jax.random.PRNGKey(seed)
+    kA, kx0, kx = jax.random.split(key, 3)
+
+    # Fixed equality system with guaranteed feasibility: b = A @ x0
+    A = jax.random.normal(kA, (batch_size, n_eq, dim))
+    x0 = jax.random.normal(kx0, (batch_size, dim, 1))
+    b = A @ x0
+
+    # Infeasible starting point
+    xinfeas = jax.random.normal(kx, (batch_size, dim))
+
+    # CVXPY projection
+    yqp = jnp.zeros((batch_size, dim))
+    for ii in range(batch_size):
+        y = cp.Variable(dim)
+        constraints = [A[ii, :, :] @ y == b[ii, :, 0]]
+        objective = cp.Minimize(cp.sum_squares(y - xinfeas[ii, :]))
+        prob = cp.Problem(objective, constraints)
+        prob.solve(verbose=False)
+        yqp = yqp.at[ii, :].set(jnp.array(y.value).reshape(dim))
+
+    # Project with fixed A and b (no variable A/b)
+    eq_constraint = EqualityConstraint(
+        A=A, b=b, method=method, var_A=False, var_b=False
+    )
+    layer = Project(eq_constraint=eq_constraint)
+
+    yproj = layer.call(yraw=ProjectionInstance(x=xinfeas[..., None]))[0].x
+
+    assert jnp.allclose(yproj[..., 0], yqp, atol=1e-6, rtol=1e-6)
 
 
-# TODO: Add another test where varA, varB are false.
-@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
+@pytest.mark.parametrize("seed, batch_size", product([24, 42], [1, 5]))
 def test_project_eq_ineq_varA_varb(seed, batch_size):
     dim = 100
     n_eq = 40
