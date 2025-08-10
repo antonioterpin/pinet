@@ -35,7 +35,7 @@ To install &Pi;net, run:
   ```
 
 > [!WARNING] CUDA dependencies
-> .....
+> If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497).
 
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
@@ -68,9 +68,6 @@ We collect here applications using &Pi;net. Please feel free to open a pull requ
 Link | Project
 --|--
 [![View Repo](https://img.shields.io/badge/GitHub-antonioterpin%2Fglitch-blue?logo=github)](https://github.com/antonioterpin/glitch) | **Multi-vehicle trajectory optimization with non-convex preferences**<br/>This project features contexts dimensions in the millions and tens of thousands of optimization variables.
-
-
-
 
 ## Contributing ☕️
 Contributions are more than welcome! 🙏 Please check out our [contributing page](./CONTRIBUTING.md), and feel free to open an issue for problems and feature requests⚠️.
