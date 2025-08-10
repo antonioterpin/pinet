@@ -1,6 +1,6 @@
 # &Pi;net: Optimizing hard-constrained neural networks with orthogonal projection layers
 
-[![arXiv](https://img.shields.io/badge/arXiv-2407.12345-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2407.12345)
+[![arXiv](https://img.shields.io/badge/arXiv-TODO-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/TODO)
 [![GitHub stars](https://img.shields.io/github/stars/antonioterpin/pinet?style=social)](https://github.com/antonioterpin/pinet/stargazers)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://github.com/antonioterpin/pinet/LICENSE)
 [![codecov](https://codecov.io/gh/antonioterpin/pinet/graph/badge.svg?token=UQ48NNZSI4)](https://codecov.io/gh/antonioterpin/pinet)
@@ -76,7 +76,20 @@ Multi-vehicle trajectory optimization with non-convex preferences | [![View Repo
 Contributions are more than welcome! 🙏 Please check out our [contributing page](./CONTRIBUTING.md), and feel free to open an issue for problems and feature requests⚠️.
 
 ## Benchmarks 📈
+Below, we summarize the performance gains of &Pi;net over state-of-the-art methods. We consider three metrics:
+- Relative Suboptimality ($\texttt{RS}$): The suboptimality of a candidate solution $\hat{y}$ compared to the optimal objective $J(y^{\star})$, computed by a high-accuracy solver.
+- Constraint Violation ($\texttt{CV}$): We define $\texttt{CV} = \max( ||A \hat{y} - \mathrm{x}||_\infty, ||\max(C \hat{y} - u, 0)||_\infty )$. In practice, any solver achieving a $\texttt{CV}$ below $10^{-5}$ is considered to have high accuracy and there is little benefit to go below that. Instead, when methods have sufficiently low $\texttt{CV}$, having a low $\texttt{RS}$ is better.
+- Learning curves: Progress on $\texttt{RS}$ and $\texttt{CV}$ over wall-clock time on the validation set.
+- Single inference time: The time required to solve one instance at test time.
+- Batch inference time: The time required to solve a batch of $1024$ instances at test time.
 
+We report the results for an optimization problem with optimization variable of dimension $d$, $n_{\mathrm{eq}}$ equality and $n_{\mathrm{ineq}}$ inequality convex constraints and with a  non-convex objective. Here, we use a small and a large (in the parametric optimization sense) datasets $(d, n_{\mathrm{eq}}, n_{\mathrm{ineq}})  \in \{(100, 50, 50), (1000, 500, 500)\}$.
+
+![Non-convex CV and RS](media/nonconvex-cvrs.jpg)
+![Non-convex learning curves](media/nonconvex-times.jpg)
+
+Overall, &Pi;net outperforms the state-of-the-art in accuracy and training times.
+For more comparisons and ablations, please check out our [paper](TODO).
 
 ## Citation 🙏
 If you use this code in your research, please cite our paper:
