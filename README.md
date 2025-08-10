@@ -73,7 +73,7 @@ Multi-vehicle trajectory optimization with non-convex preferences | [![View Repo
 
 
 ## Contributing ☕️
-Contributions are more than welcome! 🙏 Please check out our [contributing page](https://github.com/antonioterpin/pinet/blob/main/docs/contributing.md), and feel free to open an issue for problems and feature requests⚠️.
+Contributions are more than welcome! 🙏 Please check out our [contributing page](https://github.com/antonioterpin/pinet/blob/feat-readme/docs/contributing.md), and feel free to open an issue for problems and feature requests⚠️.
 
 ## Benchmarks 📈
 
