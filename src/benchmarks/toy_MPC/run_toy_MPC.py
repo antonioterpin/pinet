@@ -5,6 +5,7 @@ import datetime
 import pathlib
 import time
 import timeit
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -15,7 +16,7 @@ from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
-from benchmarks.toy_MPC.load_toy_MPC import load_data
+from benchmarks.toy_MPC.load_toy_MPC import JaxDataLoader, ToyMPCDataset, load_data
 from benchmarks.toy_MPC.model import setup_model
 from benchmarks.toy_MPC.plotting import generate_trajectories, plot_training
 from src.tools.utils import GracefulShutdown, Logger, load_configuration
@@ -24,19 +25,51 @@ jax.config.update("jax_enable_x64", True)
 
 
 def evaluate_hcnn(
-    loader,
-    state,
-    batched_objective,
-    A,
-    lb,
-    ub,
-    prefix,
-    time_evals=10,
-    print_res=True,
-    cv_tol=1e-3,
-    single_instance=True,
-):
-    """Evaluate the performance of the HCNN."""
+    loader: ToyMPCDataset | JaxDataLoader,
+    state: train_state.TrainState,
+    batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
+    A: jnp.ndarray,
+    lb: jnp.ndarray,
+    ub: jnp.ndarray,
+    prefix: str,
+    time_evals: int = 10,
+    print_res: bool = True,
+    cv_tol: float = 1e-3,
+    single_instance: bool = True,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    float,
+    float,
+    float,
+]:
+    """Evaluate the performance of HCNN.
+
+    Args:
+        loader (ToyMPCDataset | JaxDataLoader): DataLoader for the dataset.
+        state (train_state.TrainState): The trained model state.
+        batched_objective (Callable): Function to compute the objective.
+        A (jnp.ndarray): Coefficient matrix for equality constraints.
+        lb (jnp.ndarray): Lower bounds for the decision variables.
+        ub (jnp.ndarray): Upper bounds for the decision variables.
+        prefix (str): Prefix for logging.
+        time_evals (int, optional): Number of times to evaluate the model.
+        print_res (bool, optional): Whether to print the results.
+        cv_tol (float, optional): Tolerance for constraint violations.
+        single_instance (bool, optional): Whether to evaluate a single instance or not.
+
+    Returns:
+        tuple: A tuple containing:
+            - opt_obj (jnp.ndarray): Optimal objective values.
+            - hcnn_obj (jnp.ndarray): HCNN objective values.
+            - eq_cv (jnp.ndarray): Equality constraint violations.
+            - ineq_cv (jnp.ndarray): Inequality constraint violations.
+            - ineq_perc (float): Percentage of valid constraint violations.
+            - eval_time (float): Average evaluation time.
+            - eval_time_std (float): Standard deviation of evaluation time.
+    """
     opt_obj = []
     hcnn_obj = []
     eq_cv = []
@@ -133,15 +166,28 @@ def evaluate_hcnn(
 
 
 def main(
-    filepath,
-    config_path,
-    SEED,
-    PLOT_TRAINING,
-    SAVE_RESULTS,
-    use_jax_loader,
-    run_name,
-):
-    """Main for running toy MPC benchmarks."""
+    filepath: str,
+    config_path: str,
+    SEED: int,
+    PLOT_TRAINING: bool,
+    SAVE_RESULTS: bool,
+    use_jax_loader: bool,
+    run_name: str,
+) -> train_state.TrainState:
+    """Main for running toy MPC benchmarks.
+
+    Args:
+        filepath (str): Path to the dataset file.
+        config_path (str): Path to the configuration file.
+        SEED (int): Random seed for reproducibility.
+        PLOT_TRAINING (bool): Whether to plot training curves.
+        SAVE_RESULTS (bool): Whether to save the results.
+        use_jax_loader (bool): Whether to use JAX DataLoader or PyTorch DataLoader.
+        run_name (str): Name of the run for logging.
+
+    Returns:
+        train_state.TrainState: The trained model state.
+    """
     hyperparameters = load_configuration(config_path)
     key = jax.random.PRNGKey(SEED)
     loader_key, key = jax.random.split(key, 2)
