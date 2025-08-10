@@ -4,11 +4,19 @@ import cvxpy as cp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from flax.training.train_state import TrainState
+
+from .load_toy_MPC import JaxDataLoader, ToyMPCDataset
 
 
 def plot_training(
-    train_loader, valid_loader, trainig_losses, validation_losses, eqcvs, ineqcvs
-):
+    train_loader: ToyMPCDataset | JaxDataLoader,
+    valid_loader: ToyMPCDataset | JaxDataLoader,
+    training_losses: jnp.ndarray,
+    validation_losses: jnp.ndarray,
+    eqcvs: jnp.ndarray,
+    ineqcvs: jnp.ndarray,
+) -> None:
     """Plot training curves."""
     opt_train_loss = []
     for batch in train_loader:
@@ -17,7 +25,7 @@ def plot_training(
     opt_train_loss = jnp.concatenate(opt_train_loss, axis=0).mean()
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 4, 1)
-    plt.plot(trainig_losses, label="Training Loss")
+    plt.plot(training_losses, label="Training Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.axhline(
@@ -64,22 +72,44 @@ def plot_training(
 
 
 def generate_trajectories(
-    state,
-    As,
-    lbxs,
-    ubxs,
-    lbus,
-    ubus,
-    alpha,
-    base_dim,
-    Y_DIM,
-    dimx,
-    xhat,
-    T,
-    lb,
-    ub,
-):
-    """Generates trajectories from HCNN and solver."""
+    state: TrainState,
+    As: jnp.ndarray,
+    lbxs: jnp.ndarray,
+    ubxs: jnp.ndarray,
+    lbus: jnp.ndarray,
+    ubus: jnp.ndarray,
+    alpha: float,
+    base_dim: int,
+    Y_DIM: int,
+    dimx: int,
+    xhat: jnp.ndarray,
+    T: int,
+    lb: jnp.ndarray,
+    ub: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Generates trajectories from pinet and solver.
+
+    Args:
+        state (TrainState): The trained model state.
+        As (jnp.ndarray): The equality constraint matrix.
+        lbxs (jnp.ndarray): Lower bounds for state variables.
+        ubxs (jnp.ndarray): Upper bounds for state variables.
+        lbus (jnp.ndarray): Lower bounds for control inputs.
+        ubus (jnp.ndarray): Upper bounds for control inputs.
+        alpha (float): Regularization parameter.
+        base_dim (int): Dimension of the base state.
+        Y_DIM (int): Total dimension of the decision variable.
+        dimx (int): Dimension of the state.
+        xhat (jnp.ndarray): Reference state.
+        T (int): Time horizon.
+        lb (jnp.ndarray): Lower bounds for the state.
+        ub (jnp.ndarray): Upper bounds for the state.
+
+    Returns:
+        tuple: A tuple containing:
+            - trajectories (jnp.ndarray): Predicted trajectories from the model.
+            - trajectories_cp (jnp.ndarray): Trajectories computed using cvxpy.
+    """
     ntraj = 1
     xinit = jnp.array([[-7, -5]]).reshape(ntraj, base_dim, 1)
     # Evaluate the network on these initial points
