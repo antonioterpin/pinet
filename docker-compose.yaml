@@ -6,8 +6,7 @@ x-common: &common
   working_dir: /app
   environment:
     PYTHONPATH: /app/src
-  entrypoint: ["conda", "run", "-n", "pinet", "--no-capture-output", "python"]
-  command: ["-m", "pytest", "-v", "-n", "8", "--cov=src/pinet", "--cov-report=term-missing", "-v"]
+  command: ["pytest", "--cov=src/pinet", "--cov-report=term-missing", "-v"]
 
 services:
   pinet-cpu:
