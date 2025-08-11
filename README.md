@@ -280,7 +280,7 @@ jaxopt results on the large non-convex benchmark | TODO | benchmark_jaxopt_small
 For `DC3`, we used the [open-source implementation](https://github.com/locuslab/DC3).
 
 > [!TIP] With Docker 🐳
-> To run the above commands within th docker container, you can use
+> To run the above commands within the docker container, you can use
 > ```bash
 > docker compose run --rm pinet-cpu -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD> # run on CPU
 > docker compose run --rm pinet-gpu -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD> # run on GPU
