@@ -1,8 +1,5 @@
 """Run HCNN on simple QP problem."""
 
-# TODO: Enable saving/serializing the trained network when saving results.
-# TODO: Do some ablations on the ADMM parameters.
-# TODO: Enable training with SoftMLP.
 import argparse
 import datetime
 import pathlib
@@ -13,7 +10,6 @@ import jax.numpy as jnp
 import optax
 import torch
 import wandb
-import yaml
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
@@ -21,18 +17,9 @@ from tqdm import tqdm
 from benchmarks.model import setup_model
 from benchmarks.simple_QP.load_simple_QP import load_data
 from benchmarks.simple_QP.plotting import plot_inference_boxes, plot_rs_vs_cv
-from hcnn.utils import GracefulShutdown, Logger
+from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
 jax.config.update("jax_enable_x64", True)
-
-
-# Import hyperparameters
-# Load hyperparameters from a yaml file
-def load_yaml(file_path: str) -> dict:
-    """Load hyperparameters for HCNN."""
-    with open(file_path, "r") as file:
-        hyperparameters = yaml.safe_load(file)
-    return hyperparameters
 
 
 class LoggingDict:
@@ -264,7 +251,7 @@ def main(
 ):
     """Main for running simple QP benchmarks."""
     # Load hyperparameter configuration
-    hyperparameters = load_yaml(config_path)
+    hyperparameters = load_configuration(config_path)
     torch.manual_seed(SEED)
     key = jax.random.PRNGKey(SEED)
     loader_key, key = jax.random.split(key, 2)
@@ -605,7 +592,7 @@ if __name__ == "__main__":
     args = parse_args()
     # Load the yaml file
     idpath = pathlib.Path(__file__).parent.resolve() / "ids" / (args.id + ".yaml")
-    dataset = load_yaml(idpath)
+    dataset = load_configuration(idpath)
     # Use existing DC3 Dataset or own dataset
     use_DC3_dataset = dataset["use_DC3_dataset"]
     use_convex = dataset["use_convex"]
@@ -618,7 +605,7 @@ if __name__ == "__main__":
     use_jax_loader = args.jax_loader
     # Configs path
     config_path = (
-        pathlib.Path(__file__).parent.parent.parent.resolve()
+        pathlib.Path(__file__).parent.parent.resolve()
         / "configs"
         / (args.config + ".yaml")
     )

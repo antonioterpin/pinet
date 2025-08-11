@@ -1,7 +1,7 @@
 """Module for setting HCNN models for the benchmarks."""
 
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -11,41 +11,63 @@ from benchmarks.simple_QP.other_projections import (
     get_cvxpy_projection,
     get_jaxopt_projection,
 )
-from hcnn.constraints.affine_equality import EqualityConstraint
-from hcnn.constraints.affine_inequality import AffineInequalityConstraint
-from hcnn.project import Project
-from hcnn.utils import EqualityInputs, Inputs
+from pinet import (
+    AffineInequalityConstraint,
+    BoxConstraint,
+    EqualityConstraint,
+    EqualityConstraintsSpecification,
+    EquilibrationParams,
+    Project,
+    ProjectionInstance,
+)
 
 
 def setup_pinet(
-    hyperparameters,
-    eq_constraint=None,
-    ineq_constraint=None,
-    box_constraint=None,
-    setup_reps=10,
+    hyperparameters: dict,
+    eq_constraint: Optional[EqualityConstraint] = None,
+    ineq_constraint: Optional[AffineInequalityConstraint] = None,
+    box_constraint: Optional[BoxConstraint] = None,
+    setup_reps: int = -1,
 ):
-    """Setup of pinet projection layer."""
+    """Setup of pinet projection layer.
+
+    Args:
+        hyperparameters (dict): Hyperparameters for the model.
+        eq_constraint (Optional[EqualityConstraint]): Equality constraint.
+        ineq_constraint (Optional[AffineInequalityConstraint]): Inequality constraint.
+        box_constraint (Optional[BoxConstraint]): Box constraint.
+        setup_reps (int): Number of repetitions for setup timing.
+
+    Returns:
+        Callable: Function to project inputs during training.
+        Callable: Function to project inputs during testing.
+        float: Time taken to set up the projection layer.
+    """
     projection_layer = Project(
         ineq_constraint=ineq_constraint,
         eq_constraint=eq_constraint,
         box_constraint=box_constraint,
         unroll=hyperparameters["unroll"],
-        equilibrate=hyperparameters["equilibrate"],
+        equilibration_params=EquilibrationParams(**hyperparameters["equilibrate"]),
     )
 
-    # Measure setup time
-    start_setup_time = time.time()
-    for _ in range(max(0, setup_reps)):
-        _ = Project(
-            ineq_constraint=ineq_constraint,
-            eq_constraint=eq_constraint,
-            box_constraint=box_constraint,
-            unroll=hyperparameters["unroll"],
-            equilibrate=hyperparameters["equilibrate"],
-        )
-    setup_time = (time.time() - start_setup_time) / (max(setup_reps, 1))
+    setup_time = 0.0
+    if setup_reps > 0:
+        # Measure setup time
+        start_setup_time = time.time()
+        for _ in range(setup_reps):
+            _ = Project(
+                ineq_constraint=ineq_constraint,
+                eq_constraint=eq_constraint,
+                box_constraint=box_constraint,
+                unroll=hyperparameters["unroll"],
+                equilibration_params=EquilibrationParams(
+                    **hyperparameters["equilibrate"]
+                ),
+            )
+        setup_time = (time.time() - start_setup_time) / (max(setup_reps, 1))
 
-    print(f"Time to create constraints: {setup_time:.5f} seconds")
+        print(f"Time to create constraints: {setup_time:.5f} seconds")
 
     # Define HCNN model
     kw = (
@@ -58,28 +80,28 @@ def setup_pinet(
     )
 
     def project(x, b):
-        inp = Inputs(x=x, eq=EqualityInputs(b=b))
+        inp = ProjectionInstance(
+            x=x[..., None], eq=EqualityConstraintsSpecification(b=b)
+        )
         return projection_layer.call(
-            y0=projection_layer.get_init(inp),
-            inp=inp,
-            interpolation_value=0.0,
+            yraw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_train"],
             **kw,
-        )[0]
+        )[0].x[..., 0]
 
     def project_test(x, b):
-        inp = Inputs(x=x, eq=EqualityInputs(b=b))
+        inp = ProjectionInstance(
+            x=x[..., None], eq=EqualityConstraintsSpecification(b=b)
+        )
         return projection_layer.call(
-            y0=projection_layer.get_init(inp),
-            inp=inp,
-            interpolation_value=0.0,
+            yraw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_test"],
             **kw,
-        )[0]
+        )[0].x[..., 0]
 
     return project, project_test, setup_time
 

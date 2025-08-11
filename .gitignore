@@ -1,6 +1,9 @@
 # Wandb files
 wandb/
 
+# OS generated files
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 .vscode/
 __pycache__/

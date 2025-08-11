@@ -13,7 +13,11 @@ class SimpleQPDataset(Dataset):
     """Dataset for simple QP benchmark."""
 
     def __init__(self, filepath):
-        """Initialize dataset."""
+        """Initialize dataset.
+
+        Args:
+            filepath (str): Path to the dataset file.
+        """
         data = jnp.load(filepath)
         # Parameter values for each instance
         self.X = data["X"]

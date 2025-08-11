@@ -111,7 +111,7 @@ def generate_trajectories(
         problem = cp.Problem(objective, constraints)
         # Setup problem parameter
         xinitcp.value = np.array(xinit[i, :, 0])
-        problem.solve(verbose=True)
+        problem.solve(verbose=False)
         trajectories_cp = trajectories_cp.at[i].set(
             jnp.asarray(xcp.value).reshape(-1, 1)
         )
