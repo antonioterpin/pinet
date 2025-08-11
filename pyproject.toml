@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pinet"
-version = "1.0.0"
+name = "pinet-hcnn"
+version = "0.1.0"
 description = "A differentiable orthogonal projection layer for training hard-constrained neural networks."
 readme = "README.md"
 license = { file = "LICENSE" }
