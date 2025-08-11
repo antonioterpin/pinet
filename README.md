@@ -3,7 +3,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-TODO-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/TODO)
 [![GitHub stars](https://img.shields.io/github/stars/antonioterpin/pinet?style=social)](https://github.com/antonioterpin/pinet/stargazers)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://github.com/antonioterpin/pinet/LICENSE)
-[![codecov](https://codecov.io/gh/antonioterpin/pinet/graph/badge.svg?token=UQ48NNZSI4)](https://codecov.io/gh/antonioterpin/pinet)
+[![codecov](https://codecov.io/gh/antonioterpin/pinet/graph/badge.svg?token=J49B8TFDSM)](https://codecov.io/gh/antonioterpin/pinet)
 [![Tests](https://github.com/antonioterpin/pinet/actions/workflows/test.yaml/badge.svg)](https://github.com/antonioterpin/pinet/actions/workflows/test.yaml)
 [![PyPI version](https://img.shields.io/pypi/v/pinet-hcnn.svg)](https://pypi.org/project/pinet-hcnn)
 
