@@ -30,3 +30,9 @@ jobs:
       - name: Run tests
         run: |
           pytest -v --junitxml=junit/test-results.xml
+
+      # Step 5: Upload test results
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
