@@ -24,15 +24,29 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir .[dev]
+          pip install -e '.[dev]'
 
       # Step 4: Run tests
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          pytest --cov=src/pinet --cov-report=xml
-
-      # Step 5: Upload test results
-      - name: Upload coverage reports to Codecov
+          pytest -q \
+            --maxfail=1 \
+            --disable-warnings \
+            --cov=src/pinet \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+      # Upload the XML as a build artifact so we (and Codecov) can inspect it
+      - name: Upload coverage.xml artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+      - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          disable_search: true
+          fail_ci_if_error: true
+          verbose: true
