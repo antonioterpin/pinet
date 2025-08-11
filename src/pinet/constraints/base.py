@@ -20,7 +20,6 @@ class Constraint:
         Returns:
             jnp.ndarray: The projected input, shape (batch_size, dim).
         """
-        pass
 
     @abstractmethod
     def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
@@ -33,7 +32,6 @@ class Constraint:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        pass
 
     @property
     @abstractmethod
@@ -43,7 +41,6 @@ class Constraint:
         Returns:
             int: The dimension of the constraint set.
         """
-        pass
 
     @property
     @abstractmethod
@@ -53,4 +50,3 @@ class Constraint:
         Returns:
             int: The number of constraints.
         """
-        pass

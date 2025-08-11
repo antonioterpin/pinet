@@ -7,7 +7,7 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from pinet import BoxConstraint, Project, ProjectionInstance
+from pinet import BoxConstraint, BoxConstraintSpecification, Project, ProjectionInstance
 
 
 class HardConstrainedMLP(nn.Module):
@@ -52,8 +52,10 @@ def test_clipped_sine(seed: int):
     # Define and initialize the hard constrained MLP
     model = HardConstrainedMLP(
         box_constraint=BoxConstraint(
-            jnp.array([EPS]).reshape((1, 1, 1)),
-            jnp.array([1 - EPS]).reshape((1, 1, 1)),
+            BoxConstraintSpecification(
+                lb=jnp.array([EPS]).reshape((1, 1, 1)),
+                ub=jnp.array([1 - EPS]).reshape((1, 1, 1)),
+            )
         )
     )
     params = model.init(jax.random.PRNGKey(seed), jnp.ones([1, 1]), 0)

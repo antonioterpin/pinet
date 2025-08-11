@@ -10,6 +10,7 @@ import pytest
 from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
+    BoxConstraintSpecification,
     EqualityConstraint,
     EqualityConstraintsSpecification,
     Project,
@@ -23,7 +24,9 @@ def test_box_cv():
     lower_bound = jnp.array([-1.0, -2.0]).reshape(1, -1, 1)
     upper_bound = jnp.array([1.0, 2.0]).reshape(1, -1, 1)
     mask = jnp.array([True, False, True])
-    box_constraint = BoxConstraint(lower_bound, upper_bound, mask)
+    box_constraint = BoxConstraint(
+        BoxConstraintSpecification(lb=lower_bound, ub=upper_bound, mask=mask)
+    )
 
     x = jnp.concatenate(
         [
@@ -162,7 +165,9 @@ def test_inequality_box_cv():
     # Define box constraints
     lower_bound = jnp.array([0.0, 0.0]).reshape(1, -1, 1)
     upper_bound = jnp.array([jnp.inf, jnp.inf]).reshape(1, -1, 1)
-    box_constraint = BoxConstraint(lower_bound, upper_bound)
+    box_constraint = BoxConstraint(
+        BoxConstraintSpecification(lb=lower_bound, ub=upper_bound)
+    )
 
     # Define projection layer
     projection_layer = Project(
@@ -254,7 +259,9 @@ def test_equality_inequality_box_cv(seed, batch_size):
     # Define the projection layer
     eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=True)
     ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
-    box_constraint = BoxConstraint(lower_bound=lbox, upper_bound=ubox, mask=mask)
+    box_constraint = BoxConstraint(
+        BoxConstraintSpecification(lb=lbox, ub=ubox, mask=mask)
+    )
     projection_layer = Project(
         eq_constraint=eq_constraint,
         ineq_constraint=ineq_constraint,

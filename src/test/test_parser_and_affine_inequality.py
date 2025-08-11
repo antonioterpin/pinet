@@ -10,6 +10,7 @@ import pytest
 from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
+    BoxConstraintSpecification,
     ConstraintParser,
     EqualityConstraint,
     ProjectionInstance,
@@ -81,8 +82,8 @@ def test_simple_2d(method, seed, batch_size):
         yliftedcp = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedcp[lifted_box.mask],
-            yliftedcp[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_box.lb[0, :, 0] <= yliftedcp[lifted_box.mask],
+            yliftedcp[lifted_box.mask] <= lifted_box.ub[0, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedcp[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -176,8 +177,8 @@ def test_general_eq_ineq(method, seed, batch_size):
         yliftedproj = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[0, :, :] @ yliftedproj == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedproj[lifted_box.mask],
-            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_box.lb[0, :, 0] <= yliftedproj[lifted_box.mask],
+            yliftedproj[lifted_box.mask] <= lifted_box.ub[0, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedproj[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -324,7 +325,7 @@ def test_general_eq_ineq_box(
     eq_constraint = EqualityConstraint(A=A, b=b, method=method)
     ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
     box_constraint = BoxConstraint(
-        lower_bound=box_lower, upper_bound=box_upper, mask=mask
+        BoxConstraintSpecification(lb=box_lower, ub=box_upper, mask=mask)
     )
 
     # Parse constraints
@@ -374,8 +375,8 @@ def test_general_eq_ineq_box(
         yliftedproj = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[ACidx, :, :] @ yliftedproj == lifted_eq.b[bfeasidx, :, 0],
-            lifted_box.lower_bound[loweridx, :, 0] <= yliftedproj[lifted_box.mask],
-            yliftedproj[lifted_box.mask] <= lifted_box.upper_bound[upperidx, :, 0],
+            lifted_box.lb[loweridx, :, 0] <= yliftedproj[lifted_box.mask],
+            yliftedproj[lifted_box.mask] <= lifted_box.ub[upperidx, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedproj[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -499,8 +500,8 @@ def test_simple_no_equality(seed, batch_size):
         yliftedcp = cp.Variable(dim + n_ineq)
         constraints_lifted = [
             lifted_eq.A[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
-            lifted_box.lower_bound[0, :, 0] <= yliftedcp[lifted_box.mask],
-            yliftedcp[lifted_box.mask] <= lifted_box.upper_bound[0, :, 0],
+            lifted_box.lb[0, :, 0] <= yliftedcp[lifted_box.mask],
+            yliftedcp[lifted_box.mask] <= lifted_box.ub[0, :, 0],
         ]
         objective_lifted = cp.Minimize(cp.sum_squares(yliftedcp[:dim] - x[ii, :, 0]))
         problem_lifted = cp.Problem(
@@ -513,3 +514,62 @@ def test_simple_no_equality(seed, batch_size):
         # Check the projections match
         assert jnp.allclose(ylifted, y_qp[0, :, :])
         assert jnp.allclose(y_qp[0, :, :], yiterated[ii, :, :], rtol=1e-6, atol=1e-6)
+
+
+def test_affine_inequality_project_cannot_be_called_directly():
+    """Test that the project method cannot be called directly."""
+    C = jnp.array([[[1, 1]]])
+    lb = jnp.zeros(shape=(1, 1, 1))
+    ub = jnp.ones(shape=(1, 1, 1))
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    with pytest.raises(
+        NotImplementedError,
+        match="The 'project' method is not implemented and should not be called.",
+    ):
+        ineq_constraint.project(ProjectionInstance(x=jnp.zeros((1, 2, 1))))
+
+
+def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
+    dim, n_eq = 3, 2
+    A = jnp.arange(n_eq * dim, dtype=jnp.float64).reshape(1, n_eq, dim)
+    b = jnp.zeros((1, n_eq, 1))
+    eq = EqualityConstraint(A=A, b=b, method="pinv")
+
+    parser = ConstraintParser(
+        eq_constraint=eq, ineq_constraint=None, box_constraint=None
+    )
+    eq_out, box_out = parser.parse(method="pinv")
+
+    # Still the same exact object (no lifting performed)
+    assert eq_out is eq
+    assert box_out is None
+    assert eq_out.A is A
+    assert eq_out.b is b
+
+
+def test_constraint_parser_no_ineq_with_box_returns_inputs():
+    dim, n_eq = 4, 1
+    A = jnp.ones((1, n_eq, dim))
+    b = jnp.zeros((1, n_eq, 1))
+    eq = EqualityConstraint(A=A, b=b, method="pinv")
+
+    mask = jnp.array([True, False, True, False])
+    n_box = int(mask.sum())
+    lb = jnp.array([[[-1.0], [0.0]]]).reshape(1, n_box, 1)
+    ub = jnp.array([[[1.0], [2.0]]]).reshape(1, n_box, 1)
+    box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub, mask=mask))
+
+    parser = ConstraintParser(
+        eq_constraint=eq, ineq_constraint=None, box_constraint=box
+    )
+    eq_out, box_out = parser.parse(method="pinv")
+
+    # Still the same exact objects (no lifting performed)
+    assert eq_out is eq
+    assert box_out is box
+
+    # Sanity: mask/bounds unchanged
+    assert jnp.array_equal(box_out.mask, mask)
+    assert jnp.array_equal(box_out.lb, lb)
+    assert jnp.array_equal(box_out.ub, ub)
