@@ -29,7 +29,7 @@ jobs:
       # Step 4: Run tests
       - name: Run tests
         run: |
-          pytest -v --junitxml=junit/test-results.xml
+          pytest --cov=src/pinet --cov-report=xml
 
       # Step 5: Upload test results
       - name: Upload coverage reports to Codecov
