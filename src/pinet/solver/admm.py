@@ -43,7 +43,7 @@ def initialize(
                 ineq_constraint=ineq_constraint,
                 box_constraint=box_constraint,
             )
-            lifted_eq_constraint, _ = parser.parse(method="pinv")
+            lifted_eq_constraint, _, _ = parser.parse(method="pinv")
             yraw = yraw.update(
                 eq=yraw.eq.update(
                     A=lifted_eq_constraint.A, Apinv=lifted_eq_constraint.Apinv

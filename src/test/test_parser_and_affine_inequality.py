@@ -47,7 +47,7 @@ def test_simple_2d(method, seed, batch_size):
     parser = ConstraintParser(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    (lifted_eq, lifted_box) = parser.parse()
+    (lifted_eq, lifted_box, _) = parser.parse()
 
     # Point to be projected
     x = jax.random.uniform(key, shape=(batch_size, dim, 1), minval=-2, maxval=2)
@@ -153,7 +153,7 @@ def test_general_eq_ineq(method, seed, batch_size):
     parser = ConstraintParser(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
-    (lifted_eq, lifted_box) = parser.parse(method=method)
+    (lifted_eq, lifted_box, _) = parser.parse(method=method)
     # Point to be projected
     x = jax.random.uniform(key[2], shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
@@ -334,7 +334,7 @@ def test_general_eq_ineq_box(
         ineq_constraint=ineq_constraint,
         box_constraint=box_constraint,
     )
-    (lifted_eq, lifted_box) = parser.parse(method=method)
+    (lifted_eq, lifted_box, _) = parser.parse(method=method)
 
     # Point to be projected
     x = jax.random.uniform(key[3], shape=(batch_size_x, dim, 1), minval=-3, maxval=3)
@@ -433,7 +433,7 @@ def test_general_eq_ineq_box(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint_aug
     )
 
-    (lifted_eq, lifted_box) = parser_aug.parse()
+    (lifted_eq, lifted_box, _) = parser_aug.parse()
 
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
@@ -466,13 +466,13 @@ def test_simple_no_equality(seed, batch_size):
 
     # Parse constraints
     parser = ConstraintParser(eq_constraint=None, ineq_constraint=ineq_constraint)
-    (lifted_eq, lifted_box) = parser.parse()
+    (lifted_eq, lifted_box, _) = parser.parse()
 
     # Point to be projected
     x = jax.random.uniform(key, shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
     # Compute the projection with iterative
-    (lifted_eq, lifted_box) = parser.parse()
+    (lifted_eq, lifted_box, _) = parser.parse()
 
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
@@ -539,7 +539,7 @@ def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
     parser = ConstraintParser(
         eq_constraint=eq, ineq_constraint=None, box_constraint=None
     )
-    eq_out, box_out = parser.parse(method="pinv")
+    eq_out, box_out, _ = parser.parse(method="pinv")
 
     # Still the same exact object (no lifting performed)
     assert eq_out is eq
@@ -563,7 +563,7 @@ def test_constraint_parser_no_ineq_with_box_returns_inputs():
     parser = ConstraintParser(
         eq_constraint=eq, ineq_constraint=None, box_constraint=box
     )
-    eq_out, box_out = parser.parse(method="pinv")
+    eq_out, box_out, _ = parser.parse(method="pinv")
 
     # Still the same exact objects (no lifting performed)
     assert eq_out is eq

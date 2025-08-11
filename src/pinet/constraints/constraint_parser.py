@@ -1,5 +1,7 @@
 """Parser of constraints to lifted representation module."""
 
+from typing import Optional
+
 import jax.numpy as jnp
 import numpy as np
 
@@ -32,7 +34,7 @@ class ConstraintParser:
         """
         if ineq_constraint is None:
             # The constraints do not need lifting.
-            self.parse = lambda method: (eq_constraint, box_constraint)
+            self.parse = lambda method: (eq_constraint, box_constraint, lambda y: y)
             return
 
         self.dim = ineq_constraint.dim
@@ -70,12 +72,14 @@ class ConstraintParser:
                 or self.box_constraint.ub.shape[0] == 1
             ), "Batch sizes of ub and upper_bound must be consistent."
 
-    def parse(self, method: str = "pinv") -> tuple[EqualityConstraint, BoxConstraint]:
+    def parse(
+        self, method: Optional[str] = "pinv"
+    ) -> tuple[EqualityConstraint, BoxConstraint]:
         """Parse the constraints into a lifted representation.
 
         Args:
-            method: A string that specifies the method used to solve
-                linear systems. Valid method "pinv", and None.
+            method (Optional[str]): Method to use for solving linear systems.
+                Valid methods are "pinv", and None.
 
         Returns:
             A tuple of constraints: (eq_constraint, box_constraint)
@@ -187,4 +191,19 @@ class ConstraintParser:
                     mask=box_mask,
                 )
             )
-        return (eq_lifted, box_lifted)
+
+        def lift(y):
+            """Lift the input to the lifted dimension."""
+            y = y.update(x=jnp.concatenate([y.x, self.ineq_constraint.C @ y.x], axis=1))
+            if self.eq_constraint.var_b:
+                y = y.update(
+                    eq=y.eq.update(
+                        b=jnp.concatenate(
+                            [y.eq.b, jnp.zeros((y.x.shape[0], self.n_ineq, 1))],
+                            axis=1,
+                        )
+                    )
+                )
+            return y
+
+        return (eq_lifted, box_lifted, lift)
