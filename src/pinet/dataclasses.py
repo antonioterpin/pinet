@@ -25,7 +25,7 @@ class EqualityConstraintsSpecification:
     A: Optional[jnp.ndarray] = None
     Apinv: Optional[jnp.ndarray] = None
 
-    def validate(self):
+    def validate(self) -> None:
         """Validate the equality constraints specification.
 
         NOTE: This checks cannot be done after tracing, but this function
@@ -34,7 +34,7 @@ class EqualityConstraintsSpecification:
         if self.A is not None and self.b is None:
             raise ValueError("If A is provided, b must also be provided.")
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> "EqualityConstraintsSpecification":
         """Update some attribute by keyword."""
         return replace(self, **kwargs)
 
@@ -55,11 +55,11 @@ class BoxConstraintSpecification:
     ub: Optional[jnp.ndarray] = None
     mask: Optional[jnp.ndarray] = None
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> "BoxConstraintSpecification":
         """Update some attribute by keyword."""
         return replace(self, **kwargs)
 
-    def validate(self):
+    def validate(self) -> None:
         """Validate the box constraint specification.
 
         NOTE: This checks cannot be done after tracing, but this function
@@ -136,7 +136,7 @@ class ProjectionInstance:
     eq: Optional[EqualityConstraintsSpecification] = None
     box: Optional[BoxConstraintSpecification] = None
 
-    def validate(self):
+    def validate(self) -> None:
         """Validate the projection instance.
 
         NOTE: This checks cannot be done after tracing, but this function
@@ -148,7 +148,7 @@ class ProjectionInstance:
                 f"Received shape: {self.x.shape}."
             )
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> "ProjectionInstance":
         """Update some attribute by keyword."""
         return replace(self, **kwargs)
 
@@ -177,7 +177,7 @@ class EquilibrationParams:
     update_mode: str = "Gauss"
     safeguard: bool = False
 
-    def validate(self):
+    def validate(self) -> None:
         """Validate the equilibration parameters."""
         if self.max_iter < 0:
             raise ValueError("max_iter must be non-negative.")
@@ -188,6 +188,6 @@ class EquilibrationParams:
         if self.update_mode not in ["Gauss", "Jacobi"]:
             raise ValueError('update_mode must be either "Gauss" or "Jacobi".')
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> "EquilibrationParams":
         """Update some attribute by keyword."""
         return replace(self, **kwargs)

@@ -53,7 +53,7 @@ class AffineInequalityConstraint(Constraint):
             self.C.shape[1] == self.ub.shape[1]
         ), "Number of rows in C must equal size of u."
 
-    def project(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def project(self, inp: ProjectionInstance) -> ProjectionInstance:
         """Project x onto the affine inequality constraint set.
 
         Args:
@@ -61,7 +61,7 @@ class AffineInequalityConstraint(Constraint):
                 The .x attribute is the point to project.
 
         Returns:
-            jnp.ndarray: The projected point for each point in the batch.
+            ProjectionInstance: The projected point for each point in the batch.
                 Shape (batch_size, dimension, 1).
         """
         raise NotImplementedError(

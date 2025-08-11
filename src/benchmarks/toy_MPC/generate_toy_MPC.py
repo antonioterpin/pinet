@@ -5,7 +5,6 @@ import pathlib
 import cvxpy as cp
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
@@ -63,30 +62,6 @@ problem = cp.Problem(objective, constraints)
 xinit.value = np.array(x0)
 problem.solve()
 
-
-def plot_trajectory(z, xhat):
-    """Plots the trajectory in z."""
-    x = z[:dimx]
-    x = x.reshape((T + 1, base_dim))
-    plt.plot(x[:, 0], x[:, 1], "-o")
-    plt.plot(xhat[0], xhat[1], "rx", markersize=10, label="Goal")
-    # Plot the bounds of x as a rectangle
-    rect = plt.Rectangle(
-        (lbx[0, 0], lbx[1, 0]),
-        ubx[0, 0] - lbx[0, 0],
-        ubx[1, 0] - lbx[1, 0],
-        linewidth=1,
-        edgecolor="r",
-        facecolor="none",
-        linestyle="--",
-        label="Bounds",
-    )
-    plt.gca().add_patch(rect)
-    plt.legend()
-    plt.show()
-
-
-plot_trajectory(z.value, xhat)
 # Solve many problems
 SEED = 42
 NUM_EXAMPLES = 10000

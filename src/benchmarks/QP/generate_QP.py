@@ -14,8 +14,30 @@ from tqdm import tqdm
 jax.config.update("jax_enable_x64", True)
 
 
-def solve_problems(Q, p, A, X, G, h, convex=True):
-    """Compute the optimal solutions for problem instances."""
+def solve_problems(
+    Q: jnp.ndarray,
+    p: jnp.ndarray,
+    A: jnp.ndarray,
+    X: jnp.ndarray,
+    G: jnp.ndarray,
+    h: jnp.ndarray,
+    convex: bool = True,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Compute the optimal solutions for problem instances.
+
+    Args:
+        Q (jnp.ndarray): Quadratic term of the objective function.
+        p (jnp.ndarray): Linear term of the objective function.
+        A (jnp.ndarray): Coefficient matrix for equality constraints.
+        X (jnp.ndarray): Input data for equality constraints.
+        G (jnp.ndarray): Coefficient matrix for inequality constraints.
+        h (jnp.ndarray): Right-hand side of the inequality constraints.
+        convex (bool): Whether the problem is convex or not.
+
+    Returns:
+        tuple[jnp.ndarray, jnp.ndarray]:
+            A tuple containing the objectives and optimal solutions.
+    """
     # Dimension of decision variable
     Y_DIM = Q.shape[2]
     N_SAMPLES = X.shape[0]

@@ -14,11 +14,7 @@ import jax
 import jax.numpy as jnp
 from tqdm import tqdm
 
-from benchmarks.simple_QP.load_simple_QP import (
-    SimpleQPDataset,
-    create_dataloaders,
-    dc3_dataloader,
-)
+from benchmarks.QP.load_QP import SimpleQPDataset, create_dataloaders, dc3_dataloader
 from pinet import (
     AffineInequalityConstraint,
     EqualityConstraint,

@@ -1,21 +1,26 @@
 """Loading functionality for toy MPC benchmark."""
 
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from src.benchmarks.simple_QP.load_simple_QP import JaxDataLoader
+from benchmarks.QP.load_QP import JaxDataLoader
 
 
 # Load Instance Dataset
 class ToyMPCDataset(Dataset):
     """Dataset for toy MPC benchmark."""
 
-    def __init__(self, data, const):
-        """Initialize dataset."""
+    def __init__(self, data: dict, const: dict):
+        """Initialize dataset.
+
+        Args:
+            data (dict): Dictionary containing the dataset.
+            const (dict): Dictionary containing constant problem ingredients.
+        """
         # Parameter values for each instance
         self.x0sets = data["x0sets"]
         # Constant problem ingredients
@@ -34,19 +39,46 @@ class ToyMPCDataset(Dataset):
         self.objectives = data["objectives"]
         self.Ystar = data["Ystar"]
 
-    def __len__(self):
-        """Length of dataset."""
+    def __len__(self) -> int:
+        """Length of dataset.
+
+        Returns:
+            int: Number of instances in the dataset.
+        """
         return self.x0sets.shape[0]
 
-    def __getitem__(self, idx):
-        """Get item from dataset."""
+    def __getitem__(self, idx: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Get item from dataset.
+
+        Args:
+            idx (int): Index of the item to retrieve.
+
+        Returns:
+            tuple[jnp.ndarray, jnp.ndarray]:
+                Tuple containing the initial condition and the objective value.
+        """
         return self.x0sets[idx], self.objectives[idx]
 
 
 def create_dataloaders(
-    dataset, batch_size=2048, val_split=0.1, test_split=0.1, shuffle=True
-):
-    """Dataset loaders for training, validation and test."""
+    dataset: ToyMPCDataset,
+    batch_size: int = 2048,
+    val_split: float = 0.1,
+    test_split: float = 0.1,
+    shuffle: bool = True,
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """Dataset loaders for training, validation and test.
+
+    Args:
+        dataset (ToyMPCDataset): The dataset to create loaders for.
+        batch_size (int): Size of each batch.
+        val_split (float): Proportion of the dataset to use for validation.
+        test_split (float): Proportion of the dataset to use for testing.
+
+    Returns:
+        tuple[DataLoader, DataLoader, DataLoader]:
+            A tuple containing the training, validation, and test DataLoaders.
+    """
     size = len(dataset)
 
     val_size = int(size * val_split)
@@ -83,8 +115,15 @@ class JaxDataLoaderMPC(JaxDataLoader):
         batch_size: int,
         shuffle: bool = True,
         rng_key: Optional[jax.Array] = None,
-    ):
-        """Initialize loader."""
+    ) -> None:
+        """Initialize loader.
+
+        Args:
+            dataset (ToyMPCDataset): The dataset to load.
+            batch_size (int): Size of each batch.
+            shuffle (bool): Whether to shuffle the dataset.
+            rng_key (Optional[jax.Array]): Random key for shuffling.
+        """
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -94,14 +133,54 @@ class JaxDataLoaderMPC(JaxDataLoader):
 
 
 def load_data(
-    filepath,
-    rng_key,
-    batch_size=2048,
-    val_split=0.1,
-    test_split=0.1,
-    use_jax_loader=True,
-):
-    """Load problem data."""
+    filepath: str,
+    rng_key: jax.Array,
+    batch_size: int = 2048,
+    val_split: float = 0.1,
+    test_split: float = 0.1,
+    use_jax_loader: bool = True,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    float,
+    float,
+    int,
+    jnp.ndarray,
+    ToyMPCDataset | JaxDataLoaderMPC,
+    ToyMPCDataset | JaxDataLoaderMPC,
+    ToyMPCDataset | JaxDataLoaderMPC,
+    Callable[[jnp.ndarray], jnp.ndarray],
+]:
+    """Load problem data.
+
+    Args:
+        filepath (str): Path to the dataset file.
+        rng_key (jax.Array): Random key for shuffling.
+        batch_size (int): Size of each batch.
+        val_split (float): Proportion of the dataset to use for validation.
+        test_split (float): Proportion of the dataset to use for testing.
+        use_jax_loader (bool): Whether to use JAX DataLoader or PyTorch DataLoader.
+
+    Returns:
+        tuple: A tuple containing:
+            - As (jnp.ndarray): System dynamics matrix.
+            - lbxs (jnp.ndarray): Lower bounds for state variables.
+            - ubxs (jnp.ndarray): Upper bounds for state variables.
+            - lbus (jnp.ndarray): Lower bounds for control inputs.
+            - ubus (jnp.ndarray): Upper bounds for control inputs.
+            - xhat (jnp.ndarray): Reference state.
+            - alpha (float): Regularization parameter.
+            - T (int): Time horizon.
+            - base_dim (int): Dimension of the base state.
+            - X (jnp.ndarray): Initial conditions for the dataset.
+            - train_loader: Training DataLoader or JaxDataLoaderMPC.
+            - valid_loader: Validation DataLoader or JaxDataLoaderMPC.
+            - test_loader: Test DataLoader or JaxDataLoaderMPC.
+            - batched_objective: Function to compute the quadratic objective in batches.
+    """
     dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filepath)
     all_data = jnp.load(dataset_path)
     ToyDataset = ToyMPCDataset(all_data, all_data)

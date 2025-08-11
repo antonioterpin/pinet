@@ -36,15 +36,17 @@ class BoxConstraint(Constraint):
         if self.mask is None:
             self.mask = np.ones(shape=(self.dim), dtype=jnp.bool_)
 
-    def get_params(self, yraw: ProjectionInstance) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def get_params(
+        self, yraw: ProjectionInstance
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Get the parameters of the box constraint.
 
         Args:
             yraw (ProjectionInstance): ProjectionInstance to get the parameters from.
 
         Returns:
-            tuple: A tuple containing the lower and upper bounds.
-                Shape (batch_size, n_constraints, 1).
+            tuple: A tuple containing the lower and upper bounds and the mask.
+                Each of shape (batch_size, n_constraints, 1).
         """
         lb = (
             (yraw.box.lb * self.scale)
@@ -65,7 +67,7 @@ class BoxConstraint(Constraint):
 
         return lb, ub, mask
 
-    def project(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
         Args:
@@ -73,8 +75,8 @@ class BoxConstraint(Constraint):
                 The .x attribute is the point to project.
 
         Returns:
-            jnp.ndarray: The projected point for each point in the batch.
-                Shape (batch_size, dimension, 1).
+            ProjectionInstance: The projected point for each point in the batch.
+                .x of shape (batch_size, dimension, 1).
         """
         lb, ub, mask = self.get_params(yraw)
         return yraw.update(
