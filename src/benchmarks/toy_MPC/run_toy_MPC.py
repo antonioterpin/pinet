@@ -613,7 +613,7 @@ if __name__ == "__main__":
             f"Inference Time: {results['inference_time_mean']:.5f} ± "
             f"{results['inference_time_std']:.5f} s"
         )
-        rel_suboptimality = (results["hcnn_obj"][0, :] - results["opt_obj"]) / results[
+        rel_suboptimality = (results["hcnn_obj"] - results["opt_obj"]) / results[
             "opt_obj"
         ]
         print(f"Average Relative Suboptimality: {rel_suboptimality.mean():.5%}")

@@ -209,7 +209,7 @@ def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
 ### Run the end-to-end script
 To reproduce the results in the paper, you can run
 ```bash
-python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 12
+python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 0
 ```
 To generate the dataset, run
 ```bash

@@ -1,12 +1,12 @@
 n_epochs: 250
-n_iter_train: 100
+n_iter_train: 200
 n_iter_test: 1000
-learning_rate: 1.0e-3
+learning_rate: 3.0e-4
 sigma: 0.01
 omega: 1.7
 unroll: False
-fpi: True
-n_iter_bwd: 100
+fpi: False
+n_iter_bwd: 200
 raw: False
 activation: relu
 equilibrate:
@@ -19,4 +19,4 @@ equilibrate:
 features_list: [200, 200]
 val_split: 0.1
 test_split: 0.1
-batch_size: 2048
+batch_size: 512
