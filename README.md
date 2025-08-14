@@ -1,6 +1,6 @@
 # &Pi;net: Optimizing hard-constrained neural networks with orthogonal projection layers
 
-[![arXiv](https://img.shields.io/badge/arXiv-TODO-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/TODO)
+[![arXiv](https://img.shields.io/badge/arXiv-6707596-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/6707596)
 [![GitHub stars](https://img.shields.io/github/stars/antonioterpin/pinet?style=social)](https://github.com/antonioterpin/pinet/stargazers)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://github.com/antonioterpin/pinet/LICENSE)
 [![codecov](https://codecov.io/gh/antonioterpin/pinet/graph/badge.svg?token=J49B8TFDSM)](https://codecov.io/gh/antonioterpin/pinet)
@@ -213,7 +213,7 @@ python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples1
 ```
 To generate the dataset, run
 ```bash
-TODO
+python -m src.benchmarks.toy_MPC.generate_toy_MPC
 ```
 
 You’ll get:
@@ -248,34 +248,23 @@ We report the results for an optimization problem with optimization variable of 
 ![Non-convex learning curves](media/nonconvex-times.jpg)
 
 Overall, &Pi;net outperforms the state-of-the-art in accuracy and training times.
-For more comparisons and ablations, please check out our [paper](TODO).
+For more comparisons and ablations, please check out our [paper](https://arxiv.org/abs/6707596).
 
 ### Reproducing the paper's results
-To reproduce our benchmarks and ablations, you can run
+To reproduce the paper's results from &Pi;net, JAXopt and cvxpylayers run the bash script:
+```bash
+sh src/benchmarks/QP/run_QP_batch.sh
+```
+
+To run individual experiments use:
 ```bash
 python -m src.benchmarks.QP.run_QP --seed 0 --id <ID> --config <CONFIG>  --proj_method <METHOD>
 ```
-To select `ID`, `CONFIG`, and `METHOD`, please refer to the table below.
-Experiment | ID | CONFIG | METHOD
---|--|--|--
-&Pi;net results on the small convex benchmark | TODO | benchmark_small_autotune | pinet
-&Pi;net results on the large convex benchmark | TODO | benchmark_large_autotune | pinet
-&Pi;net results on the small non-convex benchmark | TODO | benchmark_small_autotune | pinet
-&Pi;net results on the large non-convex benchmark | TODO | benchmark_large_autotune | pinet
-&Pi;net results on the TODO benchmark with manual tuning | TODO | benchmark_config_manual | pinet
-&Pi;net results on the TODO benchmark without equilibration | TODO | benchmark_noequil_autotune | pinet
-cvxpy results on the small convex benchmark | TODO | benchmark_cvxpy | cvxpy
-jaxopt results on the small convex benchmark | TODO | benchmark_jaxopt_small | jaxopt
-jaxopt results on the large convex benchmark | TODO | benchmark_jaxopt_large | jaxopt
-jaxopt results on the small non-convex benchmark | TODO | benchmark_jaxopt_small | jaxopt
-jaxopt results on the large non-convex benchmark | TODO | benchmark_jaxopt_small | jaxopt
+To select `ID`, `CONFIG`, and `METHOD`, please refer to the bash script above.
 
->[!WARNING] Generating the large dataset
-> The repo contains only the data to run the small benchmark. For the large one, you need first to generate the data. For this, please run
-> ```bash
-> TODO
-> ```
-> NOTE: This may take a while... In a future release, we plan to provide several datasets with [Hugging face 🤗](https://huggingface.co/) or similar providers, and this step will be less tedious.
+> [!WARNING] Large dataset
+> The repo contains only the data to run the small benchmark. For the large one, you can refer to the supplementary material on OpenReview.
+In a future release, we plan to provide several datasets with [Hugging face 🤗](https://huggingface.co/) or similar providers, and this step will be less tedious.
 
 For `DC3`, we used the [open-source implementation](https://github.com/locuslab/DC3).
 
@@ -293,8 +282,8 @@ If you use this code in your research, please cite our paper:
 ```bash
    @inproceedings{grontas2025pinet,
      title={Pinet: Optimizing hard-constrained neural networks with orthogonal projection layers},
-     author={Grontas, Panagiotis and Terpin, Antonio and Balta C., Efe and D'Andrea, Raffaello and Lygeros, John},
-     journal={arXiv preprint arXiv:TODO},
+     author={Grontas, Panagiotis D. and Terpin, Antonio and Balta C., Efe and D'Andrea, Raffaello and Lygeros, John},
+     journal={arXiv preprint arXiv:6707596},
      year={2025}
    }
 ```
