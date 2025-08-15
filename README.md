@@ -1,6 +1,6 @@
 # &Pi;net: Optimizing hard-constrained neural networks with orthogonal projection layers
 
-[![arXiv](https://img.shields.io/badge/arXiv-6707596-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://arxiv.org/abs/6707596)
+[![arXiv](https://img.shields.io/badge/arXiv-2508.10480-b31b1b?style=flat&logo=arxiv&logoColor=white)](https://www.arxiv.org/abs/2508.10480)
 [![GitHub stars](https://img.shields.io/github/stars/antonioterpin/pinet?style=social)](https://github.com/antonioterpin/pinet/stargazers)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://github.com/antonioterpin/pinet/LICENSE)
 [![codecov](https://codecov.io/gh/antonioterpin/pinet/graph/badge.svg?token=J49B8TFDSM)](https://codecov.io/gh/antonioterpin/pinet)
@@ -14,14 +14,9 @@
 
 This repository contains a [JAX](https://github.com/jax-ml/jax) implementation of &Pi;net, an output layer for neural networks that ensures the satisfaction of specified convex constraints.
 
-> [!NOTE] TL;DR
+> [!NOTE]
+> **TL;DR:**
 > &Pi;net leverages operator splitting for rapid and reliable projections in the forward pass, and the implicit function theorem for backpropagation. It offers a *feasible-by-design* optimization proxy for parametric constrained optimization problems to obtain modest-accuracy solutions faster than traditional solvers when solving a single problem, and significantly faster for a batch of problems.
-
-## Index
-- [Getting started](#getting-started)
-- [Examples](#examples)
-- [Contributing](#contributing-☕️)
-- [Citation](#citation-🙏)
 
 ## Getting started
 To install &Pi;net, run:
@@ -34,16 +29,16 @@ To install &Pi;net, run:
   pip install "pinet-hcnn[cuda12]"
   ```
 
-> [!WARNING] CUDA dependencies
-> If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
+> [!WARNING]
+> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
 
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
 docker compose run --rm pinet-cpu # Run the pytests on CPU
 docker compose run --rm pinet-gpu # Run the pytests on GPU
 ```
-> [!WARNING] CUDA dependencies
-> Running the Docker container with GPU support requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host.
+> [!WARNING]
+> **CUDA dependencies**: Running the Docker container with GPU support requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host.
 
 See also the section on [reproducing the paper's results](#reproducing-the-papers-results) for more examples of commands.
 
@@ -82,8 +77,8 @@ eq = EqualityConstraint(
 )
 ```
 
-> [!WARNING] `method=None`
-> `eq.project()` is only available if `method="pinv"`.
+> [!WARNING]
+> **`method=None`**: `eq.project()` is only available if `method="pinv"`.
 > When you have multiple constraints and you plan on using the equality constraint only within the projection layer, you can leave `method=None` (as above).
 
 ## AffineInequalityConstraint — enforce `lb ≤ C @ x ≤ ub`
@@ -100,8 +95,8 @@ ub = jnp.full((B, n_ineq, 1),  1.0) # (B, n_ineq, 1)
 ineq = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
 ```
 
-> [!WARNING] `ineq.project()` intentionally `NotImplemented`
-> To improve the efficiency of the projection, we always "lift" the affine inequality constraints as described in the paper. For this, we did not even bother implementing the projection method for this type of constraints 🤗.
+> [!WARNING]
+> **`ineq.project()` intentionally `NotImplemented`**: To improve the efficiency of the projection, we always "lift" the affine inequality constraints as described in the paper. For this, we did not even bother implementing the projection method for this type of constraints 🤗.
 
 ## BoxConstraint — clip selected dimensions
 
@@ -221,8 +216,8 @@ You’ll get:
 - **Validation/Test** metrics incl. relative suboptimality & CV,
 - **Saved params & results** ready to reload and plot trajectories.
 
-> [!TIP] Troubleshooting
-> All the objects in `pinet.dataclasses` offer a `validate` methods, which can be used to verify your inputs.
+> [!TIP]
+> **Troubleshooting**: All the objects in `pinet.dataclasses` offer a `validate` methods, which can be used to verify your inputs.
 
 ### Works using &Pi;net ⚙️
 We collect here applications using &Pi;net. Please feel free to open a pull request to add yours! 🤗
@@ -248,7 +243,7 @@ We report the results for an optimization problem with optimization variable of 
 ![Non-convex learning curves](media/nonconvex-times.jpg)
 
 Overall, &Pi;net outperforms the state-of-the-art in accuracy and training times.
-For more comparisons and ablations, please check out our [paper](https://arxiv.org/abs/6707596).
+For more comparisons and ablations, please check out our [paper](https://arxiv.org/abs/2508.10480).
 
 ### Reproducing the paper's results
 To reproduce the paper's results from &Pi;net, JAXopt and cvxpylayers run the bash script:
@@ -283,7 +278,7 @@ If you use this code in your research, please cite our paper:
    @inproceedings{grontas2025pinet,
      title={Pinet: Optimizing hard-constrained neural networks with orthogonal projection layers},
      author={Grontas, Panagiotis D. and Terpin, Antonio and Balta C., Efe and D'Andrea, Raffaello and Lygeros, John},
-     journal={arXiv preprint arXiv:6707596},
+     journal={arXiv preprint arXiv:2508.10480},
      year={2025}
    }
 ```
