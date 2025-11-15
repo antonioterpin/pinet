@@ -7,7 +7,6 @@ import pathlib
 import time
 from typing import Optional
 
-import cvxpy as cp
 import jax
 import numpy as np
 import optax
@@ -33,6 +32,7 @@ from benchmarks.toy_SOC.generate_socp import (
 )
 from benchmarks.toy_SOC.model import HardConstrainedMLP
 from benchmarks.toy_SOC.projection_layer import build_projection_layer
+from benchmarks.toy_SOC.solver import evaluate_solver
 from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
 # Use 64 bit precision for numerical stability
@@ -86,7 +86,8 @@ def parse_args():
         "--method",
         type=str,
         default="pinet",
-        help="Projection method. Options are: pinet, cvxpy, solver.",
+        help="Solution method. "
+        "Options are: pinet, cvxpylayers, cvxpy, cvxpy_parametric, scs.",
     )
     parser.add_argument(
         "--measure-setup",
@@ -101,7 +102,7 @@ def parse_args():
         help="Measure compilation time.",
     )
     args = parser.parse_args()
-    if args.method not in ["pinet", "cvxpy", "solver"]:
+    if args.method not in ["pinet", "cvxpylayers", "cvxpy", "cvxpy_parametric", "scs"]:
         raise ValueError(f"Unknown method: {args.method}")
     return args
 
@@ -273,6 +274,8 @@ def main():
     sparsity = args.sparsity
     VALIDATION_SIZE = args.validation_size
     TEST_SIZE = args.test_size
+    # Instances for single inference
+    instances = list(range(10))
     run_tests = args.run_tests
     save_results = args.save_results
     method = args.method
@@ -307,30 +310,17 @@ def main():
 
     # %% CVXPY
     A_np = np.asarray(A)
-    x_var = cp.Variable(n)
-    s_var = cp.Variable(m)
-    b_par = cp.Parameter(m)
-    c_par = cp.Parameter(n)
-
     if run_tests:
-        constraints = [A_np @ x_var + s_var == b_par, cp.SOC(s_var[-1], s_var[:-1])]
-
-        problem = cp.Problem(cp.Minimize(c_par @ x_var), constraints)
-        x_sol = []
-        s_sol = []
-        for i in tqdm(range(B)):
-            b_par.value = np.asarray(b[i]).ravel()  # shape (m,)
-            c_par.value = np.asarray(c[i]).ravel()  # shape (n,)
-
-            problem.solve(solver=cp.SCS, verbose=False, eps_abs=1e-9, eps_rel=1e-9)
-
-            if x_var.value is None:
-                raise RuntimeError(f"sample {i}: {problem.status}")
-            x_sol.append(x_var.value.reshape(n, 1))
-            s_sol.append(s_var.value.reshape(m, 1))
-
-        x_cvxpy = jnp.asarray(x_sol).reshape(B, n, 1)
-        s_cvxpy = jnp.asarray(s_sol).reshape(B, m, 1)
+        x_cvxpy, s_cvxpy, _ = evaluate_solver(
+            A_np=A_np,
+            b_batch=b,
+            c_batch=c,
+            n=n,
+            m=m,
+            eps=1e-9,
+            verbose=False,
+            method="cvxpy_parametric",
+        )
 
         # Print the statistics of the solution
         print_stats(x_cvxpy, s_cvxpy, b, c, xstar, A)
@@ -444,8 +434,60 @@ def main():
     tx = optax.adam(LEARNING_RATE)
     state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-    # %% Generate validation data
-    validation_batch, _ = make_batch(key=key, batch_size=VALIDATION_SIZE)
+    # %% Generate validation and test data
+    validation_batch, key_test = make_batch(key=key, batch_size=VALIDATION_SIZE)
+    test_batch, _ = make_batch(key_test, batch_size=TEST_SIZE)
+    # %% Benchmark solver
+    if method in ["cvxpy", "cvxpy_parametric", "scs"]:
+        reps = 20
+        # Batch inference times
+        batch_times = []
+        for _ in tqdm(range(reps)):
+            _, _, times = evaluate_solver(
+                A_np=A_np,
+                b_batch=test_batch["input"]["b"],
+                c_batch=test_batch["input"]["c"],
+                n=n,
+                m=m,
+                eps=1e-4,
+                verbose=False,
+                method=method,
+                use_tqdm=False,
+            )
+            batch_times.append(jnp.sum(times))
+        # Single inference times
+        single_times = []
+        for i in tqdm(range(reps)):
+            for ii in instances:
+                _, _, times = evaluate_solver(
+                    A_np=A_np,
+                    b_batch=test_batch["input"]["b"][ii : ii + 1, ...],
+                    c_batch=test_batch["input"]["c"][ii : ii + 1, ...],
+                    n=n,
+                    m=m,
+                    eps=1e-4,
+                    verbose=False,
+                    method=method,
+                    use_tqdm=False,
+                )
+                single_times.append(times.item())
+        if save_results:
+            filename_results = "results.npz"
+            results_folder = (
+                pathlib.Path(__file__).parent
+                / "results"
+                / f"n{n}_m{m}"
+                / method
+                / nowstamp
+            )
+            results_folder.mkdir(parents=True, exist_ok=True)
+            jnp.savez(
+                file=results_folder / filename_results,
+                inference_time=batch_times,
+                single_inference_time=single_times,
+            )
+
+        return
 
     # %% Training
     @jit
@@ -549,8 +591,6 @@ def main():
                 )
         training_time = time.time() - start_training_time
         # %% Test
-        key_test, key = jrnd.split(key_train)
-        test_batch, _ = make_batch(key_test, batch_size=TEST_SIZE)
         pred_val = model.apply(state.params, test_batch["input"])
         b = test_batch["input"]["b"]
 
@@ -586,7 +626,6 @@ def main():
             instances=None,
         )
         # %% Single Statistics
-        instances = list(range(10))
         _, _, _, _, _, single_times_tests = evaluate_hcnn(
             batch=test_batch,
             state=state,
