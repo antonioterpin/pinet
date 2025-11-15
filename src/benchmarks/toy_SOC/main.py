@@ -1,6 +1,7 @@
 """This module implements the solver for random second-order cone parametric problems."""
 
 # %% Imports
+import argparse
 import datetime
 import pathlib
 import time
@@ -43,31 +44,75 @@ config_path = (
     pathlib.Path(__file__).parent.parent.resolve() / "configs" / (CONFIG + ".yaml")
 )
 hyperparameters = load_configuration(config_path)
-# %%
-SEED = 1
-# Problem dimensions
-n = 250
-m = 250
-sparsity = 0.01
-nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-run_name = f"n{n}_m{m}_sparse{sparsity}_{nowstamp}"
-# Key
-key = jrnd.PRNGKey(SEED)
-ACTIVATION = getattr(nn, hyperparameters["activation"], None)
-if ACTIVATION is None:
-    raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
-LAYERS = hyperparameters["features_list"]
 
-keyA, key = jrnd.split(key)
-A = rand_sparse_mask(keyA, (m, n), sparsity=sparsity)
-VALIDATION_SIZE = 1024
-TEST_SIZE = 1024
 
-# %% CV and RS
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Run toy second-Order cone optimization benchmark."
+    )
+    parser.add_argument("--seed", type=int, default=1, help="Random seed (default: 1)")
+    parser.add_argument(
+        "--n", type=int, default=250, help="Number of variables (default: 250)"
+    )
+    parser.add_argument(
+        "--m", type=int, default=250, help="Number of constraints (default: 250)"
+    )
+    parser.add_argument(
+        "--sparsity", type=float, default=0.01, help="Sparsity level (default: 0.01)"
+    )
+    parser.add_argument(
+        "--validation-size",
+        type=int,
+        default=1024,
+        help="Validation set size (default: 1024)",
+    )
+    parser.add_argument(
+        "--test-size", type=int, default=1024, help="Test set size (default: 1024)"
+    )
+    parser.add_argument(
+        "--run-tests",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run tests.",
+    )
+    parser.add_argument(
+        "--save-results",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save results.",
+    )
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="pinet",
+        help="Projection method. Options are: pinet, cvxpy, solver.",
+    )
+    parser.add_argument(
+        "--measure-setup",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Measure setup time.",
+    )
+    parser.add_argument(
+        "--measure-compilation",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Measure compilation time.",
+    )
+    args = parser.parse_args()
+    if args.method not in ["pinet", "cvxpy", "solver"]:
+        raise ValueError(f"Unknown method: {args.method}")
+    return args
 
 
 def print_stats(
-    x: jnp.ndarray, s: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray
+    x: jnp.ndarray,
+    s: jnp.ndarray,
+    b: jnp.ndarray,
+    c: jnp.ndarray,
+    xstar: jnp.ndarray,
+    A: jnp.ndarray,
 ):
     """Print the statistics of the solution.
 
@@ -77,6 +122,7 @@ def print_stats(
         b (jnp.ndarray): Right-hand side of the equality constraints, shape (B, m, 1).
         c (jnp.ndarray): Coefficients for the objective function, shape (B, n, 1).
         xstar (jnp.ndarray): Optimal primal solution, shape (B, n, 1).
+        A (jnp.ndarray): Constraint matrix, shape (m, n).
     """
     cv_eq = constraint_violation_eq(A, x, s, b)
     cv_soc = constraint_violation_soc(s)
@@ -103,6 +149,7 @@ def evaluate_hcnn(
     batch: dict,
     state: train_state.TrainState,
     A: jnp.ndarray,
+    n: int,
     prefix: str,
     time_evals: int = 10,
     tol_cv: float = 1e-3,
@@ -123,6 +170,7 @@ def evaluate_hcnn(
         batch (dict): Input data containing "b" and "c".
         state (TrainState): Current state of the model.
         A (jnp.ndarray): Constraint matrix, shape (m, n).
+        n (int): Number of variables.
         prefix (str): Prefix for printing.
         time_evals (int): Number of evaluations for timing.
         tol_cv (float): Tolerance for constraint violation.
@@ -214,279 +262,322 @@ def evaluate_hcnn(
     return opt_obj, hcnn_obj, rs, eq_cv, soc_cv, eval_times
 
 
-# %% Validate the problem
-B = 1024
-# Symbolic problem
-key_problem, key = jrnd.split(key)
-b, c, xstar, sstar = generate_problem(key_problem, A, B)
+def main():
+    """Main function to run the benchmark."""
+    args = parse_args()
 
-# %% CVXPY
-A_np = np.asarray(A)
-x_var = cp.Variable(n)
-s_var = cp.Variable(m)
-b_par = cp.Parameter(m)
-c_par = cp.Parameter(n)
+    # Set parameters from command line arguments
+    SEED = args.seed
+    n = args.n
+    m = args.m
+    sparsity = args.sparsity
+    VALIDATION_SIZE = args.validation_size
+    TEST_SIZE = args.test_size
+    run_tests = args.run_tests
+    save_results = args.save_results
+    method = args.method
+    measure_setup = args.measure_setup
+    measure_compilation = args.measure_compilation
+    if measure_setup:
+        raise NotImplementedError("Setup time measurement not implemented yet.")
+    else:
+        setup_time = 0.0
+    if measure_compilation:
+        raise NotImplementedError("Compilation time measurement not implemented yet.")
+    else:
+        compilation_time = 0.0
 
-constraints = [A_np @ x_var + s_var == b_par, cp.SOC(s_var[-1], s_var[:-1])]
+    nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name = f"n{n}_m{m}_sparse{sparsity}_{nowstamp}"
+    # Key
+    key = jrnd.PRNGKey(SEED)
+    ACTIVATION = getattr(nn, hyperparameters["activation"], None)
+    if ACTIVATION is None:
+        raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
+    LAYERS = hyperparameters["features_list"]
 
-problem = cp.Problem(cp.Minimize(c_par @ x_var), constraints)
-x_sol = []
-s_sol = []
-for i in tqdm(range(B)):
-    b_par.value = np.asarray(b[i]).ravel()  # shape (m,)
-    c_par.value = np.asarray(c[i]).ravel()  # shape (n,)
+    keyA, key = jrnd.split(key)
+    A = rand_sparse_mask(keyA, (m, n), sparsity=sparsity)
 
-    problem.solve(solver=cp.SCS, verbose=False, eps_abs=1e-9, eps_rel=1e-9)
+    # %% Validate the problem
+    B = 1024
+    # Symbolic problem
+    key_problem, key = jrnd.split(key)
+    b, c, xstar, sstar = generate_problem(key_problem, A, B)
 
-    if x_var.value is None:
-        raise RuntimeError(f"sample {i}: {problem.status}")
-    x_sol.append(x_var.value.reshape(n, 1))
-    s_sol.append(s_var.value.reshape(m, 1))
+    # %% CVXPY
+    A_np = np.asarray(A)
+    x_var = cp.Variable(n)
+    s_var = cp.Variable(m)
+    b_par = cp.Parameter(m)
+    c_par = cp.Parameter(n)
 
-x_cvxpy = jnp.asarray(x_sol).reshape(B, n, 1)
-s_cvxpy = jnp.asarray(s_sol).reshape(B, m, 1)
+    if run_tests:
+        constraints = [A_np @ x_var + s_var == b_par, cp.SOC(s_var[-1], s_var[:-1])]
 
-# Print the statistics of the solution
-print_stats(x_cvxpy, s_cvxpy, b, c, xstar)
+        problem = cp.Problem(cp.Minimize(c_par @ x_var), constraints)
+        x_sol = []
+        s_sol = []
+        for i in tqdm(range(B)):
+            b_par.value = np.asarray(b[i]).ravel()  # shape (m,)
+            c_par.value = np.asarray(c[i]).ravel()  # shape (n,)
 
-# %% Use our solver
-n_iter_forward = hyperparameters["n_iter_train"]
-n_iter_backward = hyperparameters["n_iter_bwd"]
-sigma = hyperparameters["sigma"]
-omega = hyperparameters["omega"]
+            problem.solve(solver=cp.SCS, verbose=False, eps_abs=1e-9, eps_rel=1e-9)
 
-Aaug = jnp.concatenate((A, jnp.eye(m)), axis=1)
-assert Aaug.shape == (
-    m,
-    m + n,
-), f"Augmented matrix A should have shape ({m}, {m + n}), instead: {Aaug.shape}"
+            if x_var.value is None:
+                raise RuntimeError(f"sample {i}: {problem.status}")
+            x_sol.append(x_var.value.reshape(n, 1))
+            s_sol.append(s_var.value.reshape(m, 1))
 
-project = build_projection_layer(
-    Aaug, sigma, omega, n, n_iter_forward, n_iter_backward, use_custom_vjp=True
-)
+        x_cvxpy = jnp.asarray(x_sol).reshape(B, n, 1)
+        s_cvxpy = jnp.asarray(s_sol).reshape(B, m, 1)
 
-# %% Test the projection
-# To test the correctness of the projection, we can sample random points,
-# project them, and check if the result has no constraint violation.
+        # Print the statistics of the solution
+        print_stats(x_cvxpy, s_cvxpy, b, c, xstar, A)
 
+    # %% Use our solver
+    n_iter_forward = hyperparameters["n_iter_train"]
+    n_iter_backward = hyperparameters["n_iter_bwd"]
+    sigma = hyperparameters["sigma"]
+    omega = hyperparameters["omega"]
 
-def test_projection(
-    b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray, sstar: jnp.ndarray
-):
-    """Test the projection function on random samples.
+    Aaug = jnp.concatenate((A, jnp.eye(m)), axis=1)
+    assert Aaug.shape == (
+        m,
+        m + n,
+    ), f"Augmented matrix A should have shape ({m}, {m + n}), instead: {Aaug.shape}"
 
-    Args:
-        b (jnp.ndarray): Right-hand side of the equality constraints, shape (B, m, 1).
-        c (jnp.ndarray): Coefficients for the objective function, shape (B, n, 1).
-        xstar (jnp.ndarray): Optimal primal solution, shape (B, n, 1).
-        sstar (jnp.ndarray): Optimal dual solution, shape (B, m, 1).
-    """
-    n_samples = b.shape[0]
-    yraw = jrnd.uniform(key, (n_samples, n + m, 1))
-
-    x = yraw[:, :n]
-    s = yraw[:, n:]
-    cv_eq_raw = constraint_violation_eq(A, x, s, b)
-    cv_soc_raw = constraint_violation_soc(s)
-    if jnp.all(cv_eq_raw < 1e-6) and jnp.all(cv_soc_raw < 1e-6):
-        print(f"Sample {i}: No constraint violation in the raw samples.")
-
-    cv_eq_opt = constraint_violation_eq(A, xstar, sstar, b)
-    cv_soc_opt = constraint_violation_soc(sstar)
-    if jnp.any(cv_eq_opt > 1e-6) or jnp.any(cv_soc_opt > 1e-6):
-        print(f"Optimal sample: {cv_eq_opt.max()=}, {cv_soc_opt.max()=}")
-
-    # Project the point
-    y, _ = project(jnp.zeros_like(yraw), yraw, b)
-    x = y[:, :n]
-    s = y[:, n:]
-
-    # Check the constraint violation
-    cv_eq = constraint_violation_eq(A, x, s, b)
-    cv_eq_soc = constraint_violation_soc(s)
-    if (
-        jnp.any(cv_eq > 1e-6)
-        or jnp.any(cv_eq_soc > 1e-6)
-        or jnp.isnan(cv_eq).any()
-        or jnp.isnan(cv_eq_soc).any()
-    ):
-        print(f"Projection failed: {cv_eq.max()=}, {cv_eq_soc.max()=}")
-        print_stats(x, s, b, c, xstar.reshape(-1, n, 1))
-    print("All projections passed.")
-
-
-test_projection(b, c, xstar, sstar)
-
-
-# %% Train the MLP
-BATCH_SIZE = hyperparameters["batch_size"]
-N_EPOCHS = hyperparameters["n_epochs"]
-LEARNING_RATE = hyperparameters["learning_rate"]
-key_train, key_init = jrnd.split(key)
-
-
-# Batcher
-def make_batch(key: jax.random.PRNGKey, batch_size: int = BATCH_SIZE):
-    """Generate a batch of random problems.
-
-    Args:
-        key (jax.random.PRNGKey): Random key for generating the batch.
-        batch_size (int): Number of problem instances in the batch.
-
-    Returns:
-        tuple:
-            - dict: Input data containing "b" and "c".
-            - jnp.ndarray: Optimal primal solution, shape (B, n, 1).
-            - jnp.ndarray: Optimal dual solution, shape (B, m, 1).
-    """
-    key_prob, key = jrnd.split(key)
-    b, c, xstar, sstar = generate_problem(key_prob, A, batch_size)
-    return {
-        "input": {"b": b, "c": c},
-        "xstar": xstar,
-        "sstar": sstar,
-    }, key
-
-
-# %% Initialize the model
-model = HardConstrainedMLP(
-    activation=ACTIVATION, layers=LAYERS, project=project, m=m, n=n
-)
-
-# Sample one batch only to create shapes for initialisation
-batch, key = make_batch(key_init, batch_size=1)
-key, key_init = jrnd.split(key)
-params = model.init(key_init, batch["input"])
-
-tx = optax.adam(LEARNING_RATE)
-state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-
-# %% Generate validation data
-validation_batch, _ = make_batch(key=key, batch_size=VALIDATION_SIZE)
-
-
-# %% Training
-@jit
-def loss_fn(params: dict, input: dict):
-    """Compute the loss function and auxiliary values.
-
-    Args:
-        params (dict): Model parameters.
-        input (dict): Input data containing "b" and "c".
-
-    Returns:
-        tuple:
-            - loss (jnp.ndarray): Mean objective value.
-            - aux (tuple): Auxiliary values containing constraint violations.
-    """
-    c = input["c"]
-    pred = model.apply(params, input)
-    x = pred[:, :n]
-    s = pred[:, n:]
-    objective_value = objective(x, c)
-    return jnp.mean(objective_value), (x, s)
-
-
-@jit
-def train_step(state: train_state.TrainState, batch: dict):
-    """Perform a single training step.
-
-    Args:
-        state (TrainState): Current state of the model.
-        batch (dict): Input data containing "b" and "c".
-
-    Returns:
-        tuple:
-            - state (TrainState): Updated state of the model.
-            - loss (jnp.ndarray): Loss value after the step.
-            - aux (tuple): Auxiliary values containing constraint violations.
-    """
-    grad_fn = value_and_grad(loss_fn, has_aux=True)
-    (loss, aux), grads = grad_fn(state.params, batch["input"])
-    state = state.apply_gradients(grads=grads)
-    return state, loss, aux
-
-
-# Training loop
-eval_every = 1
-logging_dict = LoggingDict()
-with (
-    Logger(run_name=run_name, project_name="toy_SOC") as data_logger,
-    GracefulShutdown("Stop detected, finish epoch...") as g,
-):
-    data_logger.run.config.update(hyperparameters)
-    for epoch in (pbar := tqdm(range(1, N_EPOCHS + 1))):
-        epoch_losses = []
-        key_train, key = jrnd.split(key_train)
-        batch, key_train = make_batch(key)
-        start_epoch_time = time.time()
-        state, l, (x, s) = train_step(state, batch)
-        train_time = time.time() - start_epoch_time
-        if epoch % eval_every == 0 or epoch == 1:
-            start_evaluation_time = time.time()
-            obj, hcnn_obj, rs, cv_eq, cv_soc, _ = evaluate_hcnn(
-                batch=validation_batch,
-                state=state,
-                A=A,
-                prefix="Validation",
-                time_evals=-1,
-                tol_cv=1e-3,
-                print_results=False,
-                single_instance=False,
-                instances=None,
-            )
-            eval_time = time.time() - start_evaluation_time
-            logging_dict.update(
-                obj,
-                hcnn_obj,
-                cv_eq,
-                cv_soc,
-                train_time,
-                eval_time,
-            )
-            data_logger.log(
-                epoch,
-                {
-                    "loss": l,
-                    "epoch_training_time": train_time,
-                    "validation_avg_rs": rs.mean(),
-                    "validation_max_rs": rs.max(),
-                    "validation_eq_cv": cv_eq.max(),
-                    "validation_cv_soc": cv_soc.max(),
-                    "validation_time": eval_time,
-                },
-            )
-            pbar.set_description(f"Train Loss: {l:.5f}")
-            pbar.set_postfix(
-                {
-                    "CV Eq": f"{cv_eq.max():.4e}",
-                    "CV SOC": f"{cv_soc.max():.4e}",
-                    "RS": f"{rs.mean():.4e}",
-                }
-            )
-
-    # %% Test
-    key_test, key = jrnd.split(key_train)
-    test_batch, _ = make_batch(key_test, batch_size=TEST_SIZE)
-    pred_val = model.apply(state.params, test_batch["input"])
-    b = test_batch["input"]["b"]
-
-    x_pred = pred_val[:, :n]
-    s_pred = pred_val[:, n:]
-
-    print_stats(
-        x_pred,
-        s_pred,
-        test_batch["input"]["b"],
-        test_batch["input"]["c"],
-        test_batch["xstar"],
+    project = build_projection_layer(
+        Aaug, sigma, omega, n, n_iter_forward, n_iter_backward, use_custom_vjp=True
     )
-    # %% Batch statistics
-    opt_obj_test, hcnn_obj_test, rs_test, cv_eq_test, cv_soc_test, batch_times_tests = (
-        evaluate_hcnn(
+
+    # %% Test the projection
+    # To test the correctness of the projection, we can sample random points,
+    # project them, and check if the result has no constraint violation.
+
+    if run_tests:
+
+        def test_projection(
+            b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray, sstar: jnp.ndarray
+        ):
+            """Test the projection function on random samples.
+
+            Args:
+                b (jnp.ndarray): RHS of the equality constraints, shape (B, m, 1).
+                c (jnp.ndarray): Coefficients for the objective function, shape (B, n, 1).
+                xstar (jnp.ndarray): Optimal primal solution, shape (B, n, 1).
+                sstar (jnp.ndarray): Optimal dual solution, shape (B, m, 1).
+            """
+            n_samples = b.shape[0]
+            yraw = jrnd.uniform(key, (n_samples, n + m, 1))
+
+            x = yraw[:, :n]
+            s = yraw[:, n:]
+            cv_eq_raw = constraint_violation_eq(A, x, s, b)
+            cv_soc_raw = constraint_violation_soc(s)
+            if jnp.all(cv_eq_raw < 1e-6) and jnp.all(cv_soc_raw < 1e-6):
+                print("No constraint violation in the raw samples.")
+
+            cv_eq_opt = constraint_violation_eq(A, xstar, sstar, b)
+            cv_soc_opt = constraint_violation_soc(sstar)
+            if jnp.any(cv_eq_opt > 1e-6) or jnp.any(cv_soc_opt > 1e-6):
+                print(f"Optimal sample: {cv_eq_opt.max()=}, {cv_soc_opt.max()=}")
+
+            # Project the point
+            y, _ = project(jnp.zeros_like(yraw), yraw, b)
+            x = y[:, :n]
+            s = y[:, n:]
+
+            # Check the constraint violation
+            cv_eq = constraint_violation_eq(A, x, s, b)
+            cv_eq_soc = constraint_violation_soc(s)
+            if (
+                jnp.any(cv_eq > 1e-6)
+                or jnp.any(cv_eq_soc > 1e-6)
+                or jnp.isnan(cv_eq).any()
+                or jnp.isnan(cv_eq_soc).any()
+            ):
+                print(f"Projection failed: {cv_eq.max()=}, {cv_eq_soc.max()=}")
+                print_stats(x, s, b, c, xstar.reshape(-1, n, 1), A)
+            print("All projections passed.")
+
+        test_projection(b, c, xstar, sstar)
+
+    # %% Train the MLP
+    BATCH_SIZE = hyperparameters["batch_size"]
+    N_EPOCHS = hyperparameters["n_epochs"]
+    LEARNING_RATE = hyperparameters["learning_rate"]
+    key_train, key_init = jrnd.split(key)
+
+    # Batcher
+    def make_batch(key: jax.random.PRNGKey, batch_size: int = BATCH_SIZE):
+        """Generate a batch of random problems.
+
+        Args:
+            key (jax.random.PRNGKey): Random key for generating the batch.
+            batch_size (int): Number of problem instances in the batch.
+
+        Returns:
+            tuple:
+                - dict: Input data containing "b" and "c".
+                - jnp.ndarray: Optimal primal solution, shape (B, n, 1).
+                - jnp.ndarray: Optimal dual solution, shape (B, m, 1).
+        """
+        key_prob, key = jrnd.split(key)
+        b, c, xstar, sstar = generate_problem(key_prob, A, batch_size)
+        return {
+            "input": {"b": b, "c": c},
+            "xstar": xstar,
+            "sstar": sstar,
+        }, key
+
+    # %% Initialize the model
+    model = HardConstrainedMLP(
+        activation=ACTIVATION, layers=LAYERS, project=project, m=m, n=n
+    )
+
+    # Sample one batch only to create shapes for initialisation
+    batch, key = make_batch(key_init, batch_size=1)
+    key, key_init = jrnd.split(key)
+    params = model.init(key_init, batch["input"])
+
+    tx = optax.adam(LEARNING_RATE)
+    state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+
+    # %% Generate validation data
+    validation_batch, _ = make_batch(key=key, batch_size=VALIDATION_SIZE)
+
+    # %% Training
+    @jit
+    def loss_fn(params: dict, input: dict):
+        """Compute the loss function and auxiliary values.
+
+        Args:
+            params (dict): Model parameters.
+            input (dict): Input data containing "b" and "c".
+
+        Returns:
+            tuple:
+                - loss (jnp.ndarray): Mean objective value.
+                - aux (tuple): Auxiliary values containing constraint violations.
+        """
+        c = input["c"]
+        pred = model.apply(params, input)
+        x = pred[:, :n]
+        s = pred[:, n:]
+        objective_value = objective(x, c)
+        return jnp.mean(objective_value), (x, s)
+
+    @jit
+    def train_step(state: train_state.TrainState, batch: dict):
+        """Perform a single training step.
+
+        Args:
+            state (TrainState): Current state of the model.
+            batch (dict): Input data containing "b" and "c".
+
+        Returns:
+            tuple:
+                - state (TrainState): Updated state of the model.
+                - loss (jnp.ndarray): Loss value after the step.
+                - aux (tuple): Auxiliary values containing constraint violations.
+        """
+        grad_fn = value_and_grad(loss_fn, has_aux=True)
+        (loss, aux), grads = grad_fn(state.params, batch["input"])
+        state = state.apply_gradients(grads=grads)
+        return state, loss, aux
+
+    # Training loop
+    eval_every = 1
+    logging_dict = LoggingDict()
+    start_training_time = time.time()
+    with (
+        Logger(run_name=run_name, project_name="toy_SOC") as data_logger,
+        GracefulShutdown("Stop detected, finish epoch...") as g,
+    ):
+        data_logger.run.config.update(hyperparameters)
+        for epoch in (pbar := tqdm(range(1, N_EPOCHS + 1))):
+            if g.stop:
+                break
+            key_train, key = jrnd.split(key_train)
+            batch, key_train = make_batch(key)
+            start_epoch_time = time.time()
+            state, l, (x, s) = train_step(state, batch)
+            train_time = time.time() - start_epoch_time
+            if epoch % eval_every == 0 or epoch == 1:
+                start_evaluation_time = time.time()
+                obj, hcnn_obj, rs, cv_eq, cv_soc, _ = evaluate_hcnn(
+                    batch=validation_batch,
+                    state=state,
+                    A=A,
+                    n=n,
+                    prefix="Validation",
+                    time_evals=-1,
+                    tol_cv=1e-3,
+                    print_results=False,
+                    single_instance=False,
+                    instances=None,
+                )
+                eval_time = time.time() - start_evaluation_time
+                logging_dict.update(
+                    optimal_objective=obj,
+                    objective=hcnn_obj,
+                    eqcv=cv_eq,
+                    ineqcv=cv_soc,
+                    train_time=train_time,
+                    inf_time=eval_time,
+                )
+                data_logger.log(
+                    epoch,
+                    {
+                        "loss": l,
+                        "epoch_training_time": train_time,
+                        "validation_avg_rs": rs.mean(),
+                        "validation_max_rs": rs.max(),
+                        "validation_eq_cv": cv_eq.max(),
+                        "validation_cv_soc": cv_soc.max(),
+                        "validation_time": eval_time,
+                    },
+                )
+                pbar.set_description(f"Train Loss: {l:.5f}")
+                pbar.set_postfix(
+                    {
+                        "CV Eq": f"{cv_eq.max():.4e}",
+                        "CV SOC": f"{cv_soc.max():.4e}",
+                        "RS": f"{rs.mean():.4e}",
+                    }
+                )
+        training_time = time.time() - start_training_time
+        # %% Test
+        key_test, key = jrnd.split(key_train)
+        test_batch, _ = make_batch(key_test, batch_size=TEST_SIZE)
+        pred_val = model.apply(state.params, test_batch["input"])
+        b = test_batch["input"]["b"]
+
+        x_pred = pred_val[:, :n]
+        s_pred = pred_val[:, n:]
+
+        print_stats(
+            x_pred,
+            s_pred,
+            test_batch["input"]["b"],
+            test_batch["input"]["c"],
+            test_batch["xstar"],
+            A,
+        )
+        # %% Batch statistics
+        (
+            opt_obj_test,
+            hcnn_obj_test,
+            rs_test,
+            cv_eq_test,
+            cv_soc_test,
+            batch_times_tests,
+        ) = evaluate_hcnn(
             batch=test_batch,
             state=state,
             A=A,
+            n=n,
             prefix="Testing",
             time_evals=10,
             tol_cv=1e-3,
@@ -494,39 +585,88 @@ with (
             single_instance=False,
             instances=None,
         )
-    )
-    # %% Single Statistics
-    instances = list(range(10))
-    _, _, _, _, _, single_times_tests = evaluate_hcnn(
-        batch=test_batch,
-        state=state,
-        A=A,
-        prefix="Testing Single Instances",
-        time_evals=10,
-        tol_cv=1e-3,
-        print_results=True,
-        single_instance=True,
-        instances=instances,
-    )
+        # %% Single Statistics
+        instances = list(range(10))
+        _, _, _, _, _, single_times_tests = evaluate_hcnn(
+            batch=test_batch,
+            state=state,
+            A=A,
+            n=n,
+            prefix="Testing Single Instances",
+            time_evals=10,
+            tol_cv=1e-3,
+            print_results=True,
+            single_instance=True,
+            instances=instances,
+        )
 
-    # %%
-    cvthres = 1e-3
-    rsthres = 5e-2
-    fig, rs, cv = plot_rs_vs_cv(
-        obj_fun_test=hcnn_obj_test,
-        obj_test=opt_obj_test,
-        eq_viol_test=jnp.max(cv_eq_test, axis=1),
-        ineq_viol_test=jnp.max(cv_soc_test, axis=1),
-        cvthres=cvthres,
-        rsthres=rsthres,
-    )
-    data_logger.run.log({"RS vs CV": wandb.Image(fig)})
-    data_logger.run.summary.update(
-        {
-            "Average RS Test": jnp.mean(rs_test),
-            "Max CV Test": jnp.max(cv),
-            "Percentage CV < Tol": jnp.mean(cv < cvthres) * 100.0,
-            "Average Single Inference Time": jnp.mean(single_times_tests),
-            "Average Batch Inference Time": jnp.mean(batch_times_tests),
-        }
-    )
+        # %%
+        cvthres = 1e-3
+        rsthres = 5e-2
+        fig, rs, cv = plot_rs_vs_cv(
+            obj_fun_test=hcnn_obj_test,
+            obj_test=opt_obj_test,
+            eq_viol_test=jnp.max(cv_eq_test, axis=1),
+            ineq_viol_test=jnp.max(cv_soc_test, axis=1),
+            cvthres=cvthres,
+            rsthres=rsthres,
+        )
+        data_logger.run.log({"RS vs CV": wandb.Image(fig)})
+        data_logger.run.summary.update(
+            {
+                "Average RS Test": jnp.mean(rs_test),
+                "Max CV Test": jnp.max(cv),
+                "Percentage CV < Tol": jnp.mean(cv < cvthres) * 100.0,
+                "Average Single Inference Time": jnp.mean(single_times_tests),
+                "Average Batch Inference Time": jnp.mean(batch_times_tests),
+            }
+        )
+
+        if save_results:
+            filename_results = "results.npz"
+            results_folder = (
+                pathlib.Path(__file__).parent
+                / "results"
+                / f"n{n}_m{m}"
+                / method
+                / nowstamp
+            )
+            results_folder.mkdir(parents=True, exist_ok=True)
+            jnp.savez(
+                file=results_folder / filename_results,
+                inference_time=batch_times_tests,
+                single_inference_time=single_times_tests,
+                setup_time=setup_time,
+                compilation_time=compilation_time,
+                training_time=training_time,
+                eq_viol_test=cv_eq_test,
+                ineq_viol_test=cv_soc_test,
+                obj_fun_test=hcnn_obj_test,
+                opt_obj_test=opt_obj_test,
+                config_path=config_path,
+                **hyperparameters,
+            )
+            # Save learning curve results
+            jnp.savez(
+                file=results_folder / "learning_curves.npz",
+                optimal_objective=logging_dict.as_array("optimal_objective"),
+                objective=logging_dict.as_array("objective"),
+                eqcv=logging_dict.as_array("eqcv"),
+                ineqcv=logging_dict.as_array("ineqcv"),
+                train_time=logging_dict.as_array("train_time"),
+                inf_time=logging_dict.as_array("inf_time"),
+            )
+            # Save learning curve results
+            jnp.savez(
+                file=results_folder / "learning_curves.npz",
+                optimal_objective=logging_dict.as_array("optimal_objective"),
+                objective=logging_dict.as_array("objective"),
+                eqcv=logging_dict.as_array("eqcv"),
+                ineqcv=logging_dict.as_array("ineqcv"),
+                train_time=logging_dict.as_array("train_time"),
+                inf_time=logging_dict.as_array("inf_time"),
+            )
+
+
+if __name__ == "__main__":
+    main()
