@@ -3,11 +3,14 @@
 # %% Imports
 import datetime
 import pathlib
+import time
+from typing import Optional
 
 import cvxpy as cp
 import jax
 import numpy as np
 import optax
+import wandb
 from flax import linen as nn
 from flax.training import train_state
 from jax import config as jconf
@@ -17,6 +20,8 @@ from jax import random as jrnd
 from jax import value_and_grad
 from tqdm import tqdm
 
+from benchmarks.QP.plotting import plot_rs_vs_cv
+from benchmarks.QP.run_QP import LoggingDict
 from benchmarks.toy_SOC.generate_socp import (
     constraint_violation_eq,
     constraint_violation_soc,
@@ -45,7 +50,7 @@ n = 250
 m = 250
 sparsity = 0.01
 nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-run_name = f"n{n}_m{m}_{nowstamp}"
+run_name = f"n{n}_m{m}_sparse{sparsity}_{nowstamp}"
 # Key
 key = jrnd.PRNGKey(SEED)
 ACTIVATION = getattr(nn, hyperparameters["activation"], None)
@@ -55,6 +60,8 @@ LAYERS = hyperparameters["features_list"]
 
 keyA, key = jrnd.split(key)
 A = rand_sparse_mask(keyA, (m, n), sparsity=sparsity)
+VALIDATION_SIZE = 1024
+TEST_SIZE = 1024
 
 # %% CV and RS
 
@@ -91,10 +98,127 @@ def print_stats(
     )
 
 
+# %% Evaluation
+def evaluate_hcnn(
+    batch: dict,
+    state: train_state.TrainState,
+    A: jnp.ndarray,
+    prefix: str,
+    time_evals: int = 10,
+    tol_cv: float = 1e-3,
+    print_results: bool = True,
+    single_instance: bool = False,
+    instances: Optional[list] = None,
+) -> tuple[
+    jnp.ndarray,  # Objective values
+    jnp.ndarray,  # HCNN objective values
+    jnp.ndarray,  # Relative suboptimalities
+    jnp.ndarray,  # Equality constraint violations
+    jnp.ndarray,  # SOC constraint violations
+    jnp.ndarray,  # Evaluation times
+]:
+    """Evaluate the perfomance of the HCNN.
+
+    Args:
+        batch (dict): Input data containing "b" and "c".
+        state (TrainState): Current state of the model.
+        A (jnp.ndarray): Constraint matrix, shape (m, n).
+        prefix (str): Prefix for printing.
+        time_evals (int): Number of evaluations for timing.
+        tol_cv (float): Tolerance for constraint violation.
+        print_results (bool): Whether to print the results.
+        single_instance (bool): Whether to evaluate a single instance.
+        instances (list, optional): List of instance indices to evaluate.
+
+    Returns:
+        tuple:
+            - jnp.ndarray: Optimal objective values, shape (B, 1).
+            - jnp.ndarray: HCNN objective values, shape (B, 1).
+            - jnp.ndarray: Relative suboptimalities, shape (B, 1).
+            - jnp.ndarray: Equality constraint violations, shape (B, 1).
+            - jnp.ndarray: SOC constraint violations, shape (B, 1).
+            - jnp.ndarray: Evaluation times, shape (time_evals,).
+    """
+
+    def predict(batch):
+        return state.apply_fn(
+            state.params,
+            batch["input"],
+        )
+
+    predictions = predict(batch)
+    x = predictions[:, :n]
+    s = predictions[:, n:]
+    hcnn_obj = objective(x, batch["input"]["c"])
+    opt_obj = objective(batch["xstar"], batch["input"]["c"])
+    rs = relative_suboptimality(x, batch["xstar"], batch["input"]["c"])
+    eq_cv = constraint_violation_eq(A, x, s, batch["input"]["b"])
+    soc_cv = constraint_violation_soc(s)[..., 0]
+    perc_cv = jnp.mean((eq_cv < tol_cv) & (soc_cv < tol_cv)) * 100.0
+    # Computation time
+    if time_evals > 0:
+        # Batch size 1 or full
+        if single_instance:
+            if instances is None:
+                raise ValueError("Single instance evaluation requires instances.")
+
+            eval_times = []
+            for ii in instances:
+                batch_time = {
+                    "input": {
+                        "b": batch["input"]["b"][ii : ii + 1, ...],
+                        "c": batch["input"]["c"][ii : ii + 1, ...],
+                    }
+                }
+                for rep in range(time_evals + 1):
+                    start = time.time()
+                    predict(batch_time).block_until_ready()
+                    # Drop first time cause it includes setups
+                    if rep > 0:
+                        eval_times.append(time.time() - start)
+
+        else:
+            eval_times = []
+            for rep in range(time_evals + 1):
+                start = time.time()
+                predict(batch).block_until_ready()
+                # Drop first time cause it includes setups
+                if rep > 0:
+                    eval_times.append(time.time() - start)
+
+        eval_times = jnp.array(eval_times)
+    else:
+        eval_times = []
+
+    if print_results:
+        print(f"=========== {prefix} performance ===========")
+        print("Mean Relative Suboptimality   : ", f"{rs.mean():.5f}")
+        print("Mean objective                : ", f"{hcnn_obj.mean():.5f}")
+        print(
+            "Mean|Max equality violation   : ",
+            f"{eq_cv.mean():.5f}",
+            "|",
+            f"{eq_cv.max():.5f}",
+        )
+        print(
+            "Mean|Max SOC violation : ",
+            f"{soc_cv.mean():.5f}",
+            "|",
+            f"{soc_cv.max():.5f}",
+        )
+        print("Percentage of ineq. cv < tol  : ", f"{perc_cv:.5f} %")
+        if time_evals > 0:
+            print("Time for evaluation [s]       : ", f"{eval_times.mean():.5f}")
+        print("Optimal mean objective        : ", f"{opt_obj.mean():.5f}")
+
+    return opt_obj, hcnn_obj, rs, eq_cv, soc_cv, eval_times
+
+
 # %% Validate the problem
 B = 1024
 # Symbolic problem
-b, c, xstar, sstar = generate_problem(key, A, B)
+key_problem, key = jrnd.split(key)
+b, c, xstar, sstar = generate_problem(key_problem, A, B)
 
 # %% CVXPY
 A_np = np.asarray(A)
@@ -237,6 +361,9 @@ params = model.init(key_init, batch["input"])
 tx = optax.adam(LEARNING_RATE)
 state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
+# %% Generate validation data
+validation_batch, _ = make_batch(key=key, batch_size=VALIDATION_SIZE)
+
 
 # %% Training
 @jit
@@ -281,7 +408,8 @@ def train_step(state: train_state.TrainState, batch: dict):
 
 
 # Training loop
-update_every = 20
+eval_every = 1
+logging_dict = LoggingDict()
 with (
     Logger(run_name=run_name, project_name="toy_SOC") as data_logger,
     GracefulShutdown("Stop detected, finish epoch...") as g,
@@ -291,21 +419,43 @@ with (
         epoch_losses = []
         key_train, key = jrnd.split(key_train)
         batch, key_train = make_batch(key)
+        start_epoch_time = time.time()
         state, l, (x, s) = train_step(state, batch)
-        cv_eq = constraint_violation_eq(A, x, s, batch["input"]["b"])
-        cv_soc = constraint_violation_soc(s)
-        rs = relative_suboptimality(x, batch["xstar"], batch["input"]["c"])
-        data_logger.log(
-            epoch,
-            {
-                "loss": l,
-                "avg_rs": rs.mean(),
-                "max_rs": rs.max(),
-                "eq_cv": cv_eq.max(),
-                "cv_soc": cv_soc.max(),
-            },
-        )
-        if epoch % update_every == 0 or epoch == 1:
+        train_time = time.time() - start_epoch_time
+        if epoch % eval_every == 0 or epoch == 1:
+            start_evaluation_time = time.time()
+            obj, hcnn_obj, rs, cv_eq, cv_soc, _ = evaluate_hcnn(
+                batch=validation_batch,
+                state=state,
+                A=A,
+                prefix="Validation",
+                time_evals=-1,
+                tol_cv=1e-3,
+                print_results=False,
+                single_instance=False,
+                instances=None,
+            )
+            eval_time = time.time() - start_evaluation_time
+            logging_dict.update(
+                obj,
+                hcnn_obj,
+                cv_eq,
+                cv_soc,
+                train_time,
+                eval_time,
+            )
+            data_logger.log(
+                epoch,
+                {
+                    "loss": l,
+                    "epoch_training_time": train_time,
+                    "validation_avg_rs": rs.mean(),
+                    "validation_max_rs": rs.max(),
+                    "validation_eq_cv": cv_eq.max(),
+                    "validation_cv_soc": cv_soc.max(),
+                    "validation_time": eval_time,
+                },
+            )
             pbar.set_description(f"Train Loss: {l:.5f}")
             pbar.set_postfix(
                 {
@@ -315,18 +465,68 @@ with (
                 }
             )
 
-# %% Test
-batch_size_test = 1024
-key_test, key = jrnd.split(key_train)
-val_batch, _ = make_batch(key_test, batch_size=batch_size_test)
-pred_val = model.apply(state.params, val_batch["input"])
-b = val_batch["input"]["b"]
+    # %% Test
+    key_test, key = jrnd.split(key_train)
+    test_batch, _ = make_batch(key_test, batch_size=TEST_SIZE)
+    pred_val = model.apply(state.params, test_batch["input"])
+    b = test_batch["input"]["b"]
 
-x_pred = pred_val[:, :n]
-s_pred = pred_val[:, n:]
+    x_pred = pred_val[:, :n]
+    s_pred = pred_val[:, n:]
 
-print_stats(
-    x_pred, s_pred, val_batch["input"]["b"], val_batch["input"]["c"], val_batch["xstar"]
-)
+    print_stats(
+        x_pred,
+        s_pred,
+        test_batch["input"]["b"],
+        test_batch["input"]["c"],
+        test_batch["xstar"],
+    )
+    # %% Batch statistics
+    opt_obj_test, hcnn_obj_test, rs_test, cv_eq_test, cv_soc_test, batch_times_tests = (
+        evaluate_hcnn(
+            batch=test_batch,
+            state=state,
+            A=A,
+            prefix="Testing",
+            time_evals=10,
+            tol_cv=1e-3,
+            print_results=True,
+            single_instance=False,
+            instances=None,
+        )
+    )
+    # %% Single Statistics
+    instances = list(range(10))
+    _, _, _, _, _, single_times_tests = evaluate_hcnn(
+        batch=test_batch,
+        state=state,
+        A=A,
+        prefix="Testing Single Instances",
+        time_evals=10,
+        tol_cv=1e-3,
+        print_results=True,
+        single_instance=True,
+        instances=instances,
+    )
 
-# %%
+    # %%
+    cvthres = 1e-3
+    rsthres = 5e-2
+    fig, rs, cv = plot_rs_vs_cv(
+        obj_fun_test=hcnn_obj_test,
+        obj_test=opt_obj_test,
+        eq_viol_test=jnp.max(cv_eq_test, axis=1),
+        ineq_viol_test=jnp.max(cv_soc_test, axis=1),
+        cvthres=cvthres,
+        rsthres=rsthres,
+    )
+    data_logger.run.log({"RS vs CV": wandb.Image(fig)})
+    data_logger.run.summary.update(
+        {
+            "Average RS Test": jnp.mean(rs_test),
+            "Max CV Test": jnp.max(cv),
+            "Percentage CV < Tol": jnp.mean(cv < cvthres) * 100.0,
+            "Average Single Inference Time": jnp.mean(single_times_tests),
+            "Average Batch Inference Time": jnp.mean(batch_times_tests),
+        }
+    )
