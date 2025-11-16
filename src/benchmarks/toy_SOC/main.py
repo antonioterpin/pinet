@@ -284,11 +284,11 @@ def main():
     if measure_setup:
         raise NotImplementedError("Setup time measurement not implemented yet.")
     else:
-        setup_time = 0.0
+        setup_time = None
     if measure_compilation:
         raise NotImplementedError("Compilation time measurement not implemented yet.")
     else:
-        compilation_time = 0.0
+        compilation_time = None
 
     nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = f"n{n}_m{m}_sparse{sparsity}_{nowstamp}"
@@ -326,11 +326,6 @@ def main():
         print_stats(x_cvxpy, s_cvxpy, b, c, xstar, A)
 
     # %% Use our solver
-    n_iter_forward = hyperparameters["n_iter_train"]
-    n_iter_backward = hyperparameters["n_iter_bwd"]
-    sigma = hyperparameters["sigma"]
-    omega = hyperparameters["omega"]
-
     Aaug = jnp.concatenate((A, jnp.eye(m)), axis=1)
     assert Aaug.shape == (
         m,
@@ -338,7 +333,7 @@ def main():
     ), f"Augmented matrix A should have shape ({m}, {m + n}), instead: {Aaug.shape}"
 
     project = build_projection_layer(
-        Aaug, sigma, omega, n, n_iter_forward, n_iter_backward, use_custom_vjp=True
+        A=Aaug, n=n, m=m, hyperparameters=hyperparameters, method=method
     )
 
     # %% Test the projection
@@ -490,7 +485,6 @@ def main():
         return
 
     # %% Training
-    @jit
     def loss_fn(params: dict, input: dict):
         """Compute the loss function and auxiliary values.
 
@@ -510,7 +504,6 @@ def main():
         objective_value = objective(x, c)
         return jnp.mean(objective_value), (x, s)
 
-    @jit
     def train_step(state: train_state.TrainState, batch: dict):
         """Perform a single training step.
 
@@ -529,6 +522,11 @@ def main():
         state = state.apply_gradients(grads=grads)
         return state, loss, aux
 
+    # Only pinet supports jitting
+    if method == "pinet":
+        loss_fn = jit(loss_fn)
+        train_step = jit(train_step)
+
     # Training loop
     eval_every = 1
     logging_dict = LoggingDict()
@@ -545,6 +543,7 @@ def main():
             batch, key_train = make_batch(key)
             start_epoch_time = time.time()
             state, l, (x, s) = train_step(state, batch)
+            pbar.set_description(f"Train Loss: {l:.5f}")
             train_time = time.time() - start_epoch_time
             if epoch % eval_every == 0 or epoch == 1:
                 start_evaluation_time = time.time()
@@ -581,7 +580,6 @@ def main():
                         "validation_time": eval_time,
                     },
                 )
-                pbar.set_description(f"Train Loss: {l:.5f}")
                 pbar.set_postfix(
                     {
                         "CV Eq": f"{cv_eq.max():.4e}",

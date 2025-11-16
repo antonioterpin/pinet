@@ -1,6 +1,8 @@
 """Projection layer implentation for SOC constraints."""
 
+import cvxpy as cp
 import jax.numpy as jnp
+from cvxpylayers.jax import CvxpyLayer
 from jax import custom_vjp as _custom_vjp
 from jax import jit, lax, vjp
 from jax.scipy.sparse.linalg import bicgstab
@@ -38,7 +40,7 @@ def _project_soc(z: jnp.ndarray) -> jnp.ndarray:
 project_soc = jit(_project_soc)
 
 
-def build_projection_layer(
+def build_project_pinet(
     A: jnp.ndarray,
     sigma: float,
     omega: float,
@@ -47,7 +49,7 @@ def build_projection_layer(
     n_iter_backward: int,
     use_custom_vjp: bool,
 ):
-    """Build the iteration and result retrieval step.
+    """Build the iteration and result retrieval step for pinet.
 
     Args:
         A (jnp.ndarray): Equality constraint matrix.
@@ -215,3 +217,97 @@ def build_projection_layer(
         project.defvjp(_project_fwd, _project_bwd)
 
     return jit(project)
+
+
+def build_project_cvxpy(Aaug: jnp.ndarray, n: int, m: int, eps=1e-3):
+    """Build the projection layer with cvxpyalayers.
+
+    Args:
+        Aaug (jnp.ndarray): Augmented equality constraint matrix.
+        n (int): Dimension of the primal variables.
+        m (int): Dimension of the slack variables.
+        eps (float): Solver tolerance.
+
+    Returns:
+        Callable[
+            [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+        ]:
+            Projection function that takes in the governing sequence,
+            raw input, and right-hand side, and returns the projected
+            value and final governing sequence.
+    """
+    x_var = cp.Variable(n)
+    s_var = cp.Variable(m)
+    xproj_par = cp.Parameter(n)
+    sproj_par = cp.Parameter(m)
+    b_par = cp.Parameter(m)
+    constraints = [
+        Aaug @ cp.hstack([x_var, s_var]) == b_par,
+        cp.SOC(s_var[-1], s_var[:-1]),
+    ]
+    problem_cvxpy = cp.Problem(
+        objective=cp.Minimize(
+            cp.sum_squares(x_var - xproj_par) + cp.sum_squares(s_var - sproj_par)
+        ),
+        constraints=constraints,
+    )
+    assert problem_cvxpy.is_dpp()
+
+    cvxpylayer = CvxpyLayer(
+        problem_cvxpy,
+        parameters=[xproj_par, sproj_par, b_par],
+        variables=[x_var, s_var],
+    )
+
+    def project(_, xx, bb):
+        projection = cvxpylayer(
+            xx[:, :n, :].reshape(-1, n),
+            xx[:, n:, :].reshape(-1, m),
+            bb.reshape(-1, m),
+            solver_args={
+                "verbose": False,
+                "eps_abs": eps,
+                "eps_rel": eps,
+            },
+        )
+        return jnp.concatenate(projection, axis=1)[..., None], _
+
+    return project
+
+
+def build_projection_layer(
+    A: jnp.ndarray,
+    n: int,
+    m: int,
+    hyperparameters: dict,
+    method: str,
+):
+    """Build the projection layer based on the specified method.
+
+    Args:
+        A (jnp.ndarray): Equality constraint matrix.
+        n (int): Dimension of the primal variables.
+        m (int): Dimension of the slack variables.
+        hyperparameters (dict): Hyperparameters for the projection layer.
+        method (str): Projection method to use ("pinet" or "cvxpylayers").
+
+    Returns:
+        Callable:
+            Projection function that takes in the governing sequence,
+            raw input, and right-hand side, and returns the projected
+            value and final governing sequence.
+    """
+    if method == "pinet":
+        return build_project_pinet(
+            A=A,
+            n=n,
+            sigma=hyperparameters["sigma"],
+            omega=hyperparameters["omega"],
+            n_iter_forward=hyperparameters["n_iter_train"],
+            n_iter_backward=hyperparameters["n_iter_bwd"],
+            use_custom_vjp=hyperparameters["use_custom_vjp"],
+        )
+    elif method == "cvxpylayers":
+        return build_project_cvxpy(Aaug=A, n=n, m=m, eps=hyperparameters["cvxpy_tol"])
+    else:
+        raise ValueError(f"Unknown projection method: {method}")

@@ -9,3 +9,5 @@ n_iter_bwd: 200
 activation: tanh
 features_list: [200, 200]
 batch_size: 2048
+use_custom_vjp: True
+cvxpy_tol: 1.0e-4
