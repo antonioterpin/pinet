@@ -455,19 +455,18 @@ def main():
         # Single inference times
         single_times = []
         for i in tqdm(range(reps)):
-            for ii in instances:
-                _, _, times = evaluate_solver(
-                    A_np=A_np,
-                    b_batch=test_batch["input"]["b"][ii : ii + 1, ...],
-                    c_batch=test_batch["input"]["c"][ii : ii + 1, ...],
-                    n=n,
-                    m=m,
-                    eps=1e-4,
-                    verbose=False,
-                    method=method,
-                    use_tqdm=False,
-                )
-                single_times.append(times.item())
+            _, _, times = evaluate_solver(
+                A_np=A_np,
+                b_batch=test_batch["input"]["b"][jnp.array(instances), ...],
+                c_batch=test_batch["input"]["c"][jnp.array(instances), ...],
+                n=n,
+                m=m,
+                eps=1e-4,
+                verbose=False,
+                method=method,
+                use_tqdm=False,
+            )
+            single_times.append(jnp.sum(times) / len(instances))
         if save_results:
             filename_results = "results.npz"
             results_folder = (
