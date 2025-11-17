@@ -95,12 +95,6 @@ def parse_args():
         default=False,
         help="Measure setup time.",
     )
-    parser.add_argument(
-        "--measure-compilation",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Measure compilation time.",
-    )
     args = parser.parse_args()
     if args.method not in ["pinet", "cvxpylayers", "cvxpy", "cvxpy_parametric", "scs"]:
         raise ValueError(f"Unknown method: {args.method}")
@@ -274,21 +268,13 @@ def main():
     sparsity = args.sparsity
     VALIDATION_SIZE = args.validation_size
     TEST_SIZE = args.test_size
+    VALIDATION_TEST_SEED = 1
     # Instances for single inference
     instances = list(range(10))
     run_tests = args.run_tests
     save_results = args.save_results
     method = args.method
     measure_setup = args.measure_setup
-    measure_compilation = args.measure_compilation
-    if measure_setup:
-        raise NotImplementedError("Setup time measurement not implemented yet.")
-    else:
-        setup_time = None
-    if measure_compilation:
-        raise NotImplementedError("Compilation time measurement not implemented yet.")
-    else:
-        compilation_time = None
 
     nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = f"n{n}_m{m}_sparse{sparsity}_{nowstamp}"
@@ -301,6 +287,15 @@ def main():
 
     keyA, key = jrnd.split(key)
     A = rand_sparse_mask(keyA, (m, n), sparsity=sparsity)
+    if measure_setup and method == "pinet":
+        setup_times = []
+        for _ in range(10):
+            start_time = time.time()
+            _ = jnp.linalg.pinv(A).block_until_ready()
+            setup_times.append(time.time() - start_time)
+        setup_time = jnp.mean(jnp.array(setup_times))
+    else:
+        setup_time = None
 
     # %% Validate the problem
     B = 1024
@@ -332,9 +327,14 @@ def main():
         m + n,
     ), f"Augmented matrix A should have shape ({m}, {m + n}), instead: {Aaug.shape}"
 
-    project = build_projection_layer(
-        A=Aaug, n=n, m=m, hyperparameters=hyperparameters, method=method
-    )
+    if method == "cvxpylayers":
+        project = build_projection_layer(
+            A=Aaug, n=n, m=m, hyperparameters=hyperparameters, method=method
+        )
+    else:
+        project = build_projection_layer(
+            A=Aaug, n=n, m=m, hyperparameters=hyperparameters, method="pinet"
+        )
 
     # %% Test the projection
     # To test the correctness of the projection, we can sample random points,
@@ -430,7 +430,9 @@ def main():
     state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     # %% Generate validation and test data
-    validation_batch, key_test = make_batch(key=key, batch_size=VALIDATION_SIZE)
+    # Fix the key for generating the validation and test data.
+    key_valid = jrnd.PRNGKey(VALIDATION_TEST_SEED)
+    validation_batch, key_test = make_batch(key=key_valid, batch_size=VALIDATION_SIZE)
     test_batch, _ = make_batch(key_test, batch_size=TEST_SIZE)
     # %% Benchmark solver
     if method in ["cvxpy", "cvxpy_parametric", "scs"]:
@@ -674,7 +676,7 @@ def main():
                 inference_time=batch_times_tests,
                 single_inference_time=single_times_tests,
                 setup_time=setup_time,
-                compilation_time=compilation_time,
+                compilation_time=None,  # already included in first epoch
                 training_time=training_time,
                 eq_viol_test=cv_eq_test,
                 ineq_viol_test=cv_soc_test,
