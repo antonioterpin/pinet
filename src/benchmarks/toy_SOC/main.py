@@ -3,6 +3,7 @@
 # %% Imports
 import argparse
 import datetime
+import os
 import pathlib
 import time
 from typing import Optional
@@ -37,6 +38,8 @@ from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
 # Use 64 bit precision for numerical stability
 jconf.update("jax_enable_x64", True)
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.25"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 
 # %% Setup
 CONFIG = "toy_SOC"

@@ -35,7 +35,13 @@ class HardConstrainedMLP(nn.Module):
         b, c = input["b"].squeeze(-1), input["c"].squeeze(-1)
         x = jnp.concatenate((b, c), axis=-1)
         for layer_size in self.layers:
-            x = self.activation(nn.Dense(layer_size)(x))
+            x = self.activation(
+                nn.Dense(
+                    layer_size,
+                    kernel_init=nn.initializers.normal(),
+                    bias_init=nn.initializers.normal(),
+                )(x),
+            )
         # Final layer to project
         x = nn.Dense(self.n + self.m)(x).reshape((x.shape[0], self.n + self.m, 1))
         x = self.project(jnp.zeros_like(x), x, b.reshape((b.shape[0], -1, 1)))[0]

@@ -265,9 +265,11 @@ def build_project_cvxpy(Aaug: jnp.ndarray, n: int, m: int, eps=1e-3):
             xx[:, n:, :].reshape(-1, m),
             bb.reshape(-1, m),
             solver_args={
+                "solve_method": "CLARABEL",
+                "tol_gap_abs": eps,
+                "tol_gap_rel": eps,
+                "tol_feas": eps,
                 "verbose": False,
-                "eps_abs": eps,
-                "eps_rel": eps,
             },
         )
         return jnp.concatenate(projection, axis=1)[..., None], _
