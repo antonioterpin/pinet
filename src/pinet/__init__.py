@@ -3,14 +3,17 @@
 from .constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
+    CartesianConstraint,
     ConstraintParser,
     EqualityConstraint,
+    SocConstraint,
 )
 from .dataclasses import (
     BoxConstraintSpecification,
     EqualityConstraintsSpecification,
     EquilibrationParams,
     ProjectionInstance,
+    SocConstraintSpecification,
 )
 from .equilibration import ruiz_equilibration
 from .project import Project
@@ -20,6 +23,8 @@ __all__ = [
     "EqualityConstraint",
     "AffineInequalityConstraint",
     "BoxConstraint",
+    "SocConstraint",
+    "CartesianConstraint",
     "ConstraintParser",
     "ruiz_equilibration",
     "Project",
@@ -28,4 +33,5 @@ __all__ = [
     "EqualityConstraintsSpecification",
     "EquilibrationParams",
     "BoxConstraintSpecification",
+    "SocConstraintSpecification",
 ]

@@ -30,9 +30,17 @@ class BoxConstraint(Constraint):
         self.lb = box_spec.lb
         self.ub = box_spec.ub
         self.mask = box_spec.mask
-        self._dim = self.lb.shape[1] if self.lb is not None else self.ub.shape[1]
+        if self.mask is not None:
+            self._dim = self.mask.size
+        elif self.lb is not None:
+            self._dim = self.lb.shape[1]
+        else:
+            self._dim = self.ub.shape[1]
         self.scale = jnp.ones((1, self._dim, 1))
 
+        self._n_constraints = (
+            self.lb.shape[1] if self.lb is not None else self.ub.shape[1]
+        )
         if self.mask is None:
             self.mask = np.ones(shape=(self.dim), dtype=jnp.bool_)
 
@@ -116,4 +124,4 @@ class BoxConstraint(Constraint):
         Returns:
             int: The number of constraints.
         """
-        return self._dim
+        return self._n_constraints

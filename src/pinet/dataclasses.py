@@ -120,6 +120,99 @@ class BoxConstraintSpecification:
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
+class SocConstraintSpecification:
+    """Dataclass representing inputs used in forming second-order cone constraints.
+
+    Attributes:
+        mask_u (Optional[jnp.ndarray]): Boolean mask indicating which variables
+            are part of the cone constraint vector u. Shape (dimension,).
+        mask_t (Optional[jnp.ndarray]): Boolean mask selecting a single
+            scalar variable t that serves as the cone constraint parameter.
+            Must have exactly one True value.
+            Shape (dimension,).
+        a (Optional[jnp.ndarray]): Coefficient matrix for the cone constraint vector u.
+            Shape (batch_size, n_u_variables, 1) where n_u_variables is the number of True
+            values in mask_u.
+        b (Optional[jnp.ndarray]): Coefficient vector for the cone constraint parameter t.
+            Shape (batch_size, 1, 1).
+    """
+
+    mask_u: Optional[jnp.ndarray] = None
+    mask_t: Optional[jnp.ndarray] = None
+    a: Optional[jnp.ndarray] = None
+    b: Optional[jnp.ndarray] = None
+
+    def update(self, **kwargs) -> "SocConstraintSpecification":
+        """Update some attribute by keyword."""
+        return replace(self, **kwargs)
+
+    def validate(self) -> None:
+        """Validate the soc constraint specification.
+
+        NOTE: This checks cannot be done after tracing, but this function
+        can be used to validate the inputs before tracing.
+        """
+        if getattr(self.mask_u, "dtype", None) != jnp.bool_:
+            raise TypeError("mask_u must be a boolean array.")
+        if getattr(self.mask_t, "dtype", None) != jnp.bool_:
+            raise TypeError("mask_t must be a boolean array.")
+
+        if getattr(self.mask_u, "ndim", None) != 1:
+            raise ValueError(
+                "mask_u must be a 1D array. "
+                f"Received shape: {getattr(self.mask_u, 'shape', None)}."
+            )
+        if getattr(self.mask_t, "ndim", None) != 1:
+            raise ValueError(
+                "mask_t must be a 1D array. "
+                f"Received shape: {getattr(self.mask_t, 'shape', None)}."
+            )
+
+        # Check that mask_u and mask_t have the same size
+        if hasattr(self.mask_u, "shape") and hasattr(self.mask_t, "shape"):
+            if self.mask_u.shape[0] != self.mask_t.shape[0]:
+                raise ValueError(
+                    "mask_u and mask_t must have the same size. "
+                    f"Received mask_u shape: {self.mask_u.shape}, "
+                    f"mask_t shape: {self.mask_t.shape}."
+                )
+
+        if hasattr(self.mask_t, "sum") and self.mask_t.sum() != 1:
+            raise ValueError("mask_t must select exactly one element.")
+
+        if self.a is not None and hasattr(self.a, "ndim") and self.a.ndim != 3:
+            raise ValueError(
+                "a must have shape (batch_size, n_constraints, 1). "
+                f"Received shape: {getattr(self.a, 'shape', None)}."
+            )
+        if self.b is not None and hasattr(self.b, "ndim") and self.b.ndim != 3:
+            raise ValueError(
+                "b must have shape (batch_size, n_constraints, 1). "
+                f"Received shape: {getattr(self.b, 'shape', None)}."
+            )
+
+        # Check that a and b are of the correct dimensions
+        if self.a is not None:
+            dim_a = getattr(self.a, "shape")[1]
+            num_true_u = int(self.mask_u.sum())
+            if dim_a != num_true_u:
+                raise ValueError(
+                    "The second dimension of a must match "
+                    f"the number of True values in mask_u. "
+                    f"Received a shape: {self.a.shape}, "
+                    f"mask_u has {num_true_u} True values."
+                )
+        if self.b is not None:
+            dim_b = getattr(self.b, "shape")[1]
+            if dim_b != 1:
+                raise ValueError(
+                    "The second dimension of b must be 1. "
+                    f"Received b shape: {self.b.shape}."
+                )
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
 class ProjectionInstance:
     """A dataclass for encapsulating model input parameters.
 
@@ -135,6 +228,7 @@ class ProjectionInstance:
     x: jnp.ndarray
     eq: Optional[EqualityConstraintsSpecification] = None
     box: Optional[BoxConstraintSpecification] = None
+    soc: Optional[SocConstraintSpecification] = None
 
     def validate(self) -> None:
         """Validate the projection instance.
