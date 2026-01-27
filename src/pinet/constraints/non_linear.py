@@ -5,8 +5,11 @@ from typing import Optional
 import jax.numpy as jnp
 
 from pinet.constraints.base import Constraint
-
-LIST_NONLINEAR = ["soc"]
+from pinet.constraints.non_linear_types import (
+    L2NormType,
+    NonLinearConstraintType,
+    SOCType,
+)
 
 
 class NonLinearConstraint(Constraint):
@@ -19,6 +22,7 @@ class NonLinearConstraint(Constraint):
 
     def __init__(
         self,
+        nl_type: NonLinearConstraintType,
         A: Optional[jnp.ndarray] = None,
         a: Optional[jnp.ndarray] = None,
         f: Optional[jnp.ndarray] = None,
@@ -26,7 +30,6 @@ class NonLinearConstraint(Constraint):
         dim: Optional[int] = None,
         var_a: Optional[bool] = False,
         var_b: Optional[bool] = False,
-        nl_type: str = "soc",
     ) -> None:
         """Initialize the non-linear constraint.
 
@@ -42,27 +45,43 @@ class NonLinearConstraint(Constraint):
             dim (Optional[int]): Variable dimension if A and f are not provided.
             var_a (Optional[bool]): Whether 'a' is a variable. Defaults to False.
             var_b (Optional[bool]): Whether 'b' is a variable. Defaults to False.
-            nl_type (str): Type of non-linear constraint. Defaults to "soc".
+            nl_type (NonLinearConstraintType): Type of non-linear constraint.
         """
-        self._A = A
-        self._a = a
-        self._f = f
-        self._b = b
-        self._dim = dim
-        self.var_a = var_a
-        self.var_b = var_b
-        self.nl_type = nl_type
-        if nl_type not in LIST_NONLINEAR:
-            raise ValueError(
-                f"Unsupported non-linear constraint: {nl_type}. "
-                f"Supported types: {LIST_NONLINEAR}"
-            )
-
-        if (A is None) and (f is None) and (self.dim is None):
+        # Check for dimension
+        if (A is None) and (f is None) and (dim is None):
             raise ValueError(
                 "At least one of A, f, or dim must be provided to "
                 "determine variable dimension."
             )
+        else:
+            if A is not None:
+                self._dim = A.shape[-1]
+            elif f is not None:
+                self._dim = f.shape[-1]
+            else:
+                self._dim = dim
+        # Make sure A matrix exists
+        if A is None:
+            A = jnp.eye(self.dim).reshape(1, -1, -1)
+
+        # Validate nl_type
+        if not isinstance(nl_type, NonLinearConstraintType):
+            raise ValueError(
+                f"nl_type must be a NonLinearConstraintType instance, "
+                f"got {type(nl_type)}"
+            )
+
+        # Parse nl_type: if L2Norm with RHS (f is present), convert to SOC
+        if isinstance(nl_type, L2NormType) and f is not None:
+            nl_type = SOCType()
+
+        self._A = A
+        self._a = a
+        self._f = f
+        self._b = b
+        self.var_a = var_a
+        self.var_b = var_b
+        self._nl_type = nl_type
 
         # Validate batch size consistency
         batch_sizes = []
@@ -149,14 +168,18 @@ class NonLinearConstraint(Constraint):
     @property
     def dim(self) -> int:
         """Return the dimension of the constraint set."""
-        if self._A is not None:
-            return self._A.shape[-1]
-        elif self._f is not None:
-            return self._f.shape[-1]
-        else:
-            return self._dim
+        return self._dim
 
     @property
     def n_constraints(self) -> int:
         """Return the number of constraints."""
         return 1
+
+    @property
+    def nl_type(self) -> NonLinearConstraintType:
+        """Return the type of non-linear constraint.
+
+        Returns:
+            NonLinearConstraintType: The type of non-linear constraint.
+        """
+        return self._nl_type

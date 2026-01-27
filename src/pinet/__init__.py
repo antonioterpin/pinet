@@ -6,7 +6,11 @@ from .constraints import (
     CartesianConstraint,
     ConstraintParser,
     EqualityConstraint,
+    L2NormType,
+    NonLinearConstraint,
+    NonLinearConstraintType,
     SocConstraint,
+    SOCType,
 )
 from .dataclasses import (
     BoxConstraintSpecification,
@@ -34,4 +38,8 @@ __all__ = [
     "EquilibrationParams",
     "BoxConstraintSpecification",
     "SocConstraintSpecification",
+    "NonLinearConstraint",
+    "NonLinearConstraintType",
+    "L2NormType",
+    "SOCType",
 ]

@@ -22,6 +22,7 @@ class SocConstraint(Constraint):
         Args:
             socspec (SocConstraintSpecification): Specification of the box constraint.
         """
+        socspec.validate()
         self.a = socspec.a
         self.b = socspec.b
         if socspec.mask_u is None or socspec.mask_t is None:

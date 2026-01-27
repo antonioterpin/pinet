@@ -4,10 +4,11 @@ from typing import List, Optional
 
 import jax.numpy as jnp
 
-from pinet.constraints.base import Constraint
-from pinet.constraints.box import BoxConstraint
-from pinet.constraints.soc_constraint import SocConstraint
 from pinet.dataclasses import ProjectionInstance
+
+from .base import Constraint
+from .box import BoxConstraint
+from .soc_constraint import SocConstraint
 
 
 class CartesianConstraint(Constraint):
