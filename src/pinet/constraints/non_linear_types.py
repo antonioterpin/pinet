@@ -1,15 +1,15 @@
 """Non-linear constraint types."""
 
-from abc import ABC
+from enum import Enum
 
 
-class NonLinearConstraintType(ABC):
-    """Base class for non-linear constraint types."""
+class NonLinearConstraintType(Enum):
+    """Enumeration of supported non-linear constraint types."""
+
+    L2_NORM = "l2_norm"
+    SOC = "soc"
 
 
-class L2NormType(NonLinearConstraintType):
-    """L2 norm constraint type."""
-
-
-class SOCType(NonLinearConstraintType):
-    """Second-order cone (SOC) constraint type."""
+# Aliases for backward compatibility
+L2NormType = NonLinearConstraintType.L2_NORM
+SOCType = NonLinearConstraintType.SOC

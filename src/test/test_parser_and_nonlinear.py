@@ -14,6 +14,7 @@ from pinet import (
     ConstraintParser,
     EqualityConstraint,
     NonLinearConstraint,
+    NonLinearSpecification,
     ProjectionInstance,
     SocConstraint,
     SOCType,
@@ -27,7 +28,6 @@ BATCH_SIZES = [1, 10, 50]
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
 def test_simple_problem(seed, batch_size):
-    batch_size = 10
     dim = 2
     n_A = 1
     n_C = 2
@@ -73,12 +73,15 @@ def test_simple_problem(seed, batch_size):
         + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1, ord=2, axis=1)
         - f_soc_1 @ x_feas
     )
-    soc_constraint_1 = NonLinearConstraint(
+    nlspec_1 = NonLinearSpecification(
         A=A_soc_1,
         a=a_soc_1,
         f=f_soc_1,
         b=b_soc_1,
-        nl_type=SOCType(),
+        nl_type=SOCType,
+    )
+    soc_constraint_1 = NonLinearConstraint(
+        spec=nlspec_1,
     )
 
     # SOC constraint 2
@@ -93,12 +96,15 @@ def test_simple_problem(seed, batch_size):
         + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2, ord=2, axis=1)
         - f_soc_2 @ x_feas
     )
-    soc_constraint_2 = NonLinearConstraint(
+    nlspec_2 = NonLinearSpecification(
         A=A_soc_2,
         a=a_soc_2,
         f=f_soc_2,
         b=b_soc_2,
-        nl_type=SOCType(),
+        nl_type=SOCType,
+    )
+    soc_constraint_2 = NonLinearConstraint(
+        spec=nlspec_2,
     )
     # Parse constraints
     nl_constraints = [
@@ -213,7 +219,7 @@ def test_simple_problem(seed, batch_size):
     # Create random points to be projected
     key, subkey = jrnd.split(key)
     yproj = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-5, maxval=5)
-    yraw = ProjectionInstance(x=yproj)
+    yraw = ProjectionInstance(x=yproj, nl=[nlspec_1, nlspec_2])
 
     # Build the algorithm
     n_iter = 1500
@@ -223,7 +229,9 @@ def test_simple_problem(seed, batch_size):
         dim=dim,
     )
     iteration_step = jax.jit(iteration_step)
-    sk = ProjectionInstance(x=jnp.zeros((batch_size, dim + n_extra, 1)))
+    sk = ProjectionInstance(
+        x=jnp.zeros((batch_size, dim + n_extra, 1)), nl=[nlspec_1, nlspec_2]
+    )
     for ii in range(n_iter):
         sk = iteration_step(sk=sk, yraw=yraw, sigma=0.1, omega=1.8)
     yk = final_step(sk)

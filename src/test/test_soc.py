@@ -138,7 +138,7 @@ def test_soc_a_b_parametrized(seed, batch_size):
 
 def test_raising_errors():
     with pytest.raises(ValueError):
-        SocConstraint(socspec=SocConstraintSpecification())
+        SocConstraint(socspec=SocConstraintSpecification(mask_u=None, mask_t=None))
 
     mask_u = jnp.ones((DIM), dtype=jnp.bool_).at[-1].set(False)
     mask_t = jnp.zeros((DIM), dtype=jnp.bool_).at[-1].set(True)

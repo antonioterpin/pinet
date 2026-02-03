@@ -4,10 +4,11 @@ from typing import List, Optional
 
 import jax.numpy as jnp
 
-from pinet.dataclasses import ProjectionInstance
+from pinet.dataclasses import ProjectionInstance, SocConstraintSpecification
 
 from .base import Constraint
 from .box import BoxConstraint
+from .non_linear import NonLinearConstraint
 from .soc_constraint import SocConstraint
 
 
@@ -20,18 +21,36 @@ class CartesianConstraint(Constraint):
 
     def __init__(
         self,
-        constraints: Optional[List[Constraint]] = None,
+        box_constraint: Optional[BoxConstraint] = None,
+        nl_constraints: Optional[List[NonLinearConstraint]] = None,
     ) -> None:
         """Initialize the Cartesian constraint.
 
         Args:
-            constraints (Optional[List[Constraint]]):
-                List of constraints (BoxConstraint or SocConstraint).
+            box_constraint (Optional[BoxConstraint]):
+                Box constraint for the Cartesian product. Defaults to None.
+            nl_constraints (Optional[List[NonLinearConstraint]]):
+                List of non-linear constraints (SocConstraint). Defaults to None.
 
         Raises:
-            ValueError: If no constraints are provided or if masks overlap.
+            ValueError: If no constraints are provided, if masks overlap,
+                or if constraint dimensions are inconsistent.
+            TypeError: If nl_constraints is not a list or tuple.
         """
-        self.constraints = constraints or []
+        self.box_constraint = box_constraint
+        self.nl_constraints = nl_constraints
+
+        # Validate nl_constraints
+        if nl_constraints is not None:
+            if not isinstance(nl_constraints, (list, tuple)):
+                raise TypeError(
+                    f"nl_constraints must be a list or tuple, "
+                    f"got {type(nl_constraints).__name__}."
+                )
+
+        self.constraints = [
+            c for c in (box_constraint, *(nl_constraints or [])) if c is not None
+        ]
 
         if not self.constraints:
             raise ValueError("At least one constraint must be provided.")
@@ -40,12 +59,20 @@ class CartesianConstraint(Constraint):
         self._dim = self.constraints[0].dim
 
         # Check that the constraints are boxes and socs
-        for constraint in self.constraints:
-            if not isinstance(constraint, (BoxConstraint, SocConstraint)):
-                raise ValueError(
-                    "Only BoxConstraint and SocConstraint are supported "
-                    "in CartesianConstraint."
-                )
+        if self.box_constraint is not None and not isinstance(
+            self.box_constraint, BoxConstraint
+        ):
+            raise ValueError(
+                f"The box_constraint must be a BoxConstraint, "
+                f"got {type(self.box_constraint).__name__}."
+            )
+        if self.nl_constraints is not None:
+            for constraint in self.nl_constraints:
+                if not isinstance(constraint, SocConstraint):
+                    raise ValueError(
+                        f"Only and SocConstraint are currently supported "
+                        f"in nl_constraints, got {type(constraint).__name__}."
+                    )
 
         # Validate that all constraints have the same dimension
         for constraint in self.constraints:
@@ -57,6 +84,25 @@ class CartesianConstraint(Constraint):
 
         # Check that masks don't overlap
         self._validate_masks()
+
+        self.n_nonlinear = len(self.nl_constraints)
+
+        self.update_fns = []
+
+        # Define update functions
+        def soc_update(
+            yraw: ProjectionInstance, socspec: SocConstraintSpecification
+        ) -> ProjectionInstance:
+            return yraw.update(soc=socspec)
+
+        for constraint in self.nl_constraints:
+            if isinstance(constraint, SocConstraint):
+                self.update_fns.append(soc_update)
+            else:
+                raise ValueError(
+                    "Only BoxConstraint and SocConstraint are supported "
+                    "in CartesianConstraint."
+                )
 
     def _validate_masks(self) -> None:
         """Validate that masks from all constraints do not overlap.
@@ -95,13 +141,22 @@ class CartesianConstraint(Constraint):
         Returns:
             ProjectionInstance: The projected input.
         """
-        result = yraw
+        if not isinstance(yraw.nl, (list, tuple)):
+            raise TypeError(
+                f"yraw.nl must be a list or tuple, " f"got {type(yraw.nl).__name__}."
+            )
+
+        if self.box_constraint is not None:
+            yraw = self.box_constraint.project(yraw)
 
         # Project onto each constraint
-        for constraint in self.constraints:
-            result = constraint.project(result)
+        for nl_constraint, update_fn, nl_spec in zip(
+            self.nl_constraints, self.update_fns, yraw.nl
+        ):
+            yraw = update_fn(yraw, nl_spec.to_primitive_spec())
+            yraw = nl_constraint.project(yraw)
 
-        return result
+        return yraw
 
     def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
@@ -117,8 +172,14 @@ class CartesianConstraint(Constraint):
         """
         cvs = []
 
-        # Compute constraint violations for all constraints
-        for constraint in self.constraints:
+        if self.box_constraint is not None:
+            cvs.append(self.box_constraint.cv(yraw).reshape(-1))
+
+        # Compute constraint violations for nl constraints
+        for constraint, update_fn, nl_spec in zip(
+            self.nl_constraints, self.update_fns, yraw.nl
+        ):
+            yraw = update_fn(yraw, nl_spec.to_primitive_spec())
             cvs.append(constraint.cv(yraw).reshape(-1))
 
         # Return the maximum violation

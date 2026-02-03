@@ -14,7 +14,7 @@ from pinet.dataclasses import ProjectionInstance
 
 
 def initialize(
-    yraw: jnp.ndarray,
+    yraw: ProjectionInstance,
     ineq_constraint: AffineInequalityConstraint,
     box_constraint: BoxConstraint,
     dim: int,

@@ -16,6 +16,7 @@ from .dataclasses import (
     BoxConstraintSpecification,
     EqualityConstraintsSpecification,
     EquilibrationParams,
+    NonLinearSpecification,
     ProjectionInstance,
     SocConstraintSpecification,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "SocConstraintSpecification",
     "NonLinearConstraint",
     "NonLinearConstraintType",
+    "NonLinearSpecification",
     "L2NormType",
     "SOCType",
 ]

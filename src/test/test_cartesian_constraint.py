@@ -30,10 +30,19 @@ BATCH_SIZES = [1, 10]
 def test_empty_input_raises():
     """Test that empty constraint list raises ValueError."""
     with pytest.raises(ValueError, match="At least one constraint must be provided"):
-        CartesianConstraint(constraints=[])
+        CartesianConstraint(box_constraint=None, nl_constraints=[])
 
     with pytest.raises(ValueError, match="At least one constraint must be provided"):
-        CartesianConstraint(constraints=None)
+        CartesianConstraint(box_constraint=None, nl_constraints=None)
+
+
+def test_nl_constraints_is_iterable():
+    """Test that non-iterable nl_constraints raises TypeError."""
+    with pytest.raises(
+        TypeError,
+        match="nl_constraints must be a list or tuple, got int.",
+    ):
+        CartesianConstraint(nl_constraints=5)
 
 
 def test_non_box_soc_constraint_raises():
@@ -61,37 +70,19 @@ def test_non_box_soc_constraint_raises():
     dummy = DummyConstraint()
 
     with pytest.raises(
-        ValueError, match="Only BoxConstraint and SocConstraint are supported"
+        ValueError,
+        match="The box_constraint must be a BoxConstraint, got DummyConstraint.",
     ):
-        CartesianConstraint(constraints=[dummy])
-
-
-def test_wrong_dimensions_box_and_box_raise():
-    """Test that constraints with different dimensions raise ValueError."""
-    # Create box constraint with dimension 5
-    box_mask_5 = jnp.array([True] * 3 + [False] * 2, dtype=jnp.bool_)
-    box_5 = BoxConstraint(
-        BoxConstraintSpecification(
-            lb=jnp.array([[-1.0], [-1.0], [-1.0]]),
-            ub=jnp.array([[1.0], [1.0], [1.0]]),
-            mask=box_mask_5,
-        )
-    )
-
-    # Create box constraint with dimension 10
-    box_mask_10 = jnp.array([True] * 3 + [False] * 7, dtype=jnp.bool_)
-    box_10 = BoxConstraint(
-        BoxConstraintSpecification(
-            lb=jnp.array([[-1.0], [-1.0], [-1.0]]),
-            ub=jnp.array([[1.0], [1.0], [1.0]]),
-            mask=box_mask_10,
-        )
-    )
+        CartesianConstraint(box_constraint=dummy)
 
     with pytest.raises(
-        ValueError, match="All constraints must have the same dimension"
+        ValueError,
+        match=(
+            "Only and SocConstraint are currently supported "
+            "in nl_constraints, got DummyConstraint."
+        ),
     ):
-        CartesianConstraint(constraints=[box_5, box_10])
+        CartesianConstraint(nl_constraints=[dummy])
 
 
 def test_wrong_dimensions_box_and_soc_raise():
@@ -116,33 +107,7 @@ def test_wrong_dimensions_box_and_soc_raise():
     with pytest.raises(
         ValueError, match="All constraints must have the same dimension"
     ):
-        CartesianConstraint(constraints=[box, soc])
-
-
-def test_overlapping_masks_raise():
-    """Test that overlapping masks raise ValueError."""
-    # Create two box constraints with overlapping masks
-    box_mask_1 = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
-    box_1 = BoxConstraint(
-        BoxConstraintSpecification(
-            lb=jnp.array([[-1.0], [-1.0]]),
-            ub=jnp.array([[1.0], [1.0]]),
-            mask=box_mask_1,
-        )
-    )
-
-    # This mask overlaps with the first one (both have True at index 1)
-    box_mask_2 = jnp.array([False, True, True, False, False], dtype=jnp.bool_)
-    box_2 = BoxConstraint(
-        BoxConstraintSpecification(
-            lb=jnp.array([[-1.0], [-1.0]]),
-            ub=jnp.array([[1.0], [1.0]]),
-            mask=box_mask_2,
-        )
-    )
-
-    with pytest.raises(ValueError, match="Constraint masks overlap"):
-        CartesianConstraint(constraints=[box_1, box_2])
+        CartesianConstraint(box_constraint=box, nl_constraints=[soc])
 
 
 def test_overlapping_box_and_soc_masks_raise():
@@ -163,12 +128,12 @@ def test_overlapping_box_and_soc_masks_raise():
     soc = SocConstraint(SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t))
 
     with pytest.raises(ValueError, match="Constraint masks overlap"):
-        CartesianConstraint(constraints=[box, soc])
+        CartesianConstraint(box_constraint=box, nl_constraints=[soc])
 
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
 def test_random_example_with_two_boxes_two_socs(seed: int, batch_size: int):
-    """Test a random example with 2 boxes and 2 SOCs in 100 dimensions."""
+    """Test a random example with 1 box and 2 SOCs in 100 dimensions."""
     key = jrnd.PRNGKey(seed)
     box_1_bound = 2.0
     box_2_bound = 1.0
@@ -195,33 +160,23 @@ def test_random_example_with_two_boxes_two_socs(seed: int, batch_size: int):
     soc_mask_t_2 = soc_mask_t_2.at[90].set(True)
 
     # Create box constraints
-    box_1 = BoxConstraint(
+    box = BoxConstraint(
         BoxConstraintSpecification(
-            lb=jnp.array([[-box_1_bound]] * 25).reshape(1, -1, 1),
-            ub=jnp.array([[box_1_bound]] * 25).reshape(1, -1, 1),
-            mask=box_mask_1,
-        )
-    )
-
-    box_2 = BoxConstraint(
-        BoxConstraintSpecification(
-            lb=jnp.array([[-box_2_bound]] * 25).reshape(1, -1, 1),
-            ub=jnp.array([[box_2_bound]] * 25).reshape(1, -1, 1),
-            mask=box_mask_2,
+            lb=jnp.array([-box_1_bound] * 25 + [-box_2_bound] * 25).reshape(1, -1, 1),
+            ub=jnp.array([box_1_bound] * 25 + [box_2_bound] * 25).reshape(1, -1, 1),
+            mask=jnp.logical_or(box_mask_1, box_mask_2),
         )
     )
 
     # Create SOC constraints
-    soc_1 = SocConstraint(
-        SocConstraintSpecification(mask_u=soc_mask_u_1, mask_t=soc_mask_t_1)
-    )
+    socspec1 = SocConstraintSpecification(mask_u=soc_mask_u_1, mask_t=soc_mask_t_1)
+    soc_1 = SocConstraint(socspec=socspec1)
 
-    soc_2 = SocConstraint(
-        SocConstraintSpecification(mask_u=soc_mask_u_2, mask_t=soc_mask_t_2)
-    )
+    socspec2 = SocConstraintSpecification(mask_u=soc_mask_u_2, mask_t=soc_mask_t_2)
+    soc_2 = SocConstraint(socspec=socspec2)
 
     # Create CartesianConstraint
-    cartesian = CartesianConstraint(constraints=[box_1, box_2, soc_1, soc_2])
+    cartesian = CartesianConstraint(box_constraint=box, nl_constraints=[soc_1, soc_2])
 
     # Verify properties
     assert cartesian.dim == DIM
@@ -231,10 +186,13 @@ def test_random_example_with_two_boxes_two_socs(seed: int, batch_size: int):
     # Generate random points
     key, subkey = jrnd.split(key)
     x = jrnd.uniform(subkey, shape=(batch_size, DIM, 1), minval=-5, maxval=5)
-    projection_instance = ProjectionInstance(x=x)
+    projection_instance = ProjectionInstance(
+        x=x, nl=[socspec1.to_nl_spec(), socspec2.to_nl_spec()]
+    )
 
     # Project using CartesianConstraint
-    projected = cartesian.project(projection_instance)
+    cart_jit = jax.jit(lambda projinst: cartesian.project(projinst))
+    projected = cart_jit(projection_instance)
 
     # Verify projection properties
     # Box 1 constraints should be satisfied
@@ -310,20 +268,22 @@ def test_projection_equivalence(seed, batch_size):
 
     soc_mask_u = np.array([False] * 4 + [True] * 3 + [False] * 3, dtype=jnp.bool_)
     soc_mask_t = np.array([False] * 7 + [True] + [False] * 2, dtype=jnp.bool_)
+    socspec = SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t)
     soc = SocConstraint(
-        SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t)
+        socspec=socspec,
     )
 
     # Create CartesianConstraint
-    cartesian = CartesianConstraint(constraints=[box, soc])
+    cartesian = CartesianConstraint(box_constraint=box, nl_constraints=[soc])
 
     # Generate random points
     key, subkey = jrnd.split(key)
     x = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-3, maxval=3)
-    projection_instance = ProjectionInstance(x=x)
+    projection_instance = ProjectionInstance(x=x, nl=[socspec.to_nl_spec()])
 
     # Project using CartesianConstraint
-    cartesian_proj = cartesian.project(projection_instance)
+    cart_jit = jax.jit(lambda projinst: cartesian.project(projinst))
+    cartesian_proj = cart_jit(projection_instance)
 
     # Project using individual constraints
     box_proj = box.project(projection_instance)
@@ -348,17 +308,18 @@ def test_cv():
     # SOC constraint on dimensions 3-4
     soc_mask_u = np.array([False] * 3 + [True] + [False] * 6, dtype=jnp.bool_)
     soc_mask_t = np.array([False] * 4 + [True] + [False] * 5, dtype=jnp.bool_)
+    socspec = SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t)
     soc = SocConstraint(
-        SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t)
+        socspec=socspec,
     )
 
-    cartesian = CartesianConstraint(constraints=[box, soc])
+    cartesian = CartesianConstraint(box_constraint=box, nl_constraints=[soc])
 
     # The box violation is 4.0 and SOC violation is 0.5
     x = jnp.array([[5.0, 0.0, 0.0, 2.5, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0]]).reshape(
         1, 10, 1
     )
-    projection_instance = ProjectionInstance(x=x)
+    projection_instance = ProjectionInstance(x=x, nl=[socspec.to_nl_spec()])
 
     cv_cartesian = cartesian.cv(projection_instance)
     cv_box = box.cv(projection_instance)

@@ -22,11 +22,11 @@ class SocConstraint(Constraint):
         Args:
             socspec (SocConstraintSpecification): Specification of the box constraint.
         """
+        if socspec.mask_u is None or socspec.mask_t is None:
+            raise ValueError("Both mask_u and mask_t must be provided.")
         socspec.validate()
         self.a = socspec.a
         self.b = socspec.b
-        if socspec.mask_u is None or socspec.mask_t is None:
-            raise ValueError("Both mask_u and mask_t must be provided.")
         self._dim = socspec.mask_u.shape[0]
         # For numerical stability of projection
         self.eps = 1e-12

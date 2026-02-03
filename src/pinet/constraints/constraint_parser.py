@@ -19,6 +19,9 @@ from .non_linear import NonLinearConstraint
 from .non_linear_types import L2NormType, SOCType
 from .soc_constraint import SocConstraint
 
+# TODO: If we only have 2 constraints where one is equality and the
+# other is primitive, then we directly use these.
+
 
 class ConstraintParser:
     """Parse constraints into a lifted representation.
@@ -31,7 +34,7 @@ class ConstraintParser:
         self,
         eq_constraint: EqualityConstraint,
         ineq_constraint: AffineInequalityConstraint,
-        box_constraint: BoxConstraint,
+        box_constraint: BoxConstraint = None,
         nl_constraints: Optional[list[NonLinearConstraint]] = None,
     ) -> None:
         """Initialize the constraint parser.
@@ -241,7 +244,7 @@ class ConstraintParser:
         return (eq_lifted, box_lifted, lift)
 
     def parse_non_linear(
-        self,
+        self, method: Optional[str] = "pinv"
     ) -> tuple[EqualityConstraint, CartesianConstraint, Callable]:
         """Parse the constraints into a lifted representation.
 
@@ -286,7 +289,7 @@ class ConstraintParser:
         eq_lifted = EqualityConstraint(
             A=A_lifted,
             b=b_lifted,
-            method="pinv",
+            method=method,
             var_b=self.eq_constraint.var_b,
             var_A=False,  # For now var_A is not supported
         )
@@ -324,18 +327,16 @@ class ConstraintParser:
             )
             box_lb_lifted = jnp.concatenate([box_lb_init, box_lb_ineq], axis=1)
             box_ub_lifted = jnp.concatenate([box_ub_init, box_ub_ineq], axis=1)
-            prim_constraints.append(
-                BoxConstraint(
-                    BoxConstraintSpecification(
-                        lb=box_lb_lifted,
-                        ub=box_ub_lifted,
-                        mask=box_mask_lifted,
-                    )
+            box_lifted = BoxConstraint(
+                BoxConstraintSpecification(
+                    lb=box_lb_lifted,
+                    ub=box_ub_lifted,
+                    mask=box_mask_lifted,
                 )
             )
         # Non-linear constraints
         for nl in self.nl_constraints:
-            if isinstance(nl.nl_type, SOCType):
+            if nl.nl_type == SOCType:
                 socspec = SocConstraintSpecification(
                     mask_u=jnp.array(
                         [False] * n_curr
@@ -354,14 +355,16 @@ class ConstraintParser:
                 )
                 prim_constraints.append(SocConstraint(socspec=socspec))
                 n_curr += nl.A.shape[1] + 1
-            elif isinstance(nl.nl_type, L2NormType):
+            elif nl.nl_type == L2NormType:
                 raise NotImplementedError("L2NormType is not implemented yet.")
             else:
                 raise ValueError(
                     f"Unsupported non-linear constraint type: {type(nl.nl_type)}"
                 )
 
-        cartesian_lifted = CartesianConstraint(constraints=prim_constraints)
+        cartesian_lifted = CartesianConstraint(
+            box_constraint=box_lifted, nl_constraints=prim_constraints
+        )
 
         def lift(y: ProjectionInstance):
             """Lift the input to the lifted dimension."""
