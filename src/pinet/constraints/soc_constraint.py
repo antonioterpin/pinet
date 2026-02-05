@@ -10,7 +10,8 @@ class SocConstraint(Constraint):
     """Second-order cone (SOC) constraint set.
 
     The SOC constraint set is defined as:
-    || y_[0:dim-2] + a ||_2 <= y_[dim-1] + b
+    || y_[mask_u] + a ||_2 <= y_[mask_t] + b
+    where mask_t has one True element and b is a scalar.
     """
 
     def __init__(
