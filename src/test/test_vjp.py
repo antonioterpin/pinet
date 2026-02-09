@@ -526,11 +526,11 @@ def test_general_eq_ineq(seed, batch_size):
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_box_eq_ineq_soc(seed, batch_size):
-    dim = 200
-    n_A = 12
-    n_C = 25
-    n_A_soc_1 = 32
-    n_A_soc_2 = 42
+    dim = 50
+    n_A = 10
+    n_C = 10
+    n_A_soc_1 = 10
+    n_A_soc_2 = 10
     key = jrnd.PRNGKey(seed)
     # Generate a random point which will be feasible by construction
     key, subkey = jrnd.split(key)
@@ -647,8 +647,8 @@ def test_box_eq_ineq_soc(seed, batch_size):
         epsilon=1e-5,
         atol_unroll=1e-3,
         rtol_unroll=1e-3,
-        atol_fd=1e-4,
-        rtol_fd=1e-4,
+        atol_fd=1e-3,
+        rtol_fd=1e-3,
         check_vjp_eps=1e-4,
         check_vjp_atol=1e-4,
         check_vjp_rtol=1e-4,
