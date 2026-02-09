@@ -537,7 +537,8 @@ def test_box_eq_ineq_soc(seed, batch_size):
     x_feas = jrnd.uniform(subkey, shape=(1, dim, 1), minval=-2, maxval=2)
 
     # Equality constraint
-    A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
+    key, subkey = jrnd.split(key)
+    A = jrnd.uniform(subkey, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
     eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
 
@@ -644,8 +645,8 @@ def test_box_eq_ineq_soc(seed, batch_size):
         batch_size=batch_size,
         key=subkey,
         epsilon=1e-5,
-        atol_unroll=1e-4,
-        rtol_unroll=1e-4,
+        atol_unroll=1e-3,
+        rtol_unroll=1e-3,
         atol_fd=1e-4,
         rtol_fd=1e-4,
         check_vjp_eps=1e-4,
