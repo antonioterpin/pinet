@@ -52,7 +52,6 @@ def test_soc(x, y):
 
 @pytest.mark.parametrize("x, y", twod_tests)
 def test_mask(x, y):
-    x, y = twod_tests[0]
     x = jnp.array(x).reshape((1, 2, 1))
     y = jnp.array(y).reshape((1, 2, 1))
     seed = 0

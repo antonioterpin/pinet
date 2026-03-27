@@ -38,25 +38,49 @@ class CartesianConstraint(Constraint):
             TypeError: If nl_constraints is not a list or tuple.
         """
         self.box_constraint = box_constraint
-        self.nl_constraints = nl_constraints
 
-        # Validate nl_constraints
-        if nl_constraints is not None:
-            if not isinstance(nl_constraints, (list, tuple)):
-                raise TypeError(
-                    f"nl_constraints must be a list or tuple, "
-                    f"got {type(nl_constraints).__name__}."
-                )
+        if nl_constraints is None:
+            self.nl_constraints = []
+        elif isinstance(nl_constraints, (list, tuple)):
+            self.nl_constraints = list(nl_constraints)
+        else:
+            raise TypeError(
+                f"nl_constraints must be a list or tuple, "
+                f"got {type(nl_constraints).__name__}."
+            )
 
         self.constraints = [
-            c for c in (box_constraint, *(nl_constraints or [])) if c is not None
+            c for c in (box_constraint, *self.nl_constraints) if c is not None
         ]
 
+        self._validate_constraints()
+
+        self.n_nonlinear = len(self.nl_constraints)
+
+        # These update functions should not change
+        # the nl attribute of yraw!
+        self.update_fns = []
+
+        # Define update functions
+        def soc_update(
+            yraw: ProjectionInstance, socspec: SocConstraintSpecification
+        ) -> ProjectionInstance:
+            return yraw.update(soc=socspec)
+
+        for _ in self.nl_constraints:
+            # Placeholder for more constraints
+            # if isinstance(constraint, SocConstraint):
+            self.update_fns.append(soc_update)
+
+    def _validate_constraints(self) -> None:
+        """Validate constraint types, dimensions, and mask overlap.
+
+        Raises:
+            ValueError: If no constraints are provided, if constraint types are
+                invalid, if dimensions are inconsistent, or if masks overlap.
+        """
         if not self.constraints:
             raise ValueError("At least one constraint must be provided.")
-
-        # Get dimension from the first constraint
-        self._dim = self.constraints[0].dim
 
         # Check that the constraints are boxes and socs
         if self.box_constraint is not None and not isinstance(
@@ -66,15 +90,15 @@ class CartesianConstraint(Constraint):
                 f"The box_constraint must be a BoxConstraint, "
                 f"got {type(self.box_constraint).__name__}."
             )
-        if self.nl_constraints is not None:
-            for constraint in self.nl_constraints:
-                if not isinstance(constraint, SocConstraint):
-                    raise ValueError(
-                        f"Only and SocConstraint are currently supported "
-                        f"in nl_constraints, got {type(constraint).__name__}."
-                    )
+        for constraint in self.nl_constraints:
+            if not isinstance(constraint, SocConstraint):
+                raise ValueError(
+                    f"Only SocConstraint is currently supported "
+                    f"in nl_constraints, got {type(constraint).__name__}."
+                )
 
         # Validate that all constraints have the same dimension
+        self._dim = self.constraints[0].dim
         for constraint in self.constraints:
             if constraint.dim != self._dim:
                 raise ValueError(
@@ -82,52 +106,20 @@ class CartesianConstraint(Constraint):
                     f"Expected {self._dim}, got {constraint.dim}."
                 )
 
-        # Check that masks don't overlap
-        self._validate_masks()
-
-        self.n_nonlinear = len(self.nl_constraints)
-
-        self.update_fns = []
-
-        # Define update functions
-        def soc_update(
-            yraw: ProjectionInstance, socspec: SocConstraintSpecification
-        ) -> ProjectionInstance:
-            return yraw.update(soc=socspec)
-
-        for constraint in self.nl_constraints:
-            if isinstance(constraint, SocConstraint):
-                self.update_fns.append(soc_update)
-            else:
-                raise ValueError(
-                    "Only BoxConstraint and SocConstraint are supported "
-                    "in CartesianConstraint."
-                )
-
-    def _validate_masks(self) -> None:
-        """Validate that masks from all constraints do not overlap.
-
-        Raises:
-            ValueError: If any masks overlap.
-        """
         # Create a mask to track which dimensions are already used
         used_mask = jnp.zeros(self._dim, dtype=bool)
 
         for constraint in self.constraints:
             if isinstance(constraint, BoxConstraint):
-                if jnp.any(jnp.logical_and(used_mask, constraint.mask)):
-                    raise ValueError(
-                        "Constraint masks overlap with previously defined constraints."
-                    )
-                used_mask = jnp.logical_or(constraint.mask, used_mask)
-            elif isinstance(constraint, SocConstraint):
+                new_mask = constraint.mask
+            else:
                 # SOC constraints have both mask_u and mask_t
-                soc_mask = jnp.logical_or(constraint.mask_u, constraint.mask_t)
-                if jnp.any(jnp.logical_and(used_mask, soc_mask)):
-                    raise ValueError(
-                        "Constraint masks overlap with previously defined constraints."
-                    )
-                used_mask = jnp.logical_or(used_mask, soc_mask)
+                new_mask = jnp.logical_or(constraint.mask_u, constraint.mask_t)
+            if jnp.any(jnp.logical_and(used_mask, new_mask)):
+                raise ValueError(
+                    "Constraint masks overlap with previously defined constraints."
+                )
+            used_mask = jnp.logical_or(used_mask, new_mask)
 
     def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
@@ -141,7 +133,7 @@ class CartesianConstraint(Constraint):
         Returns:
             ProjectionInstance: The projected input.
         """
-        if not isinstance(yraw.nl, (list, tuple)):
+        if self.nl_constraints and not isinstance(yraw.nl, (list, tuple)):
             raise TypeError(
                 f"yraw.nl must be a list or tuple, " f"got {type(yraw.nl).__name__}."
             )
@@ -150,11 +142,12 @@ class CartesianConstraint(Constraint):
             yraw = self.box_constraint.project(yraw)
 
         # Project onto each constraint
-        for nl_constraint, update_fn, nl_spec in zip(
-            self.nl_constraints, self.update_fns, yraw.nl
-        ):
-            yraw = update_fn(yraw, nl_spec.to_primitive_spec())
-            yraw = nl_constraint.project(yraw)
+        if self.nl_constraints:
+            for nl_constraint, update_fn, nl_spec in zip(
+                self.nl_constraints, self.update_fns, yraw.nl, strict=True
+            ):
+                yraw = update_fn(yraw, nl_spec.to_primitive_spec())
+                yraw = nl_constraint.project(yraw)
 
         return yraw
 
@@ -176,15 +169,16 @@ class CartesianConstraint(Constraint):
             cvs.append(self.box_constraint.cv(yraw).reshape(-1))
 
         # Compute constraint violations for nl constraints
-        for constraint, update_fn, nl_spec in zip(
-            self.nl_constraints, self.update_fns, yraw.nl
-        ):
-            yraw = update_fn(yraw, nl_spec.to_primitive_spec())
-            cvs.append(constraint.cv(yraw).reshape(-1))
+        if self.nl_constraints:
+            for constraint, update_fn, nl_spec in zip(
+                self.nl_constraints, self.update_fns, yraw.nl
+            ):
+                yraw = update_fn(yraw, nl_spec.to_primitive_spec())
+                cvs.append(constraint.cv(yraw).reshape(-1))
 
         # Return the maximum violation
         if len(cvs) == 1:
-            return cvs[0]
+            return cvs[0].reshape(-1, 1, 1)
         else:
             return jnp.max(jnp.array(cvs), 0).reshape(-1, 1, 1)
 

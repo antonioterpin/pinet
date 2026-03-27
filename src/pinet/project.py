@@ -6,6 +6,14 @@ from typing import Callable, Optional
 import jax
 from jax import numpy as jnp
 
+from .constants import (
+    PROJECTION_DEFAULT_CHECK_EVERY,
+    PROJECTION_DEFAULT_CHECK_REDUCTION,
+    PROJECTION_DEFAULT_MAX_ITER,
+    PROJECTION_DEFAULT_OMEGA,
+    PROJECTION_DEFAULT_SIGMA,
+    PROJECTION_DEFAULT_TOL,
+)
 from .constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
@@ -32,7 +40,7 @@ class Project:
         eq_constraint: EqualityConstraint = None,
         ineq_constraint: AffineInequalityConstraint = None,
         box_constraint: BoxConstraint = None,
-        nl_constraints: list[NonLinearConstraint] = None,
+        nl_constraints: Optional[list[NonLinearConstraint]] = None,
         unroll: bool = False,
         equilibration_params: EquilibrationParams = EquilibrationParams(),
     ) -> None:
@@ -56,16 +64,13 @@ class Project:
 
     def setup(self) -> None:
         """Setup the projection layer."""
-        nl_constraint_iter = (
-            self.nl_constraints if self.nl_constraints is not None else [None]
-        )
         constraints = [
             c
             for c in (
                 self.eq_constraint,
                 self.box_constraint,
                 self.ineq_constraint,
-                *nl_constraint_iter,
+                *(self.nl_constraints or []),
             )
             if c is not None
         ]
@@ -241,12 +246,12 @@ class Project:
 
     def call_and_check(
         self,
-        sigma=1.0,
-        omega=1.7,
-        check_every=10,
-        tol=1e-3,
-        max_iter=100,
-        reduction="max",
+        sigma=PROJECTION_DEFAULT_SIGMA,
+        omega=PROJECTION_DEFAULT_OMEGA,
+        check_every=PROJECTION_DEFAULT_CHECK_EVERY,
+        tol=PROJECTION_DEFAULT_TOL,
+        max_iter=PROJECTION_DEFAULT_MAX_ITER,
+        reduction=PROJECTION_DEFAULT_CHECK_REDUCTION,
     ) -> Callable[[ProjectionInstance], tuple[jnp.ndarray, bool, int]]:
         """Returns a function that projects input and checks constraint violation.
 
@@ -334,8 +339,8 @@ def _project_general(
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
     s0: Optional[ProjectionInstance] = None,
-    sigma: float = 1.0,
-    omega: float = 1.7,
+    sigma: float = PROJECTION_DEFAULT_SIGMA,
+    omega: float = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
 ) -> tuple[ProjectionInstance, ProjectionInstance]:
     """Project a batch of points using Douglas-Rachford.
@@ -400,8 +405,8 @@ def _project_general_custom(
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
     s0: Optional[ProjectionInstance] = None,
-    sigma: float = 1.0,
-    omega: float = 1.7,
+    sigma: float = PROJECTION_DEFAULT_SIGMA,
+    omega: float = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
@@ -432,8 +437,8 @@ def _project_general_fwd(
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
     s0: Optional[ProjectionInstance] = None,
-    sigma: float = 1.0,
-    omega: float = 1.7,
+    sigma: float = PROJECTION_DEFAULT_SIGMA,
+    omega: float = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,

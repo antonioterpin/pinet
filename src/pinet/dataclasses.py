@@ -7,6 +7,14 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 
+from .constants import (
+    EQUILIBRATION_DEFAULT_COL_SCALING,
+    EQUILIBRATION_DEFAULT_MAX_ITER,
+    EQUILIBRATION_DEFAULT_ORD,
+    EQUILIBRATION_DEFAULT_SAFEGUARD,
+    EQUILIBRATION_DEFAULT_TOL,
+    EQUILIBRATION_DEFAULT_UPDATE_MODE,
+)
 from .constraints.non_linear_types import L2NormType, NonLinearConstraintType, SOCType
 
 
@@ -399,12 +407,12 @@ class EquilibrationParams:
         safeguard (bool): Check if the condition number of A has decreased.
     """
 
-    max_iter: int = 0
-    tol: float = 1e-3
-    ord: float = 2.0
-    col_scaling: bool = False
-    update_mode: str = "Gauss"
-    safeguard: bool = False
+    max_iter: int = EQUILIBRATION_DEFAULT_MAX_ITER
+    tol: float = EQUILIBRATION_DEFAULT_TOL
+    ord: float = EQUILIBRATION_DEFAULT_ORD
+    col_scaling: bool = EQUILIBRATION_DEFAULT_COL_SCALING
+    update_mode: str = EQUILIBRATION_DEFAULT_UPDATE_MODE
+    safeguard: bool = EQUILIBRATION_DEFAULT_SAFEGUARD
 
     def validate(self) -> None:
         """Validate the equilibration parameters."""

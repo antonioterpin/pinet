@@ -273,6 +273,103 @@ def test_call_and_check_invalid_reduction_raises(bad_reduction):
         project_and_check(ProjectionInstance(x=xinfeas))
 
 
+@pytest.mark.parametrize("seed", SEEDS)
+def test_project_cv_linear_constraints(seed):
+    """Test Project.cv for linear constraints (eq + ineq, no nonlinear)."""
+    dim = 4
+    n_eq = 1
+    n_ineq = 2
+    key = jrnd.PRNGKey(seed)
+    key, kA, kx, kC = jrnd.split(key, 4)
+
+    A = jrnd.normal(kA, shape=(1, n_eq, dim))
+    x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-1.0, maxval=1.0)
+    b = A @ x_feas
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+
+    C = jrnd.normal(kC, shape=(1, n_ineq, dim))
+    Cx = C @ x_feas
+    lb = Cx - 0.1
+    ub = Cx + 0.1
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    layer = Project(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+    )
+
+    xinfeas = jnp.ones((1, dim, 1)) * 3.0
+    yraw = ProjectionInstance(x=xinfeas)
+
+    cv_layer = layer.cv(yraw)
+    y_lifted = layer.lift(yraw)
+    cv_expected = jnp.maximum(
+        layer.lifted_eq_constraint.cv(y_lifted),
+        layer.lifted_box_constraint.cv(y_lifted),
+    )
+
+    assert jnp.allclose(cv_layer, cv_expected)
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_project_cv_nonlinear_constraints(seed):
+    """Test Project.cv for nonlinear constraints (eq + ineq + SOC, no box)."""
+    dim = 3
+    n_eq = 1
+    n_ineq = 1
+    key = jrnd.PRNGKey(seed)
+    key, kA, kx, kC, knA, knf = jrnd.split(key, 6)
+
+    A = jrnd.normal(kA, shape=(1, n_eq, dim))
+    x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-0.5, maxval=0.5)
+    b = A @ x_feas
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+
+    C = jrnd.normal(kC, shape=(1, n_ineq, dim))
+    Cx = C @ x_feas
+    lb = Cx - 0.2
+    ub = Cx + 0.2
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    A_soc = jrnd.normal(knA, shape=(1, 2, dim))
+    a_soc = jnp.zeros((1, 2, 1))
+    f_soc = jrnd.normal(knf, shape=(1, 1, dim))
+    # Build b so that x_feas is safely feasible for the SOC constraint.
+    b_soc = (
+        jnp.linalg.norm(A_soc @ x_feas + a_soc, ord=2, axis=1, keepdims=True)
+        - f_soc @ x_feas
+        + 0.5
+    )
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc,
+        a=a_soc,
+        f=f_soc,
+        b=b_soc,
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    layer = Project(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+
+    xinfeas = jnp.ones((1, dim, 1)) * 2.0
+    yraw = ProjectionInstance(x=xinfeas, nl=[nl_spec])
+
+    cv_layer = layer.cv(yraw)
+    y_lifted = layer.lift(yraw)
+    cv_expected = jnp.maximum(
+        layer.lifted_eq_constraint.cv(y_lifted),
+        layer.lifted_box_constraint.cv(y_lifted),
+    )
+
+    assert jnp.allclose(cv_layer, cv_expected)
+
+
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_project_box_ineq_eq_soc(seed, batch_size):
     dim = 200

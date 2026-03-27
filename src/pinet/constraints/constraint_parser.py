@@ -32,9 +32,9 @@ class ConstraintParser:
 
     def __init__(
         self,
-        eq_constraint: EqualityConstraint,
-        ineq_constraint: AffineInequalityConstraint,
-        box_constraint: BoxConstraint = None,
+        eq_constraint: Optional[EqualityConstraint] = None,
+        ineq_constraint: Optional[AffineInequalityConstraint] = None,
+        box_constraint: Optional[BoxConstraint] = None,
         nl_constraints: Optional[list[NonLinearConstraint]] = None,
     ) -> None:
         """Initialize the constraint parser.
@@ -67,17 +67,20 @@ class ConstraintParser:
         self.eq_constraint = eq_constraint
         self.n_eq = eq_constraint.n_constraints
         self.ineq_constraint = ineq_constraint
-        self.n_ineq = ineq_constraint.n_constraints
+        self.n_ineq = (
+            ineq_constraint.n_constraints if ineq_constraint is not None else 0
+        )
         self.box_constraint = box_constraint
         self.nl_constraints = nl_constraints
 
         # Batch consistency checks
-        assert (
-            self.eq_constraint.A.shape[0] == self.ineq_constraint.C.shape[0]
-            or self.eq_constraint.A.shape[0] == 1
-            or self.ineq_constraint.C.shape[0] == 1
-        ), "Batch sizes of A and C must be consistent."
-        if self.box_constraint is not None:
+        if self.ineq_constraint is not None:
+            assert (
+                self.eq_constraint.A.shape[0] == self.ineq_constraint.C.shape[0]
+                or self.eq_constraint.A.shape[0] == 1
+                or self.ineq_constraint.C.shape[0] == 1
+            ), "Batch sizes of A and C must be consistent."
+        if self.box_constraint is not None and self.ineq_constraint is not None:
             assert (
                 self.ineq_constraint.lb.shape[0] == self.box_constraint.lb.shape[0]
                 or self.ineq_constraint.lb.shape[0] == 1
@@ -93,10 +96,10 @@ class ConstraintParser:
             for non_linear in self.nl_constraints:
                 # Check that all batch sizes of matrices are 1
                 assert (
-                    non_linear.A.shape[0] == 1 or non_linear.A is None
+                    non_linear.A is None or non_linear.A.shape[0] == 1
                 ), "Batch size of non-linear constraint A must be 1 or None."
                 assert (
-                    non_linear.f.shape[0] == 1 or non_linear.f is None
+                    non_linear.f is None or non_linear.f.shape[0] == 1
                 ), "Batch size of non-linear constraint f must be 1 or None."
             if self.ineq_constraint is not None:
                 assert (
@@ -251,11 +254,8 @@ class ConstraintParser:
         Returns:
             A tuple of constraints: (eq_constraint, cartesian_constraint, lift_function)
         """
-        all_matrices = []
-        dims = []
-        if self.eq_constraint is not None:
-            all_matrices.append(self.eq_constraint.A)
-            dims.append(self.eq_constraint.dim)
+        all_matrices = [self.eq_constraint.A]
+        dims = [self.eq_constraint.dim]
         if self.ineq_constraint is not None:
             all_matrices.append(self.ineq_constraint.C)
             dims.append(self.ineq_constraint.n_constraints)
@@ -298,8 +298,9 @@ class ConstraintParser:
         # Running dimension for convenience
         n_curr = self.eq_constraint.dim if self.eq_constraint is not None else 0
         # Inequality and box constraints
+        box_lifted = None
         if self.box_constraint is not None or self.ineq_constraint is not None:
-            if self.box_constraint.mask is not None:
+            if self.box_constraint is not None and self.box_constraint.mask is not None:
                 box_mask_init = self.box_constraint.mask
                 box_lb_init = self.box_constraint.lb
                 box_ub_init = self.box_constraint.ub
@@ -366,10 +367,15 @@ class ConstraintParser:
             box_constraint=box_lifted, nl_constraints=prim_constraints
         )
 
-        def lift(y: ProjectionInstance):
+        def lift(y: ProjectionInstance) -> ProjectionInstance:
             """Lift the input to the lifted dimension."""
             # Build auxiliary variables
-            y = y.update(x=lifted_A_b1 @ y.x)
+            y = y.update(
+                x=jnp.concatenate(
+                    [y.x, lifted_A_b1[:, self.eq_constraint.n_constraints :, :] @ y.x],
+                    axis=1,
+                )
+            )
             if self.eq_constraint.var_b:
                 y = y.update(
                     eq=y.eq.update(
@@ -381,5 +387,6 @@ class ConstraintParser:
                         )
                     )
                 )
+            return y
 
         return (eq_lifted, cartesian_lifted, lift)

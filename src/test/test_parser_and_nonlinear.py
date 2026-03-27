@@ -20,6 +20,7 @@ from pinet import (
     SOCType,
     build_iteration_step,
 )
+from pinet.constraints.non_linear_types import L2NormType
 
 jax.config.update("jax_enable_x64", True)
 SEEDS = [0, 24, 42]
@@ -272,3 +273,282 @@ def test_simple_problem(seed, batch_size):
     ), """
         Auxiliary variables do not match CVXPY solution.
     """
+
+
+def test_parse_non_linear_with_no_box_constraint():
+    """Test parser behavior when box constraint is None."""
+    dim = 3
+    n_eq = 1
+    n_ineq = 2
+    key = jrnd.PRNGKey(0)
+
+    key, ka, kc, ks, kf, ka_soc = jrnd.split(key, 6)
+    A = jrnd.uniform(ka, shape=(1, n_eq, dim), minval=-1, maxval=1)
+    x_ref = jrnd.uniform(ks, shape=(1, dim, 1), minval=-1, maxval=1)
+    b = A @ x_ref
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+
+    C = jrnd.uniform(kc, shape=(1, n_ineq, dim), minval=-1, maxval=1)
+    Cx = C @ x_ref
+    lb = Cx - 0.1
+    ub = Cx + 0.1
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    A_soc = jrnd.uniform(ka_soc, shape=(1, 2, dim), minval=-1, maxval=1)
+    a_soc = jnp.zeros((1, 2, 1))
+    f_soc = jrnd.uniform(kf, shape=(1, 1, dim), minval=-0.5, maxval=0.5)
+    b_soc = jnp.ones((1, 1, 1))
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc,
+        a=a_soc,
+        f=f_soc,
+        b=b_soc,
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    parser = ConstraintParser(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+    eq_lifted, cart_lifted, lift_fn = parser.parse()
+
+    assert eq_lifted is not None
+    assert cart_lifted is not None
+    assert cart_lifted.box_constraint is not None
+
+    yraw = ProjectionInstance(x=x_ref, nl=[nl_spec])
+    lifted = lift_fn(yraw)
+    assert lifted.x.shape[1] > dim
+
+
+def test_parse_non_linear_l2_norm_type_raises_not_implemented():
+    """Test parser raises for L2 norm nonlinear constraints."""
+    A = jnp.array([[[1.0, 0.0]]])
+    b = jnp.array([[[0.0]]])
+    C = jnp.array([[[1.0, 0.0]]])
+    lb = jnp.array([[[-1.0]]])
+    ub = jnp.array([[[1.0]]])
+
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    nl_spec = NonLinearSpecification(
+        nl_type=L2NormType,
+        A=jnp.array([[[1.0, 0.0], [0.0, 1.0]]]),
+        a=jnp.zeros((1, 2, 1)),
+        f=None,
+        b=jnp.ones((1, 1, 1)),
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    parser = ConstraintParser(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+
+    with pytest.raises(NotImplementedError, match="L2NormType is not implemented"):
+        parser.parse()
+
+
+def test_parse_non_linear_irrelevant_type_raises_value_error():
+    """Test parser raises for unsupported nonlinear type value."""
+    A = jnp.array([[[1.0, 0.0]]])
+    b = jnp.array([[[0.0]]])
+    C = jnp.array([[[1.0, 0.0]]])
+    lb = jnp.array([[[-1.0]]])
+    ub = jnp.array([[[1.0]]])
+
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.array([[[1.0, 0.0]]]),
+        a=jnp.zeros((1, 1, 1)),
+        f=jnp.array([[[0.0, 1.0]]]),
+        b=jnp.ones((1, 1, 1)),
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+    nl_constraint._nl_type = "irrelevant_type"
+
+    parser = ConstraintParser(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+
+    with pytest.raises(ValueError, match="Unsupported non-linear constraint type"):
+        parser.parse()
+
+
+def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
+    """Test parser raises when inequality C batch size is not 1 in nonlinear mode."""
+    eq_constraint = EqualityConstraint(
+        A=jnp.array([[[1.0, 0.0, 0.0]]]),
+        b=jnp.array([[[0.0]]]),
+        var_b=False,
+    )
+
+    # Nonlinear parsing requires C batch size == 1; use batch size 2 to trigger.
+    C = jnp.array(
+        [
+            [[1.0, 0.0, 0.0]],
+            [[0.0, 1.0, 0.0]],
+        ]
+    )
+    lb = jnp.zeros((2, 1, 1))
+    ub = jnp.ones((2, 1, 1))
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+        a=jnp.zeros((1, 2, 1)),
+        f=jnp.array([[[0.0, 0.0, 1.0]]]),
+        b=jnp.ones((1, 1, 1)),
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    with pytest.raises(
+        AssertionError,
+        match="Batch size of inequality constraint C must be 1 or None",
+    ):
+        ConstraintParser(
+            eq_constraint=eq_constraint,
+            ineq_constraint=ineq_constraint,
+            box_constraint=None,
+            nl_constraints=[nl_constraint],
+        )
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
+def test_only_nonlinear_constraints(seed, batch_size):
+    """Test parser/project flow with only nonlinear constraints active."""
+    dim = 3
+    key = jrnd.PRNGKey(seed)
+
+    key, kA, ka, kf, kx = jrnd.split(key, 5)
+    A_soc = jrnd.uniform(kA, shape=(1, 2, dim), minval=-2, maxval=2)
+    a_soc = jrnd.uniform(ka, shape=(1, 2, 1), minval=-1, maxval=1)
+    f_soc = jrnd.uniform(kf, shape=(1, 1, dim), minval=-1, maxval=1)
+    b_soc = jnp.ones((1, 1, 1))
+
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc,
+        a=a_soc,
+        f=f_soc,
+        b=b_soc,
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    parser = ConstraintParser(
+        eq_constraint=None,
+        ineq_constraint=None,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+    eq_lifted, cart_lifted, lift_fn = parser.parse(method="pinv")
+
+    # Build a random batch and run the ADMM projection loop.
+    x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-3, maxval=3)
+    yraw = ProjectionInstance(x=x, nl=[nl_spec])
+    y_lifted = lift_fn(yraw)
+
+    iteration_step, final_step = build_iteration_step(
+        eq_constraint=eq_lifted,
+        box_constraint=cart_lifted,
+        dim=dim,
+    )
+    iteration_step = jax.jit(iteration_step)
+
+    sk = ProjectionInstance(
+        x=jnp.zeros((batch_size, y_lifted.x.shape[1], 1)),
+        nl=[nl_spec],
+    )
+    for _ in range(200):
+        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.5, omega=1.7)
+
+    yk = final_step(sk)
+
+    # Nonlinear CV should decrease and be near feasible after projection.
+    cv_before = cart_lifted.cv(y_lifted)
+    cv_after = cart_lifted.cv(yk)
+    assert jnp.mean(cv_after) <= jnp.mean(cv_before)
+    assert jnp.all(cv_after < 1e-4)
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
+def test_box_and_nonlinear_constraints(seed, batch_size):
+    """Test parser/project with box + nonlinear constraints (no ineq).
+
+    This reaches code path where ineq_constraint is None (lines 317-319).
+    """
+    dim = 5
+    key = jrnd.PRNGKey(seed)
+
+    key, kbox_lb, kbox_ub, kA, ka, kf, kx = jrnd.split(key, 7)
+
+    # Create box constraint
+    box_lb = jrnd.uniform(kbox_lb, shape=(1, dim, 1), minval=-2, maxval=-0.5)
+    box_ub = jrnd.uniform(kbox_ub, shape=(1, dim, 1), minval=0.5, maxval=2)
+    box_spec = BoxConstraintSpecification(
+        lb=box_lb,
+        ub=box_ub,
+        mask=jnp.ones(dim, dtype=jnp.bool_),
+    )
+    box_constraint = BoxConstraint(box_spec)
+
+    # Create nonlinear constraint
+    A_soc = jrnd.uniform(kA, shape=(1, 2, dim), minval=-2, maxval=2)
+    a_soc = jrnd.uniform(ka, shape=(1, 2, 1), minval=-1, maxval=1)
+    f_soc = jrnd.uniform(kf, shape=(1, 1, dim), minval=-1, maxval=1)
+    b_soc = jnp.ones((1, 1, 1))
+
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc,
+        a=a_soc,
+        f=f_soc,
+        b=b_soc,
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    parser = ConstraintParser(
+        eq_constraint=None,
+        ineq_constraint=None,
+        box_constraint=box_constraint,
+        nl_constraints=[nl_constraint],
+    )
+    eq_lifted, cart_lifted, lift_fn = parser.parse(method="pinv")
+
+    # Build a random batch
+    x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-1.5, maxval=1.5)
+    yraw = ProjectionInstance(x=x, nl=[nl_spec])
+    y_lifted = lift_fn(yraw)
+
+    iteration_step, final_step = build_iteration_step(
+        eq_constraint=eq_lifted,
+        box_constraint=cart_lifted,
+        dim=dim,
+    )
+    iteration_step = jax.jit(iteration_step)
+
+    sk = ProjectionInstance(
+        x=jnp.zeros((batch_size, y_lifted.x.shape[1], 1)),
+        nl=[nl_spec],
+    )
+    for _ in range(200):
+        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.5, omega=1.7)
+
+    yk = final_step(sk)
+
+    # Verify projection feasibility
+    cv_after = cart_lifted.cv(yk)
+    assert jnp.all(cv_after < 1e-4)

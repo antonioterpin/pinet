@@ -78,11 +78,31 @@ def test_non_box_soc_constraint_raises():
     with pytest.raises(
         ValueError,
         match=(
-            "Only and SocConstraint are currently supported "
+            "Only SocConstraint is currently supported "
             "in nl_constraints, got DummyConstraint."
         ),
     ):
         CartesianConstraint(nl_constraints=[dummy])
+
+
+def test_project_raises_when_nl_specs_not_iterable():
+    """Test project raises TypeError if yraw.nl is not a list/tuple."""
+    dim = 6
+    soc_mask_u = jnp.array([True, True, False, False, False, False], dtype=jnp.bool_)
+    soc_mask_t = jnp.array([False, False, True, False, False, False], dtype=jnp.bool_)
+    soc = SocConstraint(
+        SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t)
+    )
+    cartesian = CartesianConstraint(nl_constraints=[soc])
+
+    # yraw.nl must be list/tuple when nonlinear constraints are present.
+    yraw = ProjectionInstance(
+        x=jnp.zeros((1, dim, 1)),
+        nl=SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t),
+    )
+
+    with pytest.raises(TypeError, match="yraw.nl must be a list or tuple"):
+        cartesian.project(yraw)
 
 
 def test_wrong_dimensions_box_and_soc_raise():
@@ -129,6 +149,49 @@ def test_overlapping_box_and_soc_masks_raise():
 
     with pytest.raises(ValueError, match="Constraint masks overlap"):
         CartesianConstraint(box_constraint=box, nl_constraints=[soc])
+
+
+def test_wrong_dimensions_two_soc_constraints_raise():
+    """Test that SOC constraints with different dimensions raise ValueError."""
+    soc_1 = SocConstraint(
+        SocConstraintSpecification(
+            mask_u=jnp.array([True, True, False, False, False], dtype=jnp.bool_),
+            mask_t=jnp.array([False, False, True, False, False], dtype=jnp.bool_),
+        )
+    )
+    soc_2 = SocConstraint(
+        SocConstraintSpecification(
+            mask_u=jnp.array([True] * 4 + [False] * 4, dtype=jnp.bool_),
+            mask_t=jnp.array([False] * 4 + [True] + [False] * 3, dtype=jnp.bool_),
+        )
+    )
+
+    with pytest.raises(
+        ValueError, match="All constraints must have the same dimension."
+    ):
+        CartesianConstraint(nl_constraints=[soc_1, soc_2])
+
+
+def test_overlapping_two_soc_masks_raise():
+    """Test that overlapping masks between two SOC constraints raise ValueError."""
+    soc_1 = SocConstraint(
+        SocConstraintSpecification(
+            mask_u=jnp.array([True, False, False, False, False], dtype=jnp.bool_),
+            mask_t=jnp.array([False, True, False, False, False], dtype=jnp.bool_),
+        )
+    )
+    soc_2 = SocConstraint(
+        SocConstraintSpecification(
+            mask_u=jnp.array([False, True, False, False, False], dtype=jnp.bool_),
+            mask_t=jnp.array([False, False, True, False, False], dtype=jnp.bool_),
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Constraint masks overlap with previously defined constraints.",
+    ):
+        CartesianConstraint(nl_constraints=[soc_1, soc_2])
 
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
@@ -328,3 +391,88 @@ def test_cv():
     # CartesianConstraint cv should equal the maximum of individual cvs
     expected_max = jnp.maximum(cv_box, cv_soc)
     assert jnp.allclose(cv_cartesian, expected_max)
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
+def test_projection_with_two_socs_no_box(seed: int, batch_size: int):
+    """Test projection with two SOC constraints and no box constraints."""
+    key = jrnd.PRNGKey(seed)
+    dim = 8
+
+    # SOC 1 uses dims [0, 1] as u and dim [2] as t.
+    soc1_mask_u = jnp.array([True, True, False, False, False, False, False, False])
+    soc1_mask_t = jnp.array([False, False, True, False, False, False, False, False])
+    socspec1 = SocConstraintSpecification(mask_u=soc1_mask_u, mask_t=soc1_mask_t)
+    soc1 = SocConstraint(socspec=socspec1)
+
+    # SOC 2 uses dims [3, 4, 5] as u and dim [6] as t.
+    soc2_mask_u = jnp.array([False, False, False, True, True, True, False, False])
+    soc2_mask_t = jnp.array([False, False, False, False, False, False, True, False])
+    socspec2 = SocConstraintSpecification(mask_u=soc2_mask_u, mask_t=soc2_mask_t)
+    soc2 = SocConstraint(socspec=socspec2)
+
+    cartesian = CartesianConstraint(nl_constraints=[soc1, soc2])
+
+    key, subkey = jrnd.split(key)
+    x = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-4, maxval=4)
+    projection_instance = ProjectionInstance(
+        x=x,
+        nl=[socspec1.to_nl_spec(), socspec2.to_nl_spec()],
+    )
+
+    cartesian_proj = cartesian.project(projection_instance)
+
+    # Compare against sequential application of the two SOC projections.
+    seq_proj = soc1.project(projection_instance)
+    seq_proj = soc2.project(seq_proj)
+
+    assert jnp.allclose(cartesian_proj.x, seq_proj.x)
+
+    # Unconstrained dimension should remain unchanged.
+    assert jnp.allclose(cartesian_proj.x[:, 7:8, :], x[:, 7:8, :])
+
+    # After projection, violation should be numerically near zero.
+    cv_after = cartesian.cv(cartesian_proj)
+    assert jnp.all(cv_after < 1e-8)
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
+def test_projection_with_only_box_constraint(seed: int, batch_size: int):
+    """Test projection with only a box constraint and no nonlinear constraints."""
+    key = jrnd.PRNGKey(seed)
+    dim = 10
+
+    box_mask = jnp.array(
+        [True, True, True, True, False, False, False, False, False, False]
+    )
+    lb = jnp.array([[-1.0], [-0.5], [-2.0], [-1.5]])
+    ub = jnp.array([[1.0], [0.5], [2.0], [1.5]])
+    box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub, mask=box_mask))
+
+    cartesian = CartesianConstraint(box_constraint=box, nl_constraints=None)
+
+    key, subkey = jrnd.split(key)
+    x = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-4, maxval=4)
+    projection_instance = ProjectionInstance(x=x)
+
+    cartesian_proj = cartesian.project(projection_instance)
+    box_proj = box.project(projection_instance)
+
+    # Cartesian projection should match direct box projection.
+    assert jnp.allclose(cartesian_proj.x, box_proj.x)
+
+    # Box dimensions should be clipped to bounds.
+    assert jnp.all(cartesian_proj.x[:, 0:1, :] >= -1.0)
+    assert jnp.all(cartesian_proj.x[:, 0:1, :] <= 1.0)
+    assert jnp.all(cartesian_proj.x[:, 1:2, :] >= -0.5)
+    assert jnp.all(cartesian_proj.x[:, 1:2, :] <= 0.5)
+    assert jnp.all(cartesian_proj.x[:, 2:3, :] >= -2.0)
+    assert jnp.all(cartesian_proj.x[:, 2:3, :] <= 2.0)
+    assert jnp.all(cartesian_proj.x[:, 3:4, :] >= -1.5)
+    assert jnp.all(cartesian_proj.x[:, 3:4, :] <= 1.5)
+
+    # Unconstrained dimensions should remain unchanged.
+    assert jnp.allclose(cartesian_proj.x[:, 4:, :], x[:, 4:, :])
+
+    # CV for Cartesian with only box should equal box CV.
+    assert jnp.allclose(cartesian.cv(projection_instance), box.cv(projection_instance))

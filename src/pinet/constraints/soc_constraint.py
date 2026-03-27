@@ -2,6 +2,7 @@
 
 import jax.numpy as jnp
 
+from pinet.constants import SOC_CONSTRAINT_EPSILON
 from pinet.constraints.base import Constraint
 from pinet.dataclasses import ProjectionInstance, SocConstraintSpecification
 
@@ -21,7 +22,7 @@ class SocConstraint(Constraint):
         """Initialize the SOC constraint.
 
         Args:
-            socspec (SocConstraintSpecification): Specification of the box constraint.
+            socspec (SocConstraintSpecification): Specification of the SOC constraint.
         """
         if socspec.mask_u is None or socspec.mask_t is None:
             raise ValueError("Both mask_u and mask_t must be provided.")
@@ -30,7 +31,7 @@ class SocConstraint(Constraint):
         self.b = socspec.b
         self._dim = socspec.mask_u.shape[0]
         # For numerical stability of projection
-        self.eps = 1e-12
+        self.eps = SOC_CONSTRAINT_EPSILON
         self.mask_u = socspec.mask_u
         self.mask_t = socspec.mask_t
         if self.a is None:
@@ -48,7 +49,7 @@ class SocConstraint(Constraint):
         """
         if inp.soc and (inp.soc.mask_u is not None or inp.soc.mask_t is not None):
             raise ValueError(
-                "Per-instance masks for SOC constraints are not supported."
+                "Per-instance masks for SOC constraints are not supported. "
                 "Only provide point-to-project."
             )
         a = inp.soc.a if inp.soc and (inp.soc.a is not None) else self.a
