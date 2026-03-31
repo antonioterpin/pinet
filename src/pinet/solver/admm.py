@@ -4,7 +4,7 @@ from typing import Callable
 
 import jax.numpy as jnp
 
-from pinet.constants import PROJECTION_DEFAULT_OMEGA, PROJECTION_DEFAULT_SIGMA
+from pinet.constants import Constants
 from pinet.constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
@@ -12,6 +12,9 @@ from pinet.constraints import (
     EqualityConstraint,
 )
 from pinet.dataclasses import ProjectionInstance
+
+PROJECTION_DEFAULT_SIGMA = Constants.PROJECTION_DEFAULT_SIGMA
+PROJECTION_DEFAULT_OMEGA = Constants.PROJECTION_DEFAULT_OMEGA
 
 
 def initialize(

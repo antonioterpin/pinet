@@ -6,14 +6,7 @@ from typing import Callable, Optional
 import jax
 from jax import numpy as jnp
 
-from .constants import (
-    PROJECTION_DEFAULT_CHECK_EVERY,
-    PROJECTION_DEFAULT_CHECK_REDUCTION,
-    PROJECTION_DEFAULT_MAX_ITER,
-    PROJECTION_DEFAULT_OMEGA,
-    PROJECTION_DEFAULT_SIGMA,
-    PROJECTION_DEFAULT_TOL,
-)
+from .constants import Constants
 from .constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
@@ -24,6 +17,13 @@ from .constraints import (
 from .dataclasses import EquilibrationParams, ProjectionInstance
 from .equilibration import ruiz_equilibration
 from .solver import build_iteration_step, initialize
+
+PROJECTION_DEFAULT_SIGMA = Constants.PROJECTION_DEFAULT_SIGMA
+PROJECTION_DEFAULT_OMEGA = Constants.PROJECTION_DEFAULT_OMEGA
+PROJECTION_DEFAULT_CHECK_EVERY = Constants.PROJECTION_DEFAULT_CHECK_EVERY
+PROJECTION_DEFAULT_TOL = Constants.PROJECTION_DEFAULT_TOL
+PROJECTION_DEFAULT_MAX_ITER = Constants.PROJECTION_DEFAULT_MAX_ITER
+PROJECTION_DEFAULT_CHECK_REDUCTION = Constants.PROJECTION_DEFAULT_CHECK_REDUCTION
 
 
 class Project:

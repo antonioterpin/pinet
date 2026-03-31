@@ -274,6 +274,50 @@ def test_simple_problem(seed, batch_size):
         Auxiliary variables do not match CVXPY solution.
     """
 
+    # Resolve with different values for a_soc_2 and b_soc_2
+    key, subkey = jrnd.split(key)
+    a_soc_2_new = jrnd.uniform(subkey, shape=(1, n_A_soc_2, 1), minval=0.5, maxval=2)
+    key, subkey = jrnd.split(key)
+    b_soc_2_new = (
+        eps_soc
+        + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2_new, ord=2, axis=1)
+        - f_soc_2 @ x_feas
+    )
+    nlspec_2_new = nlspec_2.update(a=a_soc_2_new, b=b_soc_2_new)
+    yraw_new = ProjectionInstance(x=yproj, nl=[nlspec_1, nlspec_2_new])
+    sk = ProjectionInstance(
+        x=jnp.zeros((batch_size, dim + n_extra, 1)), nl=[nlspec_1, nlspec_2_new]
+    )
+    for ii in range(n_iter):
+        sk = iteration_step(sk=sk, yraw=yraw_new, sigma=0.1, omega=1.8)
+    yk_new = final_step(sk)
+
+    # CVXPY solution with updated SOC parameters
+    constraints[6] = cp.SOC(
+        f_soc_2[0, :, :] @ y_cvxpy + b_soc_2_new[0, :, 0],
+        A_soc_2[0, :, :] @ y_cvxpy + a_soc_2_new[0, :, 0],
+    )
+    problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    y_opt_new = jnp.zeros((batch_size, dim, 1))
+    for ii in range(batch_size):
+        x_cvxpy.value = np.array(yproj[ii].reshape(-1))
+        problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-9, eps_rel=1e-9)
+        y_opt_new = y_opt_new.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
+
+    assert jnp.allclose(
+        yk_new.x[:, :dim, :], y_opt_new, atol=1e-5, rtol=1e-5
+    ), """
+        Projected points do not match CVXPY solution.
+    """
+    assert jnp.allclose(
+        yk_new.x[:, dim:, :],
+        eq_lifted.A[0, n_A:, :dim] @ y_opt_new,
+        atol=1e-5,
+        rtol=1e-5,
+    ), """
+        Auxiliary variables do not match CVXPY solution.
+    """
+
 
 def test_parse_non_linear_with_no_box_constraint():
     """Test parser behavior when box constraint is None."""

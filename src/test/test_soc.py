@@ -130,9 +130,13 @@ def test_soc_a_b_parametrized(seed, batch_size):
         problem.solve(solver=cp.SCS, eps_abs=1e-10, eps_rel=1e-10, verbose=False)
         ysocp_aff = ysocp_aff.at[ii, :, 0].set(y_cvxpy.value)
 
-    socspec = SocConstraintSpecification(a=a, b=b)
-    z_aff = project_soc(ProjectionInstance(x=x, soc=socspec))
+    socspec_aff = SocConstraintSpecification(a=a, b=b)
+    z_aff = project_soc(ProjectionInstance(x=x, soc=socspec_aff))
     assert jnp.allclose(ysocp_aff, z_aff)
+
+    socspec_updated = socspec.update(a=a, b=b, mask_u=None, mask_t=None)
+    z_updated = project_soc(ProjectionInstance(x=x, soc=socspec_updated))
+    assert jnp.allclose(ysocp_aff, z_updated)
 
 
 def test_raising_errors():

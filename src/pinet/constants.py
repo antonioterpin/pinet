@@ -1,47 +1,51 @@
 """Constants used throughout the pinet package."""
 
-# Numerical Stability
-# ==================
-# Epsilon for protecting against division by zero in SOC norm calculations
-SOC_CONSTRAINT_EPSILON: float = 1e-12
 
-# Equilibration Algorithm Defaults
-# =================================
-# Default tolerance for equilibration termination criterion
-EQUILIBRATION_DEFAULT_TOL: float = 1e-3
+class Constants:
+    """Centralized constants used throughout the pinet package."""
 
-# Default maximum number of equilibration iterations
-EQUILIBRATION_DEFAULT_MAX_ITER: int = 0
+    # Numerical Stability
+    # ==================
+    # Epsilon for protecting against division by zero in SOC norm calculations
+    SOC_CONSTRAINT_EPSILON: float = 1e-12
 
-# Default norm order for equilibration (1, 2, or inf)
-EQUILIBRATION_DEFAULT_ORD: float = 2.0
+    # Equilibration Algorithm Defaults
+    # =================================
+    # Default tolerance for equilibration termination criterion
+    EQUILIBRATION_DEFAULT_TOL: float = 1e-3
 
-# Enable column scaling in equilibration
-EQUILIBRATION_DEFAULT_COL_SCALING: bool = False
+    # Default maximum number of equilibration iterations
+    EQUILIBRATION_DEFAULT_MAX_ITER: int = 0
 
-# Update mode for equilibration: "Gauss" (sequential) or "Jacobi" (simultaneous)
-EQUILIBRATION_DEFAULT_UPDATE_MODE: str = "Gauss"
+    # Default norm order for equilibration (1, 2, or inf)
+    EQUILIBRATION_DEFAULT_ORD: float = 2.0
 
-# Enable safeguard to ensure condition number doesn't increase
-EQUILIBRATION_DEFAULT_SAFEGUARD: bool = False
+    # Enable column scaling in equilibration
+    EQUILIBRATION_DEFAULT_COL_SCALING: bool = False
 
-# Projection/ADMM Algorithm Parameters
-# =====================================
-# Default ADMM stepsize parameter
-PROJECTION_DEFAULT_SIGMA: float = 1.0
+    # Update mode for equilibration: "Gauss" (sequential) or "Jacobi" (simultaneous)
+    EQUILIBRATION_DEFAULT_UPDATE_MODE: str = "Gauss"
 
-# Default ADMM relaxation parameter (typically between 1 and 2)
-PROJECTION_DEFAULT_OMEGA: float = 1.7
+    # Enable safeguard to ensure condition number doesn't increase
+    EQUILIBRATION_DEFAULT_SAFEGUARD: bool = False
 
-# Default frequency of constraint violation checks during projection
-PROJECTION_DEFAULT_CHECK_EVERY: int = 10
+    # Projection/ADMM Algorithm Parameters
+    # =====================================
+    # Default ADMM stepsize parameter
+    PROJECTION_DEFAULT_SIGMA: float = 1.0
 
-# Default tolerance for constraint violation during projection
-PROJECTION_DEFAULT_TOL: float = 1e-3
+    # Default ADMM relaxation parameter (typically between 1 and 2)
+    PROJECTION_DEFAULT_OMEGA: float = 1.7
 
-# Default maximum number of projection iterations
-PROJECTION_DEFAULT_MAX_ITER: int = 100
+    # Default frequency of constraint violation checks during projection
+    PROJECTION_DEFAULT_CHECK_EVERY: int = 10
 
-# Default reduction method for batch constraint checks:
-# "max", "mean", or a float in [0, 1]
-PROJECTION_DEFAULT_CHECK_REDUCTION: str = "max"
+    # Default tolerance for constraint violation during projection
+    PROJECTION_DEFAULT_TOL: float = 1e-3
+
+    # Default maximum number of projection iterations
+    PROJECTION_DEFAULT_MAX_ITER: int = 100
+
+    # Default reduction method for batch constraint checks:
+    # "max", "mean", or a float in [0, 1]
+    PROJECTION_DEFAULT_CHECK_REDUCTION: str = "max"

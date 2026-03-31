@@ -2,9 +2,11 @@
 
 import jax.numpy as jnp
 
-from pinet.constants import SOC_CONSTRAINT_EPSILON
+from pinet.constants import Constants
 from pinet.constraints.base import Constraint
 from pinet.dataclasses import ProjectionInstance, SocConstraintSpecification
+
+SOC_CONSTRAINT_EPSILON = Constants.SOC_CONSTRAINT_EPSILON
 
 
 class SocConstraint(Constraint):

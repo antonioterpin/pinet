@@ -7,8 +7,11 @@ from pinet import (
     BoxConstraintSpecification,
     EqualityConstraintsSpecification,
     EquilibrationParams,
+    L2NormType,
+    NonLinearSpecification,
     ProjectionInstance,
     SocConstraintSpecification,
+    SOCType,
 )
 
 
@@ -424,3 +427,133 @@ def test_soc_validate_passes_with_minimal_inputs():
     mask_t = jnp.array([False, True], dtype=jnp.bool_)
     spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
     spec.validate()  # should not raise
+
+
+def test_nonlinear_validate_l2norm_with_rhs_not_supported():
+    spec = NonLinearSpecification(
+        nl_type=L2NormType,
+        A=jnp.ones((1, 2, 3)),
+        f=jnp.ones((1, 1, 3)),
+    )
+    with pytest.raises(
+        ValueError,
+        match=r"L2NormType with RHS \(f\) is not supported in NonLinearSpecification.",
+    ):
+        spec.validate()
+
+
+def test_nonlinear_validate_nl_type_must_be_constraint_type_instance():
+    spec = NonLinearSpecification(
+        nl_type="invalid_type",
+        A=jnp.ones((1, 2, 3)),
+    )
+    with pytest.raises(
+        ValueError,
+        match="nl_type must be a NonLinearConstraintType instance",
+    ):
+        spec.validate()
+
+
+def test_nonlinear_validate_inconsistent_batch_sizes_raises():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((2, 2, 3)),
+        a=jnp.ones((3, 2, 1)),
+        f=jnp.ones((2, 1, 3)),
+        b=jnp.ones((3, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="Inconsistent batch sizes"):
+        spec.validate()
+
+
+def test_nonlinear_validate_batch_sizes_allow_broadcast_with_all_present():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 2, 3)),
+        a=jnp.ones((4, 2, 1)),
+        f=jnp.ones((1, 1, 3)),
+        b=jnp.ones((4, 1, 1)),
+    )
+    spec.validate()
+
+
+def test_nonlinear_validate_A_or_f_batch_size_not_one():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((2, 2, 3)),
+        a=jnp.ones((1, 2, 1)),
+        f=jnp.ones((1, 1, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="A must have batch size 1"):
+        spec.validate()
+
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 2, 3)),
+        a=jnp.ones((1, 2, 1)),
+        f=jnp.ones((2, 1, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="f must have batch size 1"):
+        spec.validate()
+
+
+def test_nonlinear_validate_A_and_a_constraint_dimension():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 2, 1)),
+        f=jnp.ones((1, 1, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="A and a must have same constraint dimension"):
+        spec.validate()
+
+
+def test_nonlinear_validate_A_and_f_variable_dimension():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 3, 1)),
+        f=jnp.ones((1, 1, 2)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="A and f must have same variable dimension"):
+        spec.validate()
+
+
+def test_nonlinear_validate_f_and_b_constraint_dimension():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 3, 1)),
+        f=jnp.ones((1, 2, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="f and b must have same constraint dimension"):
+        spec.validate()
+
+
+def test_nonlinear_validate_b_is_not_a_scalar():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 3, 1)),
+        f=jnp.ones((1, 2, 3)),
+        b=jnp.ones((2, 2, 1)),
+    )
+    with pytest.raises(ValueError, match="b must be scalar"):
+        spec.validate()
+
+
+def test_nonlinear_to_primitive_spec_with_invalid_type():
+    spec = NonLinearSpecification(
+        nl_type="invalid_type",
+        A=jnp.ones((1, 2, 3)),
+    )
+    with pytest.raises(
+        NotImplementedError,
+        match="Conversion to primitive spec not implemented",
+    ):
+        spec.to_primitive_spec()
