@@ -6,8 +6,8 @@ from .box import BoxConstraint
 from .constraint_parser import ConstraintParser
 
 __all__ = [
-    "EqualityConstraint",
     "AffineInequalityConstraint",
     "BoxConstraint",
     "ConstraintParser",
+    "EqualityConstraint",
 ]

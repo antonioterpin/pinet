@@ -5,7 +5,7 @@ import datetime
 import pathlib
 import time
 import timeit
-from typing import Callable
+from collections.abc import Callable, Iterable
 
 import jax
 import jax.numpy as jnp
@@ -16,19 +16,26 @@ from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
-from benchmarks.toy_MPC.load_toy_MPC import JaxDataLoader, ToyMPCDataset, load_data
+from benchmarks.toy_MPC.load_toy_mpc import load_data
 from benchmarks.toy_MPC.model import setup_model
-from benchmarks.toy_MPC.plotting import generate_trajectories, plot_training
+from benchmarks.toy_MPC.plotting import (
+    generate_trajectories,
+)
+from benchmarks.toy_MPC.plotting import (
+    plot_training as plot_training_curve,
+)
 from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
 jax.config.update("jax_enable_x64", True)
 
+BatchLoader = Iterable[tuple[jnp.ndarray, jnp.ndarray]]
+
 
 def evaluate_hcnn(
-    loader: ToyMPCDataset | JaxDataLoader,
+    loader: BatchLoader,
     state: train_state.TrainState,
     batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
-    A: jnp.ndarray,
+    a_dyn: jnp.ndarray,
     lb: jnp.ndarray,
     ub: jnp.ndarray,
     prefix: str,
@@ -48,98 +55,96 @@ def evaluate_hcnn(
     """Evaluate the performance of HCNN.
 
     Args:
-        loader (ToyMPCDataset | JaxDataLoader): DataLoader for the dataset.
-        state (train_state.TrainState): The trained model state.
-        batched_objective (Callable): Function to compute the objective.
-        A (jnp.ndarray): Coefficient matrix for equality constraints.
-        lb (jnp.ndarray): Lower bounds for the decision variables.
-        ub (jnp.ndarray): Upper bounds for the decision variables.
-        prefix (str): Prefix for logging.
-        time_evals (int, optional): Number of times to evaluate the model.
-        print_res (bool, optional): Whether to print the results.
-        cv_tol (float, optional): Tolerance for constraint violations.
-        single_instance (bool, optional): Whether to evaluate a single instance or not.
+        loader: DataLoader for the dataset.
+        state: The trained model state.
+        batched_objective: Function to compute the objective.
+        a_dyn: Coefficient matrix for equality constraints.
+        lb: Lower bounds for the decision variables.
+        ub: Upper bounds for the decision variables.
+        prefix: Prefix for logging.
+        time_evals: Number of times to evaluate the model.
+        print_res: Whether to print the results.
+        cv_tol: Tolerance for constraint violations.
+        single_instance: Whether to evaluate a single instance.
 
     Returns:
-        tuple: A tuple containing:
-            - opt_obj (jnp.ndarray): Optimal objective values.
-            - hcnn_obj (jnp.ndarray): HCNN objective values.
-            - eq_cv (jnp.ndarray): Equality constraint violations.
-            - ineq_cv (jnp.ndarray): Inequality constraint violations.
-            - ineq_perc (float): Percentage of valid constraint violations.
-            - eval_time (float): Average evaluation time.
-            - eval_time_std (float): Standard deviation of evaluation time.
+        Optimal objective values, HCNN objective values, equality constraint
+        violations, inequality constraint violations, percentage of valid
+        constraint violations, average evaluation time, and standard deviation
+        of the evaluation time.
     """
-    opt_obj = []
-    hcnn_obj = []
-    eq_cv = []
-    ineq_cv = []
-    for X, obj in loader:
-        X_full = jnp.concatenate(
-            (X, jnp.zeros((X.shape[0], A.shape[1] - X.shape[1], 1))), axis=1
+    opt_obj_batches: list[jnp.ndarray] = []
+    hcnn_obj_batches: list[jnp.ndarray] = []
+    eq_cv_batches: list[jnp.ndarray] = []
+    ineq_cv_batches: list[jnp.ndarray] = []
+    for x_data, obj in loader:
+        x_full = jnp.concatenate(
+            (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),
+            axis=1,
         )
         predictions = state.apply_fn(
             {"params": state.params},
-            X[:, :, 0],
-            X_full,
+            x_data[:, :, 0],
+            x_full,
             test=True,
         )
-        opt_obj.append(obj)
-        hcnn_obj.append(batched_objective(predictions))
+        opt_obj_batches.append(obj)
+        hcnn_obj_batches.append(batched_objective(predictions))
         # Equality Constraint Violation
         eq_cv_batch = jnp.abs(
-            A[0].reshape(1, A.shape[1], A.shape[2])
-            @ predictions.reshape(X.shape[0], A.shape[2], 1)
-            - X_full,
+            a_dyn[0].reshape(1, a_dyn.shape[1], a_dyn.shape[2])
+            @ predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1)
+            - x_full,
         )
         eq_cv_batch = jnp.max(eq_cv_batch, axis=1)
-        eq_cv.append(eq_cv_batch)
+        eq_cv_batches.append(eq_cv_batch)
         # Inequality Constraint Violation
         ineq_cv_batch_ub = jnp.maximum(
-            predictions.reshape(X.shape[0], A.shape[2], 1) - ub, 0
+            predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1) - ub, 0
         )
         ineq_cv_batch_lb = jnp.maximum(
-            lb - predictions.reshape(X.shape[0], A.shape[2], 1), 0
+            lb - predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1), 0
         )
         # Compute the maximum and normalize by the size
         ineq_cv_batch = jnp.maximum(ineq_cv_batch_ub, ineq_cv_batch_lb) / ub
         ineq_cv_batch = jnp.max(ineq_cv_batch, axis=1)
-        ineq_cv.append(ineq_cv_batch)
+        ineq_cv_batches.append(ineq_cv_batch)
     # Objectives
-    opt_obj = jnp.concatenate(opt_obj, axis=0)
+    opt_obj = jnp.concatenate(opt_obj_batches, axis=0)
     opt_obj_mean = opt_obj.mean()
-    hcnn_obj = jnp.concatenate(hcnn_obj, axis=0)
+    hcnn_obj = jnp.concatenate(hcnn_obj_batches, axis=0)
     hcnn_obj_mean = hcnn_obj.mean()
     # Equality Constraints
-    eq_cv = jnp.concatenate(eq_cv, axis=0)
+    eq_cv = jnp.concatenate(eq_cv_batches, axis=0)
     eq_cv_mean = eq_cv.mean()
     eq_cv_max = eq_cv.max()
     # Inequality Constraints
-    ineq_cv = jnp.concatenate(ineq_cv, axis=0)
+    ineq_cv = jnp.concatenate(ineq_cv_batches, axis=0)
     ineq_cv_mean = ineq_cv.mean()
     ineq_cv_max = ineq_cv.max()
-    ineq_perc = (1 - jnp.mean(ineq_cv > cv_tol)) * 100
+    ineq_perc = float((1 - jnp.mean(ineq_cv > cv_tol)) * 100)
     # Inference time (assumes all the data in one batch)
     if single_instance:
-        X_inf = X[:1, :, :]
-        X_inf_full = jnp.concatenate(
-            (X_inf, jnp.zeros((X_inf.shape[0], A.shape[1] - X_inf.shape[1], 1))), axis=1
+        x_inf = x_data[:1, :, :]
+        x_inf_full = jnp.concatenate(
+            (x_inf, jnp.zeros((x_inf.shape[0], a_dyn.shape[1] - x_inf.shape[1], 1))),
+            axis=1,
         )
     else:
-        X_inf = X
-        X_inf_full = X_full
+        x_inf = x_data
+        x_inf_full = x_full
     times = timeit.repeat(
         lambda: state.apply_fn(
             {"params": state.params},
-            X_inf[:, :, 0],
-            X_inf_full,
+            x_inf[:, :, 0],
+            x_inf_full,
             test=True,
         ).block_until_ready(),
         repeat=time_evals,
         number=1,
     )
-    eval_time = np.mean(times)
-    eval_time_std = np.std(times)
+    eval_time = float(np.mean(times))
+    eval_time_std = float(np.std(times))
     if print_res:
         print(f"=========== {prefix} performance ===========")
         print("Mean objective                : ", f"{hcnn_obj_mean:.5f}")
@@ -168,41 +173,41 @@ def evaluate_hcnn(
 def main(
     filepath: str,
     config_path: str,
-    SEED: int,
-    PLOT_TRAINING: bool,
-    SAVE_RESULTS: bool,
+    seed: int,
+    plot_training: bool,
+    save_results: bool,
     use_jax_loader: bool,
     run_name: str,
 ) -> train_state.TrainState:
     """Main for running toy MPC benchmarks.
 
     Args:
-        filepath (str): Path to the dataset file.
-        config_path (str): Path to the configuration file.
-        SEED (int): Random seed for reproducibility.
-        PLOT_TRAINING (bool): Whether to plot training curves.
-        SAVE_RESULTS (bool): Whether to save the results.
-        use_jax_loader (bool): Whether to use JAX DataLoader or PyTorch DataLoader.
-        run_name (str): Name of the run for logging.
+        filepath: Path to the dataset file.
+        config_path: Path to the configuration file.
+        seed: Random seed for reproducibility.
+        plot_training: Whether to plot training curves.
+        save_results: Whether to save the results.
+        use_jax_loader: Whether to use JAX DataLoader or PyTorch DataLoader.
+        run_name: Name of the run for logging.
 
     Returns:
-        train_state.TrainState: The trained model state.
+        The trained model state.
     """
     hyperparameters = load_configuration(config_path)
-    key = jax.random.PRNGKey(SEED)
+    key = jax.random.PRNGKey(seed)
     loader_key, key = jax.random.split(key, 2)
     # Parse data
     (
-        As,
+        a_dyns,
         lbxs,
         ubxs,
         lbus,
         ubus,
-        xhat,
-        alpha,
-        T,
-        base_dim,
-        X,
+        _xhat,
+        _alpha,
+        _horizon,
+        _base_dim,
+        x_data,
         train_loader,
         valid_loader,
         test_loader,
@@ -216,71 +221,72 @@ def main(
         use_jax_loader=use_jax_loader,
     )
 
-    Y_DIM = As.shape[2]
+    y_dim = a_dyns.shape[2]
     # The X contains only the initial conditions.
     # To properly define the equality constraints we need to append zeros
-    Xfull = jnp.concatenate(
-        (X, jnp.zeros((X.shape[0], As.shape[1] - X.shape[1], 1))), axis=1
+    x_full = jnp.concatenate(
+        (x_data, jnp.zeros((x_data.shape[0], a_dyns.shape[1] - x_data.shape[1], 1))),
+        axis=1,
     )
     lb = jnp.concatenate((lbxs, lbus), axis=1)
     ub = jnp.concatenate((ubxs, ubus), axis=1)
     # Setup projection layer
-    LEARNING_RATE = hyperparameters["learning_rate"]
+    learning_rate = hyperparameters["learning_rate"]
     # Setup the model
     model, params, train_step = setup_model(
         rng_key=key,
         hyperparameters=hyperparameters,
-        A=As,
-        X=X,
-        b=Xfull,
+        a_dyn=a_dyns,
+        x_data=x_data,
+        b=x_full,
         lb=lb,
         ub=ub,
         batched_objective=batched_objective,
     )
-    tx = optax.adam(LEARNING_RATE)
+    tx = optax.adam(learning_rate)
     state = train_state.TrainState.create(
         apply_fn=model.apply, params=params["params"], tx=tx
     )
 
-    N_EPOCHS = hyperparameters["n_epochs"]
+    n_epochs = hyperparameters["n_epochs"]
     eval_every = 1
     start = time.time()
-    trainig_losses = []
-    validation_losses = []
-    eqcvs = []
-    ineqcvs = []
+    trainig_losses: list[float | jnp.ndarray] = []
+    validation_losses: list[float | jnp.ndarray] = []
+    eqcvs: list[float | jnp.ndarray] = []
+    ineqcvs: list[float | jnp.ndarray] = []
 
     with (
         Logger(run_name=run_name, project_name="hcnn_toy_mpc") as data_logger,
         GracefulShutdown("Stop detected, finishing epoch...") as g,
     ):
         data_logger.run.config.update(hyperparameters)
-        for step in (pbar := tqdm(range(N_EPOCHS))):
+        for step in (pbar := tqdm(range(n_epochs))):
             if g.stop:
                 break
-            epoch_loss = []
-            batch_sizes = []
+            epoch_loss: list[jnp.ndarray] = []
+            batch_sizes: list[int] = []
             start_epoch_time = time.time()
             for batch in train_loader:
-                X_batch, _ = batch
-                X_batch_full = jnp.concatenate(
+                x_batch, _ = batch
+                x_batch_full = jnp.concatenate(
                     (
-                        X_batch,
+                        x_batch,
                         jnp.zeros(
-                            (X_batch.shape[0], As.shape[1] - X_batch.shape[1], 1)
+                            (x_batch.shape[0], a_dyns.shape[1] - x_batch.shape[1], 1)
                         ),
                     ),
                     axis=1,
                 )
                 loss, state = train_step(
                     state,
-                    X_batch[:, :, 0],
-                    X_batch_full,
+                    x_batch[:, :, 0],
+                    x_batch_full,
                 )
-                batch_sizes.append(X_batch.shape[0])
+                batch_sizes.append(x_batch.shape[0])
                 epoch_loss.append(loss)
             weighted_epoch_loss = sum(
-                el * bs for el, bs in zip(epoch_loss, batch_sizes)
+                el * bs for el, bs in zip(epoch_loss, batch_sizes, strict=False)
             ) / sum(batch_sizes)
             trainig_losses.append(weighted_epoch_loss)
             pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")
@@ -289,31 +295,31 @@ def main(
             if step % eval_every == 0:
                 start_evaluation_time = time.time()
                 # TODO: Use some of the evaluate functions?
-                for X_valid, valid_obj in valid_loader:
-                    X_valid_full = jnp.concatenate(
+                for x_valid, valid_obj in valid_loader:
+                    x_valid_full = jnp.concatenate(
                         (
-                            X_valid,
+                            x_valid,
                             jnp.zeros(
-                                (X_valid.shape[0], As.shape[1] - X_valid.shape[1], 1)
+                                (x_valid.shape[0], a_dyns.shape[1] - x_valid.shape[1], 1)
                             ),
                         ),
                         axis=1,
                     )
                     predictions = state.apply_fn(
                         {"params": state.params},
-                        X_valid[:, :, 0],
-                        X_valid_full,
+                        x_valid[:, :, 0],
+                        x_valid_full,
                         test=True,
                     )
                     validation_loss = batched_objective(predictions)
                     eqcv = jnp.abs(
-                        As[0] @ predictions.reshape(-1, Y_DIM, 1) - X_valid_full
+                        a_dyns[0] @ predictions.reshape(-1, y_dim, 1) - x_valid_full
                     ).max()
                     ineqcvub = jnp.max(
-                        jnp.maximum(predictions.reshape(-1, Y_DIM, 1) - ub, 0), axis=1
+                        jnp.maximum(predictions.reshape(-1, y_dim, 1) - ub, 0), axis=1
                     )
                     ineqcvlb = jnp.max(
-                        jnp.maximum(lb - predictions.reshape(-1, Y_DIM, 1), 0), axis=1
+                        jnp.maximum(lb - predictions.reshape(-1, y_dim, 1), 0), axis=1
                     )
                     ineqcv = jnp.maximum(ineqcvub, ineqcvlb).mean()
                     eqcvs.append(eqcv)
@@ -343,8 +349,8 @@ def main(
         training_time = time.time() - start
         print(f"Training time: {training_time:.5f} seconds")
 
-        if PLOT_TRAINING:
-            plot_training(
+        if plot_training:
+            plot_training_curve(
                 train_loader,
                 valid_loader,
                 trainig_losses,
@@ -357,7 +363,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Validation",
-            A=As,
+            a_dyn=a_dyns,
             lb=lb,
             ub=ub,
             cv_tol=1e-3,
@@ -369,7 +375,7 @@ def main(
                 state=state,
                 batched_objective=batched_objective,
                 prefix="Test",
-                A=As,
+                a_dyn=a_dyns,
                 lb=lb,
                 ub=ub,
                 cv_tol=1e-3,
@@ -377,12 +383,12 @@ def main(
                 single_instance=False,
             )
         )
-        _, _, _, _, _, mean_inf_time_single, std_inf_time_single = evaluate_hcnn(
+        _, _, _, _, _, mean_inf_time_single, _std_inf_time_single = evaluate_hcnn(
             loader=test_loader,
             state=state,
             batched_objective=batched_objective,
             prefix="Test",
-            A=As,
+            a_dyn=a_dyns,
             lb=lb,
             ub=ub,
             cv_tol=1e-3,
@@ -404,7 +410,7 @@ def main(
             }
         )
 
-    if SAVE_RESULTS:
+    if save_results:
         current_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         results_filename = "results.npz"
         timestamp_folder = pathlib.Path(__file__).parent / "results" / current_timestamp
@@ -435,7 +441,11 @@ def main(
 if __name__ == "__main__":
 
     def parse_args():
-        """Parse CLI arguments."""
+        """Parse CLI arguments.
+
+        Returns:
+            Parsed command-line arguments.
+        """
         parser = argparse.ArgumentParser(description="Run HCNN on toy MPC problem.")
         parser.add_argument(
             "--filename",
@@ -497,17 +507,17 @@ if __name__ == "__main__":
         / "configs"
         / (args.config + ".yaml")
     )
-    SEED = args.seed
-    torch.manual_seed(SEED)
+    seed = args.seed
+    torch.manual_seed(seed)
     use_jax_loader = args.jax_loader
     run_name = f"toy_MPC_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     if not args.use_saved:
         _ = main(
             filepath=filepath,
             config_path=config_path,
-            SEED=SEED,
-            PLOT_TRAINING=args.plot_training,
-            SAVE_RESULTS=args.save_results,
+            seed=seed,
+            plot_training=args.plot_training,
+            save_results=args.save_results,
             use_jax_loader=use_jax_loader,
             run_name=run_name,
         )
@@ -516,20 +526,20 @@ if __name__ == "__main__":
             raise ValueError("Please provide the name of the results file.")
 
         hyperparameters = load_configuration(config_path)
-        key = jax.random.PRNGKey(SEED)
+        key = jax.random.PRNGKey(seed)
         loader_key, key = jax.random.split(key, 2)
         # Parse data
         (
-            As,
+            a_dyns,
             lbxs,
             ubxs,
             lbus,
             ubus,
             xhat,
             alpha,
-            T,
+            horizon,
             base_dim,
-            X,
+            x_data,
             train_loader,
             valid_loader,
             test_loader,
@@ -542,11 +552,12 @@ if __name__ == "__main__":
             rng_key=loader_key,
             use_jax_loader=use_jax_loader,
         )
-        Y_DIM = As.shape[2]
+        y_dim = a_dyns.shape[2]
         # The X contains only the initial conditions.
         # To properly define the equality constraints we need to append zeros
-        Xfull = jnp.concatenate(
-            (X, jnp.zeros((X.shape[0], As.shape[1] - X.shape[1], 1))), axis=1
+        x_full = jnp.concatenate(
+            (x_data, jnp.zeros((x_data.shape[0], a_dyns.shape[1] - x_data.shape[1], 1))),
+            axis=1,
         )
         dimx = lbxs.shape[1]
         dimu = lbus.shape[1]
@@ -555,9 +566,9 @@ if __name__ == "__main__":
         model, params, train_step = setup_model(
             rng_key=key,
             hyperparameters=hyperparameters,
-            A=As,
-            X=X,
-            b=Xfull,
+            a_dyn=a_dyns,
+            x_data=x_data,
+            b=x_full,
             lb=lb,
             ub=ub,
             batched_objective=batched_objective,
@@ -586,17 +597,17 @@ if __name__ == "__main__":
 
         trajectories_pred, trajectories_cp = generate_trajectories(
             state=state,
-            As=As,
+            a_dyns=a_dyns,
             lbxs=lbxs,
             ubxs=ubxs,
             lbus=lbus,
             ubus=ubus,
             alpha=alpha,
             base_dim=base_dim,
-            Y_DIM=Y_DIM,
+            y_dim=y_dim,
             dimx=dimx,
             xhat=xhat,
-            T=T,
+            horizon=horizon,
             lb=lb,
             ub=ub,
         )
@@ -617,9 +628,7 @@ if __name__ == "__main__":
             "opt_obj"
         ]
         print(f"Average Relative Suboptimality: {rel_suboptimality.mean():.5%}")
-        print(
-            f"Percentage of ineq. constraint satisfaction: {results['ineq_perc']:.2f}%"
-        )
+        print(f"Percentage of ineq. constraint satisfaction: {results['ineq_perc']:.2f}%")
 
         if True:
             trajectories_path = (
@@ -631,11 +640,12 @@ if __name__ == "__main__":
             trajectories_path.mkdir(parents=True, exist_ok=True)
             for ii in range(trajectories_pred.shape[0]):
                 xpred = (
-                    trajectories_pred[ii, :][:dimx].reshape((T + 1, base_dim)) / 20.0
+                    trajectories_pred[ii, :][:dimx].reshape((horizon + 1, base_dim))
+                    / 20.0
                     + 0.5
                 )
                 xgt = (
-                    trajectories_cp[ii, :][:dimx].reshape((T + 1, base_dim)) / 20.0
+                    trajectories_cp[ii, :][:dimx].reshape((horizon + 1, base_dim)) / 20.0
                     + 0.5
                 )
                 # Save trajectory to CSV file
@@ -643,7 +653,7 @@ if __name__ == "__main__":
                 # Stack the columns:
                 # x (xpred[:,0]), y (xpred[:,1]), xgt (xgt[:,0]), ygt (xgt[:,1])
                 data = np.column_stack((xpred[:, 0], xpred[:, 1], xgt[:, 0], xgt[:, 1]))
-                csv_filename = trajectories_path / f"trajectory_{ii+1}.csv"
+                csv_filename = trajectories_path / f"trajectory_{ii + 1}.csv"
                 np.savetxt(
                     csv_filename,
                     data,

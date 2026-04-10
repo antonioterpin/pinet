@@ -17,15 +17,15 @@ from .project import Project
 from .solver import build_iteration_step
 
 __all__ = [
-    "EqualityConstraint",
     "AffineInequalityConstraint",
     "BoxConstraint",
+    "BoxConstraintSpecification",
     "ConstraintParser",
-    "ruiz_equilibration",
-    "Project",
-    "build_iteration_step",
-    "ProjectionInstance",
+    "EqualityConstraint",
     "EqualityConstraintsSpecification",
     "EquilibrationParams",
-    "BoxConstraintSpecification",
+    "Project",
+    "ProjectionInstance",
+    "build_iteration_step",
+    "ruiz_equilibration",
 ]

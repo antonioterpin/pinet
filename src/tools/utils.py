@@ -2,7 +2,7 @@
 
 import logging
 import signal
-from typing import Any, Dict, Optional
+from typing import Any
 
 import wandb
 import yaml
@@ -14,12 +14,12 @@ def load_configuration(file_path: str) -> dict:
     """Load configuration file from yaml.
 
     Args:
-        file_path (str): Path to the configuration file.
+        file_path: Path to the configuration file.
 
     Returns:
         dict: A dictionary containing the configuration parameters.
     """
-    with open(file_path, "r") as file:
+    with open(file_path) as file:
         hyperparameters = yaml.safe_load(file)
     return hyperparameters
 
@@ -33,8 +33,8 @@ class Logger:
         """Initializes the Logger and creates a new wandb run.
 
         Args:
-            run_name (str): The name of the run to be logged.
-            project_name (str): The name of the project.
+            run_name: The name of the run to be logged.
+            project_name: The name of the project.
         """
         if not Logger._logged_in:
             wandb.login()
@@ -55,37 +55,56 @@ class Logger:
         """
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Exits the runtime context and finishes the wandb run."""
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any,
+    ) -> None:
+        """Exits the runtime context and finishes the wandb run.
+
+        Args:
+            exc_type: The exception type raised inside the context, if any.
+            exc_value: The exception value raised inside the context, if any.
+            traceback: The traceback raised inside the context, if any.
+        """
         wandb.finish()
 
-    def log(self, t: int, data: Dict[str, Any]) -> None:
+    def log(self, t: int, data: dict[str, Any]) -> None:
         """Logs data.
 
         Args:
-            t (int): An indexing parameter (for example, the epoch).
-            data (Dict[str, Any]): A dictionary of variable names and values to log.
+            t: An indexing parameter (for example, the epoch).
+            data: A dictionary of variable names and values to log.
         """
         wandb.log(data, step=t)
 
 
 class GracefulShutdown:
-    """A context manager for graceful shutdowns."""
+    """A context manager for graceful shutdowns.
+
+    Attributes:
+        stop: Whether a shutdown signal has been received.
+    """
 
     stop = False
 
-    def __init__(self, exit_message: Optional[str] = None):
+    def __init__(self, exit_message: str | None = None) -> None:
         """Initializes the GracefulShutdown context manager.
 
         Args:
-            exit_message (str): The message to log upon shutdown.
+            exit_message: The message to log upon shutdown.
         """
         self.exit_message = exit_message
 
-    def __enter__(self):
-        """Register the signal handler."""
+    def __enter__(self) -> "GracefulShutdown":
+        """Register the signal handler.
 
-        def handle_signal(signum, frame):
+        Returns:
+            GracefulShutdown: The current instance.
+        """
+
+        def handle_signal(signum: int, frame: Any) -> None:
             self.stop = True
             if self.exit_message:
                 logger.info(self.exit_message)
@@ -93,6 +112,17 @@ class GracefulShutdown:
         signal.signal(signal.SIGINT, handle_signal)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Unregister the signal handler."""
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any,
+    ) -> None:
+        """Unregister the signal handler.
+
+        Args:
+            exc_type: The exception type raised inside the context, if any.
+            exc_value: The exception value raised inside the context, if any.
+            traceback: The traceback raised inside the context, if any.
+        """
         pass

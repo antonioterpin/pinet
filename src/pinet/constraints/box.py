@@ -24,13 +24,17 @@ class BoxConstraint(Constraint):
         """Initialize the box constraint.
 
         Args:
-            box_spec (BoxConstraintSpecification): Specification of the box constraint.
+            box_spec: Specification of the box constraint.
                 For variable bounds, provide an example of the bounds.
         """
         self.lb = box_spec.lb
         self.ub = box_spec.ub
         self.mask = box_spec.mask
-        self._dim = self.lb.shape[1] if self.lb is not None else self.ub.shape[1]
+        if self.lb is not None:
+            self._dim = self.lb.shape[1]
+        else:
+            assert self.ub is not None
+            self._dim = self.ub.shape[1]
         self.scale = jnp.ones((1, self._dim, 1))
 
         if self.mask is None:
@@ -42,7 +46,7 @@ class BoxConstraint(Constraint):
         """Get the parameters of the box constraint.
 
         Args:
-            yraw (ProjectionInstance): ProjectionInstance to get the parameters from.
+            yraw: ProjectionInstance to get the parameters from.
 
         Returns:
             tuple: A tuple containing the lower and upper bounds and the mask.
@@ -60,9 +64,11 @@ class BoxConstraint(Constraint):
         )
         mask = yraw.box.mask if yraw.box and yraw.box.mask is not None else self.mask
         if lb is None:
+            assert ub is not None
             lb = -jnp.inf * jnp.ones_like(ub)
         if ub is None:
             ub = jnp.inf * jnp.ones_like(lb)
+        assert mask is not None
         # NOTE: Mask is never None
 
         return lb, ub, mask
@@ -71,7 +77,7 @@ class BoxConstraint(Constraint):
         """Project the input to the feasible region.
 
         Args:
-            yraw (ProjectionInstance): ProjectionInstance to projection.
+            yraw: ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
@@ -87,7 +93,7 @@ class BoxConstraint(Constraint):
         """Compute the constraint violation.
 
         Args:
-            y (ProjectionInstance): ProjectionInstance to evaluate.
+            y: ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.

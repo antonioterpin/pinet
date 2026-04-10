@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,11 +8,11 @@ version = "0.1.0"
 description = "A differentiable orthogonal projection layer for training hard-constrained neural networks."
 readme = "README.md"
 license = { file = "LICENSE" }
+requires-python = ">=3.10"
 authors = [
     { name = "Panagiotis Grontas", email = "pgrontas@control.ee.ethz.ch" },
     { name = "Antonio Terpin", email = "aterpin@ethz.ch" },
 ]
-urls = { Homepage = "https://github.com/antonioterpin/pinet" }
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: Apache-2.0 License",
@@ -42,13 +42,82 @@ dev = [
     "snowballstemmer==2.2.0",
     "pre_commit==4.0.1",
     "pytest-cov",
-    "tomli"
+    "tomli",
+    "basedpyright",
+    "pydoclint>=0.8.3",
+    "ruff>=0.14.14",
+    "gitlint==0.19.1",
 ]
 cuda12 = [
     "jax[cuda12_pip]>=0.6.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/antonioterpin/pinet"
+Repository = "https://github.com/antonioterpin/pinet"
+
+# Dependency groups
+[dependency-groups]
+dev = [
+    "snowballstemmer==2.2.0",
+    "pre_commit==4.0.1",
+    "pytest-cov",
+    "tomli",
+    "basedpyright",
+    "pydoclint>=0.8.3",
+    "ruff>=0.14.14",
+    "gitlint==0.19.1",
 ]
 
 # Build system configuration
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["pinet*"]
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "UP",  # pyupgrade
+    "I",   # isort
+    "N",   # pep8-naming
+    "B",   # flake8-bugbear
+    "PL",  # pylint
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "PLR0913", # Too many arguments
+]
+
+[tool.ruff.lint.pylint]
+max-branches = 16
+max-statements = 120
+
+[tool.pydoclint]
+style = "google"
+exclude = '\.git|\.tox|^tests/'
+skip-checking-short-docstrings = false
+allow-init-docstring = true
+arg-type-hints-in-docstring = false
+check-return-types = false
+skip-checking-raises = false
+
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.10"
+include = ["src", "tests"]
+exclude = []
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnusedImport = false
+reportUnusedVariable = false
+enableTypeIgnoreComments = false
+reportIgnoreCommentWithoutRule = "error"
+reportUnnecessaryTypeIgnoreComment = "error"

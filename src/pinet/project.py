@@ -1,7 +1,7 @@
 """Implementation of the projection layer."""
 
+from collections.abc import Callable
 from functools import partial
-from typing import Callable, Optional
 
 import jax
 from jax import numpy as jnp
@@ -18,35 +18,47 @@ from .solver import build_iteration_step, initialize
 
 
 class Project:
-    """Projection layer implemented via Douglas-Rachford."""
+    """Projection layer implemented via Douglas-Rachford.
 
-    eq_constraint: EqualityConstraint = None
-    ineq_constraint: AffineInequalityConstraint = None
-    box_constraint: BoxConstraint = None
+    Attributes:
+        eq_constraint: Equality constraint.
+        ineq_constraint: Affine inequality constraint.
+        box_constraint: Box constraint.
+        unroll: Use loop unrolling for backpropagation.
+        equilibration_params: Parameters for equilibration.
+    """
+
+    eq_constraint: EqualityConstraint | None = None
+    ineq_constraint: AffineInequalityConstraint | None = None
+    box_constraint: BoxConstraint | None = None
     unroll: bool = False
+    equilibration_params: EquilibrationParams | None = None
 
     def __init__(
         self,
-        eq_constraint: EqualityConstraint = None,
-        ineq_constraint: AffineInequalityConstraint = None,
-        box_constraint: BoxConstraint = None,
+        eq_constraint: EqualityConstraint | None = None,
+        ineq_constraint: AffineInequalityConstraint | None = None,
+        box_constraint: BoxConstraint | None = None,
         unroll: bool = False,
-        equilibration_params: EquilibrationParams = EquilibrationParams(),
+        equilibration_params: EquilibrationParams | None = None,
     ) -> None:
         """Initialize projection layer.
 
         Args:
-            eq_constraint (EqualityConstraint): Equality constraint.
-            ineq_constraint (AffineInequalityConstraint): Inequality constraint.
-            box_constraint (BoxConstraint): Box constraint.
-            unroll (bool): Use loop unrolling for backpropagation.
-            equilibration_params (EquilibrationParams): Parameters for equilibration.
+            eq_constraint: Equality constraint.
+            ineq_constraint: Affine inequality constraint.
+            box_constraint: Box constraint.
+            unroll: Use loop unrolling for backpropagation.
+            equilibration_params: Parameters for equilibration.
         """
         self.eq_constraint = eq_constraint
         self.ineq_constraint = ineq_constraint
         self.box_constraint = box_constraint
         self.unroll = unroll
-        self.equilibration_params = equilibration_params
+        if equilibration_params is None:
+            self.equilibration_params = EquilibrationParams()
+        else:
+            self.equilibration_params = equilibration_params
         self.setup()
 
     def setup(self) -> None:
@@ -59,7 +71,7 @@ class Project:
         assert len(constraints) > 0, "At least one constraint must be provided."
         self.dim = constraints[0].dim
 
-        is_single_simple_constraint = (
+        self.is_single_simple_constraint = (
             self.ineq_constraint is None and len(constraints) == 1
         )
 
@@ -69,7 +81,7 @@ class Project:
         self.single_constraint = constraints[0]
         self.d_r = jnp.ones((1, self.single_constraint.n_constraints, 1))
         self.d_c = jnp.ones((1, self.single_constraint.dim, 1))
-        if not is_single_simple_constraint:
+        if not self.is_single_simple_constraint:
             # Constraints need to be parsed
             if self.ineq_constraint is not None:
                 self.dim_lifted += self.ineq_constraint.n_constraints
@@ -81,30 +93,38 @@ class Project:
             (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
                 parser.parse(method=None)
             )
-            # Only equilibrate when we have a single A
+            assert self.lifted_eq_constraint is not None
+            assert self.lifted_box_constraint is not None
+            assert self.equilibration_params is not None
+            # Only equilibrate when we have a single a_dyn.
             if (
-                not self.lifted_eq_constraint.var_A
-                and self.lifted_eq_constraint.A.shape[0] == 1
+                not self.lifted_eq_constraint.var_a_dyn
+                and self.lifted_eq_constraint.a_dyn.shape[0] == 1
             ):
-                scaled_A, self.d_r, self.d_c = ruiz_equilibration(
-                    self.lifted_eq_constraint.A[0], self.equilibration_params
+                scaled_a_dyn, self.d_r, self.d_c = ruiz_equilibration(
+                    self.lifted_eq_constraint.a_dyn[0], self.equilibration_params
                 )
-                # Update A in lifted equality and setup projection
-                self.lifted_eq_constraint.A = scaled_A.reshape(
+                # Update a_dyn in lifted equality and setup projection
+                self.lifted_eq_constraint.a_dyn = scaled_a_dyn.reshape(
                     1,
-                    self.lifted_eq_constraint.A.shape[1],
-                    self.lifted_eq_constraint.A.shape[2],
+                    self.lifted_eq_constraint.a_dyn.shape[1],
+                    self.lifted_eq_constraint.a_dyn.shape[2],
                 )
                 self.d_r = self.d_r.reshape(1, -1, 1)
                 self.d_c = self.d_c.reshape(1, -1, 1)
             else:
-                # No equilibration for variable A
+                # No equilibration for variable a_dyn
                 n_ineq = (
                     self.ineq_constraint.n_constraints
                     if self.ineq_constraint is not None
                     else 0
                 )
-                self.d_r = jnp.ones((1, self.eq_constraint.n_constraints + n_ineq, 1))
+                n_eq = (
+                    self.eq_constraint.n_constraints
+                    if self.eq_constraint is not None
+                    else 0
+                )
+                self.d_r = jnp.ones((1, n_eq + n_ineq, 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
             self.lifted_eq_constraint.method = "pinv"
@@ -128,13 +148,13 @@ class Project:
 
         project_fn = (
             _project_general
-            if (self.unroll or is_single_simple_constraint)
+            if (self.unroll or self.is_single_simple_constraint)
             else _project_general_custom
         )
 
         static_args = (
             ["n_iter"]
-            if (self.unroll or is_single_simple_constraint)
+            if (self.unroll or self.is_single_simple_constraint)
             else ["n_iter", "n_iter_bwd", "fpi"]
         )
 
@@ -158,7 +178,7 @@ class Project:
         """Returns a zero initial value for the governing sequence.
 
         Args:
-            yraw (ProjectionInstance): Point to be projected data.
+            yraw: Point to be projected data.
 
         Returns:
             ProjectionInstance: Initial value for the governing sequence.
@@ -176,12 +196,17 @@ class Project:
         """Compute the constraint violation.
 
         Args:
-            y (ProjectionInstance): Point to be evaluated.
+            y: Point to be evaluated.
                 Shape of y.x is (batch_size, dimension, 1).
 
         Returns:
             jnp.ndarray: Constraint violation for each point in the batch.
         """
+        if self.is_single_simple_constraint:
+            return self.single_constraint.cv(y)
+
+        assert self.lifted_eq_constraint is not None
+        assert self.lifted_box_constraint is not None
         if y.x.shape[1] != self.dim_lifted:
             y = self.lift(y)
         return jnp.maximum(
@@ -191,34 +216,36 @@ class Project:
 
     def call_and_check(
         self,
-        sigma=1.0,
-        omega=1.7,
-        check_every=10,
-        tol=1e-3,
-        max_iter=100,
-        reduction="max",
-    ) -> Callable[[ProjectionInstance], tuple[jnp.ndarray, bool, int]]:
+        sigma: float = 1.0,
+        omega: float = 1.7,
+        check_every: int = 10,
+        tol: float = 1e-3,
+        max_iter: int = 100,
+        reduction: str | float = "max",
+    ) -> Callable[[ProjectionInstance], tuple[ProjectionInstance, jax.Array, int]]:
         """Returns a function that projects input and checks constraint violation.
 
         Args:
-            check_every (int): Frequency of checking constraint violation.
-            tol (float): Tolerance for constraint violation.
-            max_iter (int): Maximum number of iterations for checking.
-            reduction (str): Method to reduce constraint violations among a batch.
-            Valid options are: "max" meaning that maximum cv is less that tol;
-            "mean" meaning that mean cv is less than tol;
-            or a number in [0,1] meaning the percentage of instances
-            with cv less than tol.
+            sigma: ADMM parameter.
+            omega: ADMM parameter.
+            check_every: Frequency of checking constraint violation.
+            tol: Tolerance for constraint violation.
+            max_iter: Maximum number of iterations for checking.
+            reduction: Method to reduce constraint violations among a batch.
+                Valid options are "max" (maximum cv less than tol),
+                "mean" (mean cv less than tol), or a float in (0, 1)
+                (fraction of instances with cv less than tol).
 
         Returns:
-            Callable: Takes as input the points to be projected and any specifications for
-            the constraints (e.g., the value of b for variable b equality constraints.).
-            Returns an approximately project and a flag showing whether the termination
-            condition was satisfied.
+            Callable: Takes as input the points to be projected and any
+                specifications for the constraints (e.g., the value of b for
+                variable b equality constraints). Returns an approximately
+                projected point and a flag showing whether the termination
+                condition was satisfied.
         """
 
         @jax.jit
-        def check(inp: ProjectionInstance) -> bool:
+        def check(inp: ProjectionInstance) -> jax.Array:
             if reduction == "max":
                 return jnp.max(self.cv(inp)) < tol
             elif reduction == "mean":
@@ -233,10 +260,10 @@ class Project:
 
         def project_and_check(
             yraw: ProjectionInstance,
-        ) -> tuple[jnp.ndarray, bool, int]:
+        ) -> tuple[ProjectionInstance, jax.Array, int]:
             # Executed iterations
             iter_exec = 0
-            terminate = False
+            terminate = jnp.array(False)
             # Call the projection function with all given arguments.
             y0 = self.initialize(yraw)
             while not (terminate or iter_exec >= max_iter):
@@ -255,19 +282,19 @@ class Project:
 
         return project_and_check
 
-    def _project_single(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def _project_single(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project a batch of points with single constraint.
 
         Args:
-            x (jnp.ndarray): Point to be projected.
+            yraw: Point to be projected.
                 Shape (batch_size, dimension, 1).
 
         Returns:
-            jnp.ndarray: The projected point for each point in the batch.
+            ProjectionInstance: The projected point for each point in the batch.
         """
-        if yraw.eq and yraw.eq.A is not None:
-            Apinv = jnp.linalg.pinv(yraw.eq.A)
-            yraw = yraw.update(eq=yraw.eq.update(Apinv=Apinv))
+        if yraw.eq and yraw.eq.a_dyn is not None:
+            a_dyn_pinv = jnp.linalg.pinv(yraw.eq.a_dyn)
+            yraw = yraw.update(eq=yraw.eq.update(Apinv=a_dyn_pinv))
 
         return self.single_constraint.project(yraw)
 
@@ -276,14 +303,14 @@ class Project:
 def _project_general(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
     ],
-    step_final: Callable[[ProjectionInstance], jnp.ndarray],
+    step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
-    s0: Optional[ProjectionInstance] = None,
+    s0: ProjectionInstance | None = None,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
@@ -291,17 +318,18 @@ def _project_general(
     """Project a batch of points using Douglas-Rachford.
 
     Args:
-        step_iteration (callable): Function for the iteration step.
-        step_final (callable): Function for the final step.
-        dim_lifted (int): Dimension of the lifted space.
-        d_r (jnp.ndarray): Scaling factor for the rows.
-        d_c (jnp.ndarray): Scaling factor for the columns.
-        yraw (jnp.ndarray): Point to be projected.
+        initialize_fn: Function to initialize the governing sequence.
+        step_iteration: Function for the iteration step.
+        step_final: Function for the final step.
+        dim_lifted: Dimension of the lifted space.
+        d_r: Scaling factor for the rows.
+        d_c: Scaling factor for the columns.
+        yraw: Point to be projected.
             Shape (batch_size, dimension, 1).
-        s0 (ProjectionInstance, optional): Initial value for the governing sequence.
-        sigma (float): ADMM parameter.
-        omega (float): ADMM parameter.
-        n_iter (int): Number of iterations to run.
+        s0: Initial value for the governing sequence.
+        sigma: ADMM parameter.
+        omega: ADMM parameter.
+        n_iter: Number of iterations to run.
 
     Returns:
         tuple[ProjectionInstance, ProjectionInstance]: First output is the projected
@@ -342,14 +370,14 @@ def _project_general(
 def _project_general_custom(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
     ],
-    step_final: Callable[[ProjectionInstance], jnp.ndarray],
+    step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
-    s0: Optional[ProjectionInstance] = None,
+    s0: ProjectionInstance | None = None,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
@@ -374,14 +402,14 @@ def _project_general_custom(
 def _project_general_fwd(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
     ],
-    step_final: Callable[[ProjectionInstance], jnp.ndarray],
+    step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
     d_r: jnp.ndarray,
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
-    s0: Optional[ProjectionInstance] = None,
+    s0: ProjectionInstance | None = None,
     sigma: float = 1.0,
     omega: float = 1.7,
     n_iter: int = 0,
@@ -389,10 +417,10 @@ def _project_general_fwd(
     fpi: bool = False,
 ) -> tuple[
     tuple[ProjectionInstance, ProjectionInstance],
-    tuple[ProjectionInstance, jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float],
+    tuple[ProjectionInstance, ProjectionInstance, jnp.ndarray, jnp.ndarray, float, float],
 ]:
     # unpack trailing options that belong only to custom vjp
-    y, sK = _project_general_custom(
+    y, s_k = _project_general_custom(
         initialize_fn=initialize_fn,
         step_iteration=step_iteration,
         step_final=step_final,
@@ -406,7 +434,7 @@ def _project_general_fwd(
         n_iter=n_iter,
     )
 
-    return (y, sK), (sK, yraw, d_r, d_c, sigma, omega)
+    return (y, s_k), (s_k, yraw, d_r, d_c, sigma, omega)
 
 
 def _project_general_bwd(
@@ -414,7 +442,7 @@ def _project_general_bwd(
     step_iteration: Callable[
         [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
     ],
-    step_final: Callable[[ProjectionInstance], jnp.ndarray],
+    step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
     n_iter: int,
     n_iter_bwd: int,
@@ -435,34 +463,35 @@ def _project_general_bwd(
     to a jnp.ndarray from the input.
 
     Args:
-        step_iteration (callable): Function for the iteration step.
-        step_final (callable): Function for the final step.
-        dim_lifted (int): Dimension of the lifted space.
-        n_iter (int): Number of iterations to run.
-        n_iter_bwd (int): Number of iterations for backward pass.
-        fpi (bool): Whether to use fixed-point iteration.
-        residuals (tuple): Auxiliary data from the forward pass.
-        cotangent (tuple): Incoming cotangents.
+        initialize_fn: Function to initialize the governing sequence.
+        step_iteration: Function for the iteration step.
+        step_final: Function for the final step.
+        dim_lifted: Dimension of the lifted space.
+        n_iter: Number of iterations to run.
+        n_iter_bwd: Number of iterations for backward pass.
+        fpi: Whether to use fixed-point iteration.
+        residuals: Auxiliary data from the forward pass.
+        cotangent: Incoming cotangents.
 
     Returns:
         tuple: The computed cotangent for the projection.
     """
-    sK, yraw, _, d_c, sigma, omega = residuals
+    s_k, yraw, _, d_c, sigma, omega = residuals
     cotangent_zk1, _ = cotangent
 
     _, iteration_vjp = jax.vjp(
         lambda xx: step_iteration(xx, yraw, sigma, omega),
-        sK,
+        s_k,
     )
-    _, iteration_vjp2 = jax.vjp(lambda xx: step_iteration(sK, xx, sigma, omega), yraw)
-    _, equality_vjp = jax.vjp(lambda xx: step_final(xx), sK)
+    _, iteration_vjp2 = jax.vjp(lambda xx: step_iteration(s_k, xx, sigma, omega), yraw)
+    _, equality_vjp = jax.vjp(step_final, s_k)
 
     # Rescale the gradient
     cotangent_zk1 = cotangent_zk1.x * d_c[:, : yraw.x.shape[1], :]
 
     # Compute VJP of cotangent with projection before auxiliary
     cotangent_eq_6 = equality_vjp(
-        sK.update(
+        s_k.update(
             x=jnp.concatenate(
                 [
                     cotangent_zk1,
@@ -479,21 +508,21 @@ def _project_general_bwd(
 
         def body_fn(x, _):
             vjp = iteration_vjp(x)[0].x
-            return sK.update(x=(vjp + cotangent_eq_6)), None
+            return s_k.update(x=(vjp + cotangent_eq_6)), None
 
         cotangent_eq_7, _ = jax.lax.scan(
             body_fn,
-            sK.update(x=jnp.zeros((cotangent_zk1.shape[0], dim_lifted, 1))),
+            s_k.update(x=jnp.zeros((cotangent_zk1.shape[0], dim_lifted, 1))),
             None,
             length=n_iter_bwd,
         )
     else:
         cotangent_eq_7 = jax.scipy.sparse.linalg.bicgstab(
-            A=lambda x: x - iteration_vjp(sK.update(x=x))[0].x,
-            b=cotangent_eq_6,
+            lambda x: x - iteration_vjp(s_k.update(x=x))[0].x,
+            cotangent_eq_6,
             maxiter=n_iter_bwd,
         )[0]
-        cotangent_eq_7 = sK.update(x=cotangent_eq_7)
+        cotangent_eq_7 = s_k.update(x=cotangent_eq_7)
 
     thevjp = iteration_vjp2(cotangent_eq_7)[0]
 

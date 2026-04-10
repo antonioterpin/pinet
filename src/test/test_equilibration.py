@@ -1,10 +1,12 @@
 """Test projection layer and vjp, with equilibration."""
 
 from itertools import product
+from typing import cast
 
 import cvxpy as cp
 import jax
 import pytest
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 from jax import numpy as jnp
 
 from pinet import (
@@ -32,12 +34,14 @@ def test_general_eq_ineq(seed, batch_size):
     n_eq = 50
     n_ineq = 40
     n_box = 15
+    lower_feas_bound = -2
+    upper_feas_bound = 2
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=5)
     # Generate equality constraints LHS
-    A = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    a_dyn = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
-    C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    constr_matrix = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Randomly generate mask for box constraints
     indices = jnp.concatenate([jnp.ones(n_box), jnp.zeros(dim - n_box)])
     mask = jax.random.permutation(key[2], indices).astype(bool)
@@ -48,7 +52,7 @@ def test_general_eq_ineq(seed, batch_size):
     ufeas = cp.Variable(n_ineq)
     lboxfeas = cp.Variable(n_box)
     uboxfeas = cp.Variable(n_box)
-    constraints = [
+    constraints: list[CvxpyConstraint] = [
         -1 <= lfeas,
         lfeas <= 1,
         -1 <= ufeas,
@@ -60,14 +64,14 @@ def test_general_eq_ineq(seed, batch_size):
     ]
     for ii in range(batch_size):
         constraints += [
-            A[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
+            a_dyn[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
             == bfeas[ii * n_eq : (ii + 1) * n_eq],
-            lfeas <= C[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
-            C[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
+            lfeas <= constr_matrix[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
+            constr_matrix[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
             lboxfeas <= xfeas[ii * dim : (ii + 1) * dim][mask],
             xfeas[ii * dim : (ii + 1) * dim][mask] <= uboxfeas,
-            -2 <= xfeas,
-            xfeas <= 2,
+            lower_feas_bound <= xfeas,
+            xfeas <= upper_feas_bound,
         ]
     objective = cp.Minimize(jnp.ones(shape=(dim * batch_size)) @ xfeas)
     problem = cp.Problem(objective=objective, constraints=constraints)
@@ -80,8 +84,10 @@ def test_general_eq_ineq(seed, batch_size):
     ubox = jnp.tile(jnp.array(uboxfeas.value).reshape((1, n_box, 1)), (1, 1, 1))
     # Define projection layer ingredients
     for var_b in [False, True]:
-        eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=var_b)
-        ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+        eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method, var_b=var_b)
+        ineq_constraint = AffineInequalityConstraint(
+            constr_matrix=constr_matrix, lb=lb, ub=ub
+        )
         box_constraint = BoxConstraint(
             BoxConstraintSpecification(lb=lbox, ub=ubox, mask=mask)
         )
@@ -131,17 +137,20 @@ def test_general_eq_ineq(seed, batch_size):
         yqp = jnp.zeros(shape=(batch_size, dim))
         for ii in range(batch_size):
             yproj = cp.Variable(dim)
-            constraints = [
-                A[0, :, :] @ yproj == b[ii, :, 0],
-                lb[0, :, 0] <= C[0, :, :] @ yproj,
-                C[0, :, :] @ yproj <= ub[0, :, 0],
-                lbox[0, :, 0] <= yproj[mask],
-                yproj[mask] <= ubox[0, :, 0],
-            ]
+            constraints = cast(
+                list[CvxpyConstraint],
+                [
+                    a_dyn[0, :, :] @ yproj == b[ii, :, 0],
+                    lb[0, :, 0] <= constr_matrix[0, :, :] @ yproj,
+                    constr_matrix[0, :, :] @ yproj <= ub[0, :, 0],
+                    lbox[0, :, 0] <= yproj[mask],
+                    yproj[mask] <= ubox[0, :, 0],
+                ],
+            )
             objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :]))
             problem_qp = cp.Problem(objective=objective, constraints=constraints)
             problem_qp.solve()
-            yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape((dim)))
+            yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
         # Check that the projection is computed correctly
         n_iter = 1000
@@ -171,40 +180,53 @@ def test_general_eq_ineq(seed, batch_size):
         n_iter = 1000
         vec = jnp.array(jax.random.normal(key[4], shape=(dim, batch_size)))
 
-        def loss(x, v, mode, n_iter_bwd, fpi):
+        def loss(
+            x,
+            v,
+            mode,
+            n_iter_bwd,
+            fpi,
+            *,
+            current_var_b=var_b,
+            current_pl_unroll=pl_unroll,
+            current_pl_unroll_equil=pl_unroll_equil,
+            current_pl_impl_equil=pl_impl_equil,
+            current_n_iter=n_iter,
+            current_sigma=sigma,
+            current_sigma_equil=sigma_equil,
+            current_omega=omega,
+        ):
             inp = ProjectionInstance(
                 x=x[..., None],
-                eq=EqualityConstraintsSpecification(b=b) if var_b else None,
+                eq=EqualityConstraintsSpecification(b=b) if current_var_b else None,
             )
             if mode == "unroll":
                 return (
-                    pl_unroll.call(
+                    current_pl_unroll.call(
                         yraw=inp,
-                        n_iter=n_iter,
-                        sigma=sigma,
-                        omega=omega,
-                    )[
-                        0
-                    ].x[..., 0]
+                        n_iter=current_n_iter,
+                        sigma=current_sigma,
+                        omega=current_omega,
+                    )[0].x[..., 0]
                     @ v
                 ).mean()
             elif mode == "unroll_equil":
                 return (
-                    pl_unroll_equil.call(
+                    current_pl_unroll_equil.call(
                         yraw=inp,
-                        n_iter=n_iter,
-                        sigma=sigma_equil,
-                        omega=omega,
+                        n_iter=current_n_iter,
+                        sigma=current_sigma_equil,
+                        omega=current_omega,
                     )[0].x[..., 0]
                     @ v
                 ).mean()
             elif mode == "impl_equil":
                 return (
-                    pl_impl_equil.call(
+                    current_pl_impl_equil.call(
                         yraw=inp,
-                        n_iter=n_iter,
-                        sigma=sigma_equil,
-                        omega=omega,
+                        n_iter=current_n_iter,
+                        sigma=current_sigma_equil,
+                        omega=current_omega,
                         n_iter_bwd=n_iter_bwd,
                         fpi=fpi,
                     )[0].x[..., 0]
@@ -227,7 +249,8 @@ def test_general_eq_ineq(seed, batch_size):
 
 @pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
 def test_row_scaling_balances_rows(update_mode):
-    A = jnp.array(
+    max_balanced_row_ratio = 1.16
+    a_dyn = jnp.array(
         [
             [100.0, 0.0, 0.0],
             [0.1, 1.0, 0.0],
@@ -244,25 +267,25 @@ def test_row_scaling_balances_rows(update_mode):
         safeguard=False,
     )
 
-    def _row_ratio(A, ord_val=2.0):
-        rn = jnp.linalg.norm(A, axis=1, ord=ord_val)
+    def _row_ratio(matrix, ord_val=2.0):
+        rn = jnp.linalg.norm(matrix, axis=1, ord=ord_val)
         return (rn.max() / rn.min()).item()
 
-    ratio_before = _row_ratio(A, 2.0)
-    scaled, d_r, d_c = ruiz_equilibration(A, params)
+    ratio_before = _row_ratio(a_dyn, 2.0)
+    scaled, d_r, d_c = ruiz_equilibration(a_dyn, params)
     ratio_after = _row_ratio(scaled, 2.0)
 
     assert ratio_after < ratio_before
-    assert ratio_after < 1.16
-    # scaled = diag(d_r) A diag(d_c)
-    recon = (A * d_r[:, None]) * d_c[None, :]
+    assert ratio_after < max_balanced_row_ratio
+    # scaled = diag(d_r) a_dyn diag(d_c)
+    recon = (a_dyn * d_r[:, None]) * d_c[None, :]
     assert jnp.allclose(scaled, recon, atol=1e-12)
 
 
 @pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
 @pytest.mark.parametrize("col_scaling", [False, True])
 def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
-    A = jnp.array([[1.0, 2.0, -1.0], [0.0, -4.0, 5.0]])
+    a_dyn = jnp.array([[1.0, 2.0, -1.0], [0.0, -4.0, 5.0]])
     # Force exactly one step in two different ways
     p_one = EquilibrationParams(
         max_iter=1,
@@ -280,8 +303,8 @@ def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
         update_mode=update_mode,
         safeguard=False,
     )
-    s1, dr1, dc1 = ruiz_equilibration(A, p_one)
-    s2, dr2, dc2 = ruiz_equilibration(A, p_tol)
+    s1, dr1, dc1 = ruiz_equilibration(a_dyn, p_one)
+    s2, dr2, dc2 = ruiz_equilibration(a_dyn, p_tol)
 
     assert jnp.allclose(s1, s2, atol=1e-12, rtol=0.0)
     assert jnp.allclose(dr1, dr2, atol=1e-12, rtol=0.0)
@@ -290,7 +313,7 @@ def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
 
 def test_safeguard_when_condition_worsens_triggers_identity_scalings():
     # This matrix yields a worse condition number after one step
-    A = jnp.array(
+    a_dyn = jnp.array(
         [
             [-1.47236611, -0.33950648, -0.81108737],
             [0.93786103, 0.49052747, 1.40301434],
@@ -313,18 +336,18 @@ def test_safeguard_when_condition_worsens_triggers_identity_scalings():
         safeguard=True,
     )
 
-    cond_before = jnp.linalg.cond(A).item()
-    s_no, dr_no, dc_no = ruiz_equilibration(A, p1)
+    cond_before = jnp.linalg.cond(a_dyn).item()
+    s_no, _dr_no, _dc_no = ruiz_equilibration(a_dyn, p1)
     cond_after_no = jnp.linalg.cond(s_no).item()
 
     # Sanity: this is the branch where safeguard should matter
     assert cond_after_no > cond_before
 
-    s_yes, dr_yes, dc_yes = ruiz_equilibration(A, p2)
+    s_yes, dr_yes, dc_yes = ruiz_equilibration(a_dyn, p2)
     cond_after_yes = jnp.linalg.cond(s_yes).item()
 
     # Guard must not return something worse than original
     assert cond_after_yes <= cond_before + 1e-12
     # Guarded scalings should be identity
-    assert jnp.allclose(dr_yes, jnp.ones(A.shape[0]))
-    assert jnp.allclose(dc_yes, jnp.ones(A.shape[1]))
+    assert jnp.allclose(dr_yes, jnp.ones(a_dyn.shape[0]))
+    assert jnp.allclose(dc_yes, jnp.ones(a_dyn.shape[1]))

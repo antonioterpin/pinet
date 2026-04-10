@@ -11,7 +11,11 @@ from pinet import BoxConstraint, BoxConstraintSpecification, Project, Projection
 
 
 class HardConstrainedMLP(nn.Module):
-    """Simple MLP with hard constraints on the output."""
+    """Simple MLP with hard constraints on the output.
+
+    Attributes:
+        box_constraint (BoxConstraint): The box constraint applied to the output.
+    """
 
     box_constraint: BoxConstraint
 
@@ -32,34 +36,37 @@ class HardConstrainedMLP(nn.Module):
     [0],
 )  # Add more seeds as needed
 def test_clipped_sine(seed: int):
-    """Test if the HardConstrainedMLP fits max(min(sin(x), 1-EPS), EPS).
+    """Test if the HardConstrainedMLP fits max(min(sin(x), 1-eps), eps).
 
     The training objective is to fit the sine function with a MLP, but the
     hard constraint is that the predictions must be clipped to the range
-    [EPS, 1 - EPS]. This test checks if the projection layer effectively
+    [eps, 1 - eps]. This test checks if the projection layer effectively
     clips the predictions to the desired range.
+
+    Args:
+        seed: Random seed for reproducibility.
     """
     # Test params
-    EPS = 0.1
-    N_SAMPLES = 1000
-    LEARNING_RATE = 1e-5
-    N_EPOCHS = 10000
+    eps = 0.1
+    n_samples = 1000
+    learning_rate = 1e-5
+    n_epochs = 10000
 
     # Generate dataset
-    x = jnp.linspace(-jnp.pi, jnp.pi, N_SAMPLES).reshape(-1, 1)
+    x = jnp.linspace(-jnp.pi, jnp.pi, n_samples).reshape(-1, 1)
     y = jnp.sin(x)
 
     # Define and initialize the hard constrained MLP
     model = HardConstrainedMLP(
         box_constraint=BoxConstraint(
             BoxConstraintSpecification(
-                lb=jnp.array([EPS]).reshape((1, 1, 1)),
-                ub=jnp.array([1 - EPS]).reshape((1, 1, 1)),
+                lb=jnp.array([eps]).reshape((1, 1, 1)),
+                ub=jnp.array([1 - eps]).reshape((1, 1, 1)),
             )
         )
     )
     params = model.init(jax.random.PRNGKey(seed), jnp.ones([1, 1]), 0)
-    tx = optax.adam(LEARNING_RATE)
+    tx = optax.adam(learning_rate)
     state = train_state.TrainState.create(
         apply_fn=model.apply, params=params["params"], tx=tx
     )
@@ -74,17 +81,18 @@ def test_clipped_sine(seed: int):
         grads = jax.grad(loss_fn)(state.params)
         return state.apply_gradients(grads=grads)
 
-    for step in range(N_EPOCHS):
+    for step in range(n_epochs):
         state = train_step(state, x, y, step)
 
     # Get predictions
     predictions = model.apply({"params": state.params}, x, 100000)
 
     # Clip y to meet the constraints
-    clipped_y = jnp.clip(y, EPS, 1 - EPS)
+    clipped_y = jnp.clip(y, eps, 1 - eps)
 
     # Check if predictions meet the condition
+    max_mean_error = 1e-1
     error = jnp.abs(predictions - clipped_y).mean()
-    assert (
-        error < 1e-1
-    ), f"Predictions do not meet the clipping condition. Mean error: {error}"
+    assert error < max_mean_error, (
+        f"Predictions do not meet the clipping condition. Mean error: {error}"
+    )

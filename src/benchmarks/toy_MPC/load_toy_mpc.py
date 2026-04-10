@@ -1,13 +1,14 @@
 """Loading functionality for toy MPC benchmark."""
 
 import os
-from typing import Callable, Optional
+from collections.abc import Callable
+from typing import cast
 
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from benchmarks.QP.load_QP import JaxDataLoader
+from benchmarks.QP.load_qp import JaxDataLoader
 
 
 # Load Instance Dataset
@@ -18,8 +19,8 @@ class ToyMPCDataset(Dataset):
         """Initialize dataset.
 
         Args:
-            data (dict): Dictionary containing the dataset.
-            const (dict): Dictionary containing constant problem ingredients.
+            data: Dictionary containing the dataset.
+            const: Dictionary containing constant problem ingredients.
         """
         # Parameter values for each instance
         self.x0sets = data["x0sets"]
@@ -37,7 +38,7 @@ class ToyMPCDataset(Dataset):
         )
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.Ystar = data["Ystar"]
+        self.ystar = data["Ystar"]
 
     def __len__(self) -> int:
         """Length of dataset.
@@ -51,7 +52,7 @@ class ToyMPCDataset(Dataset):
         """Get item from dataset.
 
         Args:
-            idx (int): Index of the item to retrieve.
+            idx: Index of the item to retrieve.
 
         Returns:
             tuple[jnp.ndarray, jnp.ndarray]:
@@ -70,10 +71,11 @@ def create_dataloaders(
     """Dataset loaders for training, validation and test.
 
     Args:
-        dataset (ToyMPCDataset): The dataset to create loaders for.
-        batch_size (int): Size of each batch.
-        val_split (float): Proportion of the dataset to use for validation.
-        test_split (float): Proportion of the dataset to use for testing.
+        dataset: The dataset to create loaders for.
+        batch_size: Size of each batch.
+        val_split: Proportion of the dataset to use for validation.
+        test_split: Proportion of the dataset to use for testing.
+        shuffle: Whether to shuffle the training dataloader.
 
     Returns:
         tuple[DataLoader, DataLoader, DataLoader]:
@@ -90,7 +92,7 @@ def create_dataloaders(
     )
 
     def collate_fn(batch):
-        x0sets, obj = zip(*batch)
+        x0sets, obj = zip(*batch, strict=False)
         return jnp.array(x0sets), jnp.array(obj)
 
     train_loader = DataLoader(
@@ -114,15 +116,15 @@ class JaxDataLoaderMPC(JaxDataLoader):
         dataset: ToyMPCDataset,
         batch_size: int,
         shuffle: bool = True,
-        rng_key: Optional[jax.Array] = None,
+        rng_key: jax.Array | None = None,
     ) -> None:
         """Initialize loader.
 
         Args:
-            dataset (ToyMPCDataset): The dataset to load.
-            batch_size (int): Size of each batch.
-            shuffle (bool): Whether to shuffle the dataset.
-            rng_key (Optional[jax.Array]): Random key for shuffling.
+            dataset: The dataset to load.
+            batch_size: Size of each batch.
+            shuffle: Whether to shuffle the dataset.
+            rng_key: Random key for shuffling.
         """
         self.dataset = dataset
         self.batch_size = batch_size
@@ -145,24 +147,25 @@ def load_data(
     jnp.ndarray,
     jnp.ndarray,
     jnp.ndarray,
-    float,
+    jnp.ndarray,
     float,
     int,
+    int,
     jnp.ndarray,
-    ToyMPCDataset | JaxDataLoaderMPC,
-    ToyMPCDataset | JaxDataLoaderMPC,
-    ToyMPCDataset | JaxDataLoaderMPC,
+    DataLoader | JaxDataLoaderMPC,
+    DataLoader | JaxDataLoaderMPC,
+    DataLoader | JaxDataLoaderMPC,
     Callable[[jnp.ndarray], jnp.ndarray],
 ]:
     """Load problem data.
 
     Args:
-        filepath (str): Path to the dataset file.
-        rng_key (jax.Array): Random key for shuffling.
-        batch_size (int): Size of each batch.
-        val_split (float): Proportion of the dataset to use for validation.
-        test_split (float): Proportion of the dataset to use for testing.
-        use_jax_loader (bool): Whether to use JAX DataLoader or PyTorch DataLoader.
+        filepath: Path to the dataset file.
+        rng_key: Random key for shuffling.
+        batch_size: Size of each batch.
+        val_split: Proportion of the dataset to use for validation.
+        test_split: Proportion of the dataset to use for testing.
+        use_jax_loader: Whether to use JAX DataLoader or PyTorch DataLoader.
 
     Returns:
         tuple: A tuple containing:
@@ -182,11 +185,11 @@ def load_data(
             - batched_objective: Function to compute the quadratic objective in batches.
     """
     dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filepath)
-    all_data = jnp.load(dataset_path)
-    ToyDataset = ToyMPCDataset(all_data, all_data)
+    all_data = cast(dict[str, jnp.ndarray], jnp.load(dataset_path))
+    toy_dataset = ToyMPCDataset(all_data, all_data)
     if not use_jax_loader:
         train_loader, valid_loader, test_loader = create_dataloaders(
-            dataset=ToyDataset,
+            dataset=toy_dataset,
             batch_size=batch_size,
             val_split=val_split,
             test_split=test_split,
@@ -242,29 +245,36 @@ def load_data(
             rng_key=loader_keys[2],
         )
 
-    As, lbxs, ubxs, lbus, ubus, xhat, alpha, T, base_dim = ToyDataset.const
-    X = ToyDataset.x0sets
+    a_dyns, lbxs, ubxs, lbus, ubus, xhat, alpha, horizon, base_dim = toy_dataset.const
+    x_data = toy_dataset.x0sets
     dimx = lbxs.shape[1]
 
-    def quadratic_form(prediction):
-        """Evaluate the quadratic objective."""
+    def quadratic_form(prediction: jnp.ndarray) -> jnp.ndarray:
+        """Evaluate the quadratic objective.
+
+        Args:
+            prediction: Predicted trajectory and controls for one instance.
+
+        Returns:
+            jnp.ndarray: Scalar quadratic objective value.
+        """
         return jnp.sum(
-            (prediction[:dimx] - jnp.tile(xhat[:, 0], T + 1)) ** 2
+            (prediction[:dimx] - jnp.tile(xhat[:, 0], horizon + 1)) ** 2
         ) + alpha * jnp.sum(prediction[dimx:] ** 2)
 
     batched_objective = jax.vmap(quadratic_form, in_axes=[0])
 
     return (
-        As,
+        a_dyns,
         lbxs,
         ubxs,
         lbus,
         ubus,
         xhat,
         alpha,
-        T,
+        horizon,
         base_dim,
-        X,
+        x_data,
         train_loader,
         valid_loader,
         test_loader,

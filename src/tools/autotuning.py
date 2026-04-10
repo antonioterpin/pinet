@@ -9,16 +9,25 @@ jupytext --set-formats ipynb,py:percent --sync src/hcnn/autotuning.py
 
 # %%
 import os
+from collections.abc import Callable
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from benchmarks.QP.load_QP import SimpleQPDataset, create_dataloaders, dc3_dataloader
+from benchmarks.QP.load_qp import (
+    DC3Dataset,
+    SimpleQPDataset,
+    create_dataloaders,
+    dc3_dataloader,
+)
 from pinet import (
     AffineInequalityConstraint,
     EqualityConstraint,
     EqualityConstraintsSpecification,
+    EquilibrationParams,
     Project,
     ProjectionInstance,
 )
@@ -34,16 +43,44 @@ dataset_dir = "absolute/path/to/datasets"
 
 
 def load_data(
-    use_DC3_dataset,
-    use_convex,
-    problem_seed,
-    problem_var,
-    problem_nineq,
-    problem_neq,
-    problem_examples,
-):
-    """Load problem data."""
-    if not use_DC3_dataset:
+    use_dc3_dataset: bool,
+    use_convex: bool,
+    problem_seed: int,
+    problem_var: int,
+    problem_nineq: int,
+    problem_neq: int,
+    problem_examples: int,
+) -> tuple[
+    str,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    Any,
+    Any,
+    Any,
+]:
+    """Load problem data and dataloaders.
+
+    Args:
+        use_dc3_dataset: Whether to load the DC3 dataset layout.
+        use_convex: Whether to load a convex problem instance.
+        problem_seed: Random seed used in the simple QP dataset name.
+        problem_var: Number of optimization variables.
+        problem_nineq: Number of inequality constraints.
+        problem_neq: Number of equality constraints.
+        problem_examples: Number of examples in the dataset.
+
+    Returns:
+        tuple: Filename, problem tensors, dataset inputs, and train/validation/test
+            dataloaders.
+
+    Raises:
+        NotImplementedError: If a non-convex simple QP dataset is requested.
+    """
+    if not use_dc3_dataset:
         # Choose problem parameters
         if use_convex:
             filename = (
@@ -54,13 +91,13 @@ def load_data(
             raise NotImplementedError()
         dataset_path = os.path.join(dataset_dir, filename)
 
-        QPDataset = SimpleQPDataset(dataset_path)
+        qp_dataset = SimpleQPDataset(dataset_path)
         train_loader, valid_loader, test_loader = create_dataloaders(
             dataset_path, batch_size=2048, val_split=0.1, test_split=0.1
         )
-        Q, p, A, G, h = QPDataset.const
+        q, p, a_dyn, constr_matrix, h = qp_dataset.const
         p = p[0, :, :]
-        X = QPDataset.X
+        x_dataset = qp_dataset.x_data
     else:
         # Choose the filename here
         if use_convex:
@@ -86,17 +123,40 @@ def load_data(
         test_loader = dc3_dataloader(
             dataset_path_test, use_convex, batch_size=1024, shuffle=False
         )
-        Q, p, A, G, h = train_loader.dataset.const
+        dataset = cast(DC3Dataset, cast(DataLoader, train_loader).dataset)
+        q, p, a_dyn, constr_matrix, h = dataset.const
         p = p[0, :, :]
-        X = train_loader.dataset.X
+        x_dataset = dataset.x_data
 
-    return (filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader)
+    return (
+        filename,
+        q,
+        p,
+        a_dyn,
+        constr_matrix,
+        h,
+        x_dataset,
+        train_loader,
+        valid_loader,
+        test_loader,
+    )
 
 
 # %%
 # Load a batch of data for autotuning
-filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader = load_data(
-    use_DC3_dataset=True,
+(
+    filename,
+    q,
+    p,
+    a_dyn,
+    constr_matrix,
+    h,
+    x_dataset,
+    train_loader,
+    valid_loader,
+    test_loader,
+) = load_data(
+    use_dc3_dataset=True,
     use_convex=True,
     problem_seed=42,
     problem_var=1000,
@@ -105,20 +165,39 @@ filename, Q, p, A, G, h, X, train_loader, valid_loader, test_loader = load_data(
     problem_examples=10000,
 )
 n_samples = 150
-X_batch, _ = next(iter(valid_loader))
-X_batch = X_batch[:n_samples]
+x_batch, _ = next(iter(valid_loader))
+x_batch = x_batch[:n_samples]
 
 
 # %%
 
 
-def build_evaluate_params(x, b, n_iter, project, compute_cv):
-    """Return function that evaluates hyperparameters."""
+def build_evaluate_params(
+    x: jnp.ndarray,
+    b: jnp.ndarray,
+    n_iter: int,
+    project: Callable[..., tuple[ProjectionInstance, jnp.ndarray]],
+    compute_cv: Callable[[ProjectionInstance], jnp.ndarray],
+) -> Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]]:
+    """Build an evaluator for autotuning hyperparameters.
+
+    Args:
+        x: Batch of points to project.
+        b: Batch of equality-constraint right-hand sides.
+        n_iter: Number of projection iterations to apply per evaluation.
+        project: Projection function returning the projected instance and next state.
+        compute_cv: Function computing constraint violation for a projection result.
+
+    Returns:
+        Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray,
+        jnp.ndarray]]: Function mapping ``(init, sigma)`` to the next warm start,
+        maximum constraint violation, and mean projection distance.
+    """
 
     def evaluate_params(init, sigma):
         y, init = project(init=init, x=x, b=b, sigma=sigma, n_iter=n_iter)
         cvs = compute_cv(y)
-        values = jnp.linalg.norm(y.x - x.x)
+        values = jnp.linalg.norm(y.x - x)
         return init, jnp.max(cvs), jnp.mean(values)
 
     return evaluate_params
@@ -126,28 +205,50 @@ def build_evaluate_params(x, b, n_iter, project, compute_cv):
 
 # %%
 # Setup the projection layer
-eq_constraint = EqualityConstraint(A=A, b=X_batch, method=None, var_b=True)
-ineq_constraint = AffineInequalityConstraint(C=G, ub=h, lb=-jnp.inf * jnp.ones_like(h))
+eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=x_batch, method=None, var_b=True)
+ineq_constraint = AffineInequalityConstraint(
+    constr_matrix=constr_matrix,
+    ub=h,
+    lb=-jnp.inf * jnp.ones_like(h),
+)
 projection_layer = Project(
     ineq_constraint=ineq_constraint,
     eq_constraint=eq_constraint,
     unroll=False,
-    equilibrate={
-        "max_iter": 25,
-        "tol": 1.0e-3,
-        "ord": 2.0,
-        "col_scaling": False,
-        "update_mode": "Gauss",
-        "safeguard": False,
-    },
+    equilibration_params=EquilibrationParams(
+        max_iter=25,
+        tol=1.0e-3,
+        ord=2.0,
+        col_scaling=False,
+        update_mode="Gauss",
+        safeguard=False,
+    ),
 )
 
 # %%
 omega = 1.7
 
 
-def project(init, x, b, sigma, n_iter):
-    """Projection layer wrapper."""
+def project(
+    init: jnp.ndarray,
+    x: jnp.ndarray,
+    b: jnp.ndarray,
+    sigma: jnp.ndarray | float,
+    n_iter: int,
+) -> tuple[ProjectionInstance, jnp.ndarray]:
+    """Wrap the projection layer call.
+
+    Args:
+        init: Initial solver state.
+        x: Batch of points to project.
+        b: Batch of equality-constraint right-hand sides.
+        sigma: Penalty parameter used by the projection layer.
+        n_iter: Number of iterations to run.
+
+    Returns:
+        tuple[ProjectionInstance, jnp.ndarray]: Projected instance and updated solver
+            state.
+    """
     yraw = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
     return projection_layer.call(
         s0=init,
@@ -158,15 +259,22 @@ def project(init, x, b, sigma, n_iter):
     )
 
 
-def compute_cv(y):
-    """Compute constraint violation."""
+def compute_cv(y: ProjectionInstance) -> jnp.ndarray:
+    """Compute constraint violation.
+
+    Args:
+        y: Projected instance to evaluate.
+
+    Returns:
+        jnp.ndarray: Flattened constraint-violation values.
+    """
     return projection_layer.cv(y).reshape(
         -1,
     )
 
 
-x = 1 * jax.random.normal(
-    jax.random.PRNGKey(0), (X_batch.shape[0], projection_layer.dim)
+x = jax.random.normal(
+    jax.random.PRNGKey(0), (x_batch.shape[0], projection_layer.dim, 1)
 )  # batch of random points to project
 
 # %%
@@ -193,19 +301,35 @@ elif tie_breaker == "rs":
 
 sigma_candidates = jnp.logspace(-3, jnp.log10(5.05), num=100)
 
-init_shape = (X_batch.shape[0], projection_layer.dim_lifted, 1)
+init_shape = (x_batch.shape[0], projection_layer.dim_lifted, 1)
 
 # Evaluate the first stage
 fixed_eval_fn = jax.jit(
-    build_evaluate_params(x, X_batch, fixed_n_iter_step, project, compute_cv)
+    build_evaluate_params(x, x_batch, fixed_n_iter_step, project, compute_cv)
 )
 # Evaluate the second stage
-eval_fn = jax.jit(build_evaluate_params(x, X_batch, n_iter_step, project, compute_cv))
+eval_fn = jax.jit(build_evaluate_params(x, x_batch, n_iter_step, project, compute_cv))
 
 
 # %%
-def generate_results(sigma_candidates, n_iter_candidates, eval_fn):
-    """Generate results for the given sigma candidates and n_iter candidates."""
+def generate_results(
+    sigma_candidates: jnp.ndarray,
+    n_iter_candidates: int,
+    eval_fn: Callable[
+        [jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
+    ],
+) -> jnp.ndarray:
+    """Evaluate candidate hyperparameters on the validation batch.
+
+    Args:
+        sigma_candidates: Candidate sigma values to test.
+        n_iter_candidates: Number of iteration-count candidates to evaluate.
+        eval_fn: Evaluation function returned by ``build_evaluate_params``.
+
+    Returns:
+        jnp.ndarray: Array of shape ``(n_sigma, n_iter_candidates, 2)`` containing
+            the maximum constraint violation and mean projection distance.
+    """
     # Initialize results array
     results = jnp.inf * jnp.ones((len(sigma_candidates), n_iter_candidates, 2))
 
@@ -229,8 +353,29 @@ def generate_results(sigma_candidates, n_iter_candidates, eval_fn):
 
 
 # %%
-def get_best(results, sigma_candidates, n_iter_step, target_cv, target_rs):
-    """Returns the best combination of hyperparameters."""
+def get_best(
+    results: jnp.ndarray,
+    sigma_candidates: jnp.ndarray,
+    n_iter_step: int,
+    target_cv: float,
+    target_rs: float,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Select the best hyperparameter combination satisfying target metrics.
+
+    Args:
+        results: Evaluation results containing constraint violation and objective gap.
+        sigma_candidates: Candidate sigma values corresponding to ``results`` rows.
+        n_iter_step: Iteration increment represented by one column in ``results``.
+        target_cv: Maximum acceptable constraint violation.
+        target_rs: Maximum acceptable relative suboptimality.
+
+    Returns:
+        tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]: Best sigma, best iteration
+            count, and the corresponding ``[cv, value]`` result pair.
+
+    Raises:
+        ValueError: If no candidate pair satisfies the target conditions.
+    """
     # Use the best result as proxy for the optimal value
     opt = jnp.min(results[:, :, 1])
     # Compute the relative suboptimality
@@ -271,9 +416,7 @@ def get_best(results, sigma_candidates, n_iter_step, target_cv, target_rs):
 
 
 # %%
-results_sigma = generate_results(
-    sigma_candidates, fixed_n_iter_candidates, fixed_eval_fn
-)
+results_sigma = generate_results(sigma_candidates, fixed_n_iter_candidates, fixed_eval_fn)
 
 # %%
 print("=========== Results for fixed n_iter ===========")

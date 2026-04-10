@@ -4,7 +4,8 @@ import argparse
 import datetime
 import pathlib
 import time
-from typing import Callable
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -16,7 +17,7 @@ from flax.training import train_state
 from tqdm import tqdm
 
 from benchmarks.model import setup_model
-from benchmarks.QP.load_QP import load_data
+from benchmarks.QP.load_qp import load_data
 from benchmarks.QP.plotting import plot_inference_boxes, plot_rs_vs_cv
 from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
@@ -43,18 +44,18 @@ class LoggingDict:
         objective: jnp.ndarray,
         eqcv: jnp.ndarray,
         ineqcv: jnp.ndarray,
-        train_time: jnp.ndarray,
-        inf_time: jnp.ndarray,
+        train_time: float,
+        inf_time: float,
     ) -> None:
         """Update the logging dictionary.
 
         Args:
-            optimal_objective (jnp.ndarray): Optimal objective values.
-            objective (jnp.ndarray): Objective values.
-            eqcv (jnp.ndarray): Equality constraint violations.
-            ineqcv (jnp.ndarray): Inequality constraint violations.
-            train_time (jnp.ndarray): Training time for the epoch.
-            inf_time (jnp.ndarray): Inference time for the epoch.
+            optimal_objective: Optimal objective values.
+            objective: Objective values.
+            eqcv: Equality constraint violations.
+            ineqcv: Inequality constraint violations.
+            train_time: Training time for the epoch.
+            inf_time: Inference time for the epoch.
         """
         self.dict["optimal_objective"].append(optimal_objective)
         self.dict["objective"].append(objective)
@@ -67,25 +68,28 @@ class LoggingDict:
         """Return the logging dictionary label as a jnp array.
 
         Args:
-            label (str): The label to retrieve from the dictionary.
+            label: The label to retrieve from the dictionary.
+
+        Returns:
+            The logged values for ``label`` as a JAX array.
         """
         return jnp.array(self.dict[label])
 
 
 # Evaluation function to clean up code
 def evaluate_hcnn(
-    loader,
+    loader: Any,
     state: train_state.TrainState,
     batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
-    A: jnp.ndarray,
-    G: jnp.ndarray,
+    a_dyn: jnp.ndarray,
+    g_mat: jnp.ndarray,
     h: jnp.ndarray,
     prefix: str,
     time_evals: int = 10,
     tol_cv: float = 1e-3,
     print_res: bool = True,
     single_instance: bool = False,
-    instances: list = None,
+    instances: Sequence[int] | None = None,
     proj_method: str = "pinet",
 ) -> tuple[
     jnp.ndarray,  # Objective values
@@ -98,23 +102,27 @@ def evaluate_hcnn(
 
     Args:
         loader: Data loader for the problem instances.
-        state (train_state.TrainState): The trained model state.
-        batched_objective (Callable): Function to compute the objective.
-        A (jnp.ndarray): Coefficient matrix for equality constraints.
-        G (jnp.ndarray): Coefficient matrix for inequality constraints.
-        h (jnp.ndarray): Right-hand side vector for inequality constraints.
-        prefix (str): Prefix for logging.
-        time_evals (int): Number of evaluations for inference time.
-        tol_cv (float): Tolerance for constraint violation.
-        print_res (bool): Whether to print the results.
-        single_instance (bool): Whether to evaluate a single instance.
-        instances (list): List of instances to evaluate if single_instance is True.
-        proj_method (str): Projection method used in the model.
+        state: The trained model state.
+        batched_objective: Function to compute the objective.
+        a_dyn: Coefficient matrix for equality constraints.
+        g_mat: Coefficient matrix for inequality constraints.
+        h: Right-hand side vector for inequality constraints.
+        prefix: Prefix for logging.
+        time_evals: Number of evaluations for inference time.
+        tol_cv: Tolerance for constraint violation.
+        print_res: Whether to print the results.
+        single_instance: Whether to evaluate a single instance.
+        instances: List of instances to evaluate if ``single_instance`` is ``True``.
+        proj_method: Projection method used in the model.
 
     Returns:
-        tuple: A tuple containing the objective values, HCNN objective values,
-               equality constraint violations, inequality constraint violations,
-               and evaluation times.
+        A tuple containing the optimal objective values, HCNN objective values,
+        equality constraint violations, inequality constraint violations, and
+        evaluation times.
+
+    Raises:
+        ValueError: If ``single_instance`` is ``True`` and ``instances`` is not
+            provided.
     """
 
     def predict(xx):
@@ -126,26 +134,26 @@ def evaluate_hcnn(
         )
 
     # This assumes the loader handles all the data in one batch.
-    for X, obj in loader:
-        predictions = predict(X)
-    opt_obj = obj.mean()
+    for x_data, objective_reference in loader:
+        predictions = predict(x_data)
+        opt_obj = objective_reference.mean()
     # HCNN objective
     hcnn_obj = batched_objective(predictions)
-    rs = jnp.mean((hcnn_obj - obj) / jnp.abs(obj))
+    rs = jnp.mean((hcnn_obj - objective_reference) / jnp.abs(objective_reference))
     # Equality constraint violation
     eq_cv = jnp.max(
         jnp.abs(
-            A[0].reshape(1, A.shape[1], A.shape[2])
-            @ predictions.reshape(X.shape[0], A.shape[2], 1)
-            - X
+            a_dyn[0].reshape(1, a_dyn.shape[1], a_dyn.shape[2])
+            @ predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1)
+            - x_data
         ),
         axis=1,
     )
     # Average and max inequality constraint violation
     ineq_cv = jnp.max(
         jnp.maximum(
-            G[0].reshape(1, G.shape[1], G.shape[2])
-            @ predictions.reshape(X.shape[0], G.shape[2], 1)
+            g_mat[0].reshape(1, g_mat.shape[1], g_mat.shape[2])
+            @ predictions.reshape(x_data.shape[0], g_mat.shape[2], 1)
             - h,
             0,
         ),
@@ -163,18 +171,18 @@ def evaluate_hcnn(
             eval_times = []
             for ii in instances:
                 for rep in range(time_evals + 1):
-                    Xtime = X[ii : ii + 1, :, :]
+                    x_time = x_data[ii : ii + 1, :, :]
                     start = time.time()
-                    predict(Xtime).block_until_ready()
+                    predict(x_time).block_until_ready()
                     # Drop first time cause it includes setups
                     if rep > 0:
                         eval_times.append(time.time() - start)
         else:
-            Xtime = X
+            x_time = x_data
             eval_times = []
             for rep in range(time_evals + 1):
                 start = time.time()
-                predict(Xtime).block_until_ready()
+                predict(x_time).block_until_ready()
                 # Drop first time cause it includes setups
                 if rep > 0:
                     eval_times.append(time.time() - start)
@@ -182,8 +190,8 @@ def evaluate_hcnn(
         eval_times = jnp.array(eval_times)
         eval_time = jnp.mean(eval_times)
     else:
-        eval_time = -1
-        eval_times = []
+        eval_time = -1.0
+        eval_times = jnp.array([])
     if print_res:
         hcnn_obj_mean = hcnn_obj.mean()
         eq_cv_mean = eq_cv.mean()
@@ -209,54 +217,54 @@ def evaluate_hcnn(
         print("Time for evaluation [s]       : ", f"{eval_time:.5f}")
         print("Optimal mean objective        : ", f"{opt_obj:.5f}")
 
-    return (obj, hcnn_obj, eq_cv, ineq_cv, eval_times)
+    return (objective_reference, hcnn_obj, eq_cv, ineq_cv, eval_times)
 
 
 # Evaluate individual instance
 def evaluate_instance(
     problem_idx: int,
-    loader,
+    loader: Any,
     state: train_state.TrainState,
-    use_DC3_dataset: bool,
+    use_dc3_dataset: bool,
     batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
-    A: jnp.ndarray,
-    G: jnp.ndarray,
+    a_dyn: jnp.ndarray,
+    g_mat: jnp.ndarray,
     h: jnp.ndarray,
     prefix: str,
-    proj_method="pinet",
+    proj_method: str = "pinet",
 ) -> None:
     """Evaluate performance on single problem instance.
 
     Args:
-        problem_idx (int): Index of the problem instance to evaluate.
+        problem_idx: Index of the problem instance to evaluate.
         loader: Data loader for the problem instances.
-        state (train_state.TrainState): The trained model state.
-        use_DC3_dataset (bool): Whether to use the DC3 dataset.
-        batched_objective (Callable): Function to compute the objective.
-        A (jnp.ndarray): Coefficient matrix for equality constraints.
-        G (jnp.ndarray): Coefficient matrix for inequality constraints.
-        h (jnp.ndarray): Right-hand side vector for inequality constraints.
-        prefix (str): Prefix for logging.
-        proj_method (str): Projection method used in the model.
+        state: The trained model state.
+        use_dc3_dataset: Whether to use the DC3 dataset.
+        batched_objective: Function to compute the objective.
+        a_dyn: Coefficient matrix for equality constraints.
+        g_mat: Coefficient matrix for inequality constraints.
+        h: Right-hand side vector for inequality constraints.
+        prefix: Prefix for logging.
+        proj_method: Projection method used in the model.
     """
     # Evaluate HCNN solution
     # This assumes the loader handles all the data in one batch.
-    for X, obj in loader:
-        pass
+    for x_data, _obj in loader:
+        problem_batch = x_data
 
     predictions = state.apply_fn(
         {"params": state.params},
-        x=X[problem_idx, :, 0].reshape((1, X.shape[1])),
-        b=X[problem_idx].reshape((1, X.shape[1], 1)),
+        x=problem_batch[problem_idx, :, 0].reshape((1, problem_batch.shape[1])),
+        b=problem_batch[problem_idx].reshape((1, problem_batch.shape[1], 1)),
         test=True,
     )
 
     objective_val_hcnn = batched_objective(predictions).item()
     eqcv_val_hcnn = jnp.abs(
-        A[0] @ predictions.reshape(A.shape[2]) - X[problem_idx, :, 0]
+        a_dyn[0] @ predictions.reshape(a_dyn.shape[2]) - problem_batch[problem_idx, :, 0]
     ).max()
     ineqcv_val_hcnn = jnp.maximum(
-        G[0] @ predictions.reshape(G.shape[2]) - h[0, :, 0], 0
+        g_mat[0] @ predictions.reshape(g_mat.shape[2]) - h[0, :, 0], 0
     ).max()
     print(f"=========== {prefix} individual performance ===========")
     print("HCNN")
@@ -265,16 +273,16 @@ def evaluate_instance(
     print(f"Ineq. cv:   \t{ineqcv_val_hcnn:.5e}")
 
     # Evaluate optimal solution
-    if not use_DC3_dataset:
+    if not use_dc3_dataset:
         objective_val = loader.dataset.dataset.objectives[
             loader.dataset.indices[problem_idx]
         ]
         eqcv_val = jnp.abs(
-            A[0] @ loader.dataset.dataset.Ystar[loader.dataset.indices[problem_idx]]
-            - loader.dataset.dataset.X[loader.dataset.indices[problem_idx], :, :]
+            a_dyn[0] @ loader.dataset.dataset.ystar[loader.dataset.indices[problem_idx]]
+            - loader.dataset.dataset.x_data[loader.dataset.indices[problem_idx], :, :]
         ).max()
         ineqcv_val = jnp.maximum(
-            G[0] @ loader.dataset.dataset.Ystar[loader.dataset.indices[problem_idx]]
+            g_mat[0] @ loader.dataset.dataset.ystar[loader.dataset.indices[problem_idx]]
             - h[0, :, :],
             0,
         ).max()
@@ -282,11 +290,11 @@ def evaluate_instance(
     else:
         objective_val = loader.dataset.objectives[problem_idx].item()
         eqcv_val = jnp.abs(
-            A[0] @ loader.dataset.Ystar[problem_idx]
-            - loader.dataset.X[problem_idx, :, :]
+            a_dyn[0] @ loader.dataset.ystar[problem_idx]
+            - loader.dataset.x_data[problem_idx, :, :]
         ).max()
         ineqcv_val = jnp.maximum(
-            G[0] @ loader.dataset.Ystar[problem_idx] - h[0, :, :], 0
+            g_mat[0] @ loader.dataset.ystar[problem_idx] - h[0, :, :], 0
         ).max()
 
     print("Optimal Solution")
@@ -296,60 +304,60 @@ def evaluate_instance(
 
 
 def main(
-    use_DC3_dataset: bool,
+    use_dc3_dataset: bool,
     use_convex: bool,
     problem_seed: int,
-    problem_var: float,
+    problem_var: int,
     problem_nineq: int,
     problem_neq: int,
     problem_examples: int,
     use_jax_loader: bool,
     config_path: str,
-    SEED: int,
+    seed: int,
     proj_method: str,
-    SAVE_RESULTS: bool,
+    save_results: bool,
     run_name: str,
     current_timestamp: str,
 ) -> train_state.TrainState:
     """Main for running simple QP benchmarks.
 
     Args:
-        use_DC3_dataset (bool): Whether to use the DC3 dataset or not.
-        use_convex (bool): Whether to use a convex problem or not.
-        problem_seed (int): Seed for the problem generation.
-        problem_var (float): Variance for the problem generation.
-        problem_nineq (int): Number of inequality constraints.
-        problem_neq (int): Number of equality constraints.
-        problem_examples (int): Number of problem examples.
-        use_jax_loader (bool): Whether to use the JAX loader or not.
-        config_path (str): Path to the configuration file.
-        SEED (int): Seed for training.
-        proj_method (str): Projection method to use.
-        SAVE_RESULTS (bool): Whether to save the results or not.
-        run_name (str): Name of the run for logging.
-        current_timestamp (str): Current timestamp for result folder naming.
+        use_dc3_dataset: Whether to use the DC3 dataset or not.
+        use_convex: Whether to use a convex problem or not.
+        problem_seed: Seed for the problem generation.
+        problem_var: Variance for the problem generation.
+        problem_nineq: Number of inequality constraints.
+        problem_neq: Number of equality constraints.
+        problem_examples: Number of problem examples.
+        use_jax_loader: Whether to use the JAX loader or not.
+        config_path: Path to the configuration file.
+        seed: Seed for training.
+        proj_method: Projection method to use.
+        save_results: Whether to save the results or not.
+        run_name: Name of the run for logging.
+        current_timestamp: Current timestamp for result folder naming.
 
     Returns:
-        state (TrainState): The final state of the trained model.
+        The final state of the trained model.
     """
     # Load hyperparameter configuration
     hyperparameters = load_configuration(config_path)
-    torch.manual_seed(SEED)
-    key = jax.random.PRNGKey(SEED)
+    torch.manual_seed(seed)
+    key = jax.random.PRNGKey(seed)
     loader_key, key = jax.random.split(key, 2)
     # Load problem data
     (
-        A,
-        G,
+        a_dyn,
+        g_mat,
         h,
-        X,
+        x_data,
         batched_objective,
         train_loader,
         valid_loader,
         test_loader,
         batched_loss,
     ) = load_data(
-        use_DC3_dataset=use_DC3_dataset,
+        use_dc3_dataset=use_dc3_dataset,
         use_convex=use_convex,
         problem_seed=problem_seed,
         problem_var=problem_var,
@@ -366,15 +374,15 @@ def main(
         rng_key=key,
         hyperparameters=hyperparameters,
         proj_method=proj_method,
-        A=A,
-        X=X,
-        G=G,
+        a_dyn=a_dyn,
+        x_data=x_data,
+        g_mat=g_mat,
         h=h,
         batched_loss=batched_loss,
     )
 
-    LEARNING_RATE = hyperparameters["learning_rate"]
-    tx = optax.adam(LEARNING_RATE)
+    learning_rate = hyperparameters["learning_rate"]
+    tx = optax.adam(learning_rate)
     state = train_state.TrainState.create(
         apply_fn=model.apply, params=params["params"], tx=tx
     )
@@ -382,12 +390,12 @@ def main(
     if proj_method == "pinet":
         # Measure compilation time
         for batch in train_loader:
-            X_batch, _ = batch
+            x_batch, _ = batch
         start_compilation_time = time.time()
         _ = train_step.lower(
             state,
-            X_batch[:, :, 0],
-            X_batch,
+            x_batch[:, :, 0],
+            x_batch,
         ).compile()
         # Note this also includes the time for one iteration
         compilation_time = time.time() - start_compilation_time
@@ -395,7 +403,7 @@ def main(
         print(f"Compilation time: {compilation_time:.5f} seconds")
 
     # Train the MLP
-    N_EPOCHS = hyperparameters["n_epochs"]
+    n_epochs = hyperparameters["n_epochs"]
     eval_every = 1
     start_training_time = time.time()
     trainig_losses = []
@@ -408,23 +416,23 @@ def main(
         GracefulShutdown("Stop detected, finish epoch...") as g,
     ):
         data_logger.run.config.update(hyperparameters)
-        for step in (pbar := tqdm(range(N_EPOCHS))):
+        for step in (pbar := tqdm(range(n_epochs))):
             if g.stop:
                 break
             epoch_loss = []
             batch_sizes = []
             start_epoch_time = time.time()
             for batch in train_loader:
-                X_batch, _ = batch
+                x_batch, _ = batch
                 loss, state = train_step(
                     state,
-                    X_batch[:, :, 0],
-                    X_batch,
+                    x_batch[:, :, 0],
+                    x_batch,
                 )
-                batch_sizes.append(X_batch.shape[0])
+                batch_sizes.append(x_batch.shape[0])
                 epoch_loss.append(loss)
             weighted_epoch_loss = sum(
-                el * bs for el, bs in zip(epoch_loss, batch_sizes)
+                el * bs for el, bs in zip(epoch_loss, batch_sizes, strict=False)
             ) / sum(batch_sizes)
             trainig_losses.append(weighted_epoch_loss)
             pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")
@@ -436,8 +444,8 @@ def main(
                     loader=valid_loader,
                     state=state,
                     batched_objective=batched_objective,
-                    A=A,
-                    G=G,
+                    a_dyn=a_dyn,
+                    g_mat=g_mat,
                     h=h,
                     prefix="Validation",
                     time_evals=0,
@@ -469,9 +477,7 @@ def main(
                         "weighted_epoch_loss": weighted_epoch_loss,
                         "batch_training_time": train_time,
                         "validation_objective_mean": hcnn_obj.mean(),
-                        "validation_average_rs": (
-                            (hcnn_obj - obj) / jnp.abs(obj)
-                        ).mean(),
+                        "validation_average_rs": ((hcnn_obj - obj) / jnp.abs(obj)).mean(),
                         "validation_eqcv_mean": eq_cv.mean(),
                         "validation_ineqcv_mean": ineq_cv.mean(),
                         "validation_time": eval_time,
@@ -487,8 +493,8 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Validation",
-            A=A,
-            G=G,
+            a_dyn=a_dyn,
+            g_mat=g_mat,
             h=h,
             proj_method=proj_method,
         )
@@ -498,10 +504,10 @@ def main(
             problem_idx=problem_idx,
             loader=valid_loader,
             state=state,
-            use_DC3_dataset=use_DC3_dataset,
+            use_dc3_dataset=use_dc3_dataset,
             batched_objective=batched_objective,
-            A=A,
-            G=G,
+            a_dyn=a_dyn,
+            g_mat=g_mat,
             h=h,
             prefix="Validation",
             proj_method=proj_method,
@@ -518,8 +524,8 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Testing",
-            A=A,
-            G=G,
+            a_dyn=a_dyn,
+            g_mat=g_mat,
             h=h,
             proj_method=proj_method,
         )
@@ -529,8 +535,8 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Testing",
-            A=A,
-            G=G,
+            a_dyn=a_dyn,
+            g_mat=g_mat,
             h=h,
             single_instance=True,
             instances=list(range(10)),
@@ -542,10 +548,10 @@ def main(
             problem_idx=problem_idx,
             loader=test_loader,
             state=state,
-            use_DC3_dataset=use_DC3_dataset,
+            use_dc3_dataset=use_dc3_dataset,
             batched_objective=batched_objective,
-            A=A,
-            G=G,
+            a_dyn=a_dyn,
+            g_mat=g_mat,
             h=h,
             prefix="Testing",
             proj_method=proj_method,
@@ -578,7 +584,7 @@ def main(
         )
 
         # Saving of overall results
-        if SAVE_RESULTS:
+        if save_results:
             # Setup results path
             filename_results = "results.npz"
             results_folder = (
@@ -668,7 +674,7 @@ if __name__ == "__main__":
     idpath = pathlib.Path(__file__).parent.resolve() / "ids" / (args.id + ".yaml")
     dataset = load_configuration(idpath)
     # Use existing DC3 Dataset or own dataset
-    use_DC3_dataset = dataset["use_DC3_dataset"]
+    use_dc3_dataset = dataset["use_DC3_dataset"]
     use_convex = dataset["use_convex"]
     # Import dataset
     problem_seed = dataset["problem_seed"]
@@ -683,15 +689,15 @@ if __name__ == "__main__":
         / "configs"
         / (args.config + ".yaml")
     )
-    SEED = args.seed
+    seed = args.seed
     proj_method = args.proj_method
-    SAVE_RESULTS = args.save_results
+    save_results = args.save_results
 
     nowstamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = f"{args.config}_{'simple' if use_convex else 'nonconvex'}_{nowstamp}"
 
     main(
-        use_DC3_dataset,
+        use_dc3_dataset,
         use_convex,
         problem_seed,
         problem_var,
@@ -700,9 +706,9 @@ if __name__ == "__main__":
         problem_examples,
         use_jax_loader,
         config_path,
-        SEED,
+        seed,
         proj_method,
-        SAVE_RESULTS,
+        save_results,
         run_name,
         nowstamp,
     )
