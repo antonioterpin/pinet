@@ -175,7 +175,7 @@ def generate_trajectories(
         rect = Rectangle(
             (float(lb[0, 0, 0]), float(lb[0, 1, 0])),
             float(ub[0, 0, 0] - lb[0, 0, 0]),
-            float(ub[1, 0, 0] - lb[1, 0, 0]),
+            float(ub[0, 1, 0] - lb[0, 1, 0]),
             linewidth=1,
             edgecolor="r",
             facecolor="none",

@@ -56,7 +56,7 @@ class EqualityConstraint(Constraint):
         self.setup()
 
     def setup(self) -> None:
-        """ "Sets up the equality constraint.
+        """Sets up the equality constraint.
 
         Raises:
             Exception: If the provided method is not valid.
@@ -144,6 +144,12 @@ class EqualityConstraint(Constraint):
             ProjectionInstance: The projected point for each point in the batch.
         """
         b, a_dyn, a_dyn_pinv = self.get_params(yraw)
+        if a_dyn_pinv is None:
+            assert a_dyn is not None, (
+                "a_dyn must be provided in EqualityConstraintsSpecification "
+                "when var_a_dyn=True and a_dyn_pinv is not supplied."
+            )
+            a_dyn_pinv = jnp.linalg.pinv(a_dyn)
 
         return yraw.update(x=yraw.x - a_dyn_pinv @ (a_dyn @ yraw.x - b))
 

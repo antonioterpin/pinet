@@ -269,7 +269,7 @@ class Project:
         ) -> tuple[ProjectionInstance, jax.Array, int]:
             # Executed iterations
             iter_exec = 0
-            terminate = jnp.array(False)
+            terminate = False
             # Call the projection function with all given arguments.
             y0 = self.initialize(yraw)
             xproj = yraw
@@ -285,7 +285,7 @@ class Project:
                 iter_exec += check_every
                 terminate = check(xproj)
 
-            return xproj, terminate, iter_exec
+            return xproj, jnp.array(terminate), iter_exec
 
         return project_and_check
 
@@ -455,8 +455,8 @@ def _project_general_bwd(
     n_iter_bwd: int,
     fpi: bool,
     residuals: tuple,
-    cotangent: jnp.ndarray,
-) -> tuple[None, None, jnp.ndarray, None, None, None]:
+    cotangent: tuple[ProjectionInstance, ProjectionInstance],
+) -> tuple[None, None, ProjectionInstance, None, None, None]:
     """Backward pass for custom vjp.
 
     This function computes the vjp for the projection using the
