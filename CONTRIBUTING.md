@@ -63,7 +63,7 @@ We follow a [Git feature branch](https://www.atlassian.com/git/tutorials/compari
   2. Open a branch from `dev` for the feature:
     ```bash
     git checkout dev
-    git checkout -b feature-<issue-number>
+    git checkout -b feature-85
     ```
   3. Add the tests; see [Testing](#testing-a-feature).
   4. Implement the feature and make sure the tests pass.
