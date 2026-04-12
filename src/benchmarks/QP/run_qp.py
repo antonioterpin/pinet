@@ -278,11 +278,11 @@ def evaluate_instance(
             loader.dataset.indices[problem_idx]
         ]
         eqcv_val = jnp.abs(
-            a_dyn[0] @ loader.dataset.dataset.ystar[loader.dataset.indices[problem_idx]]
+            a_dyn[0] @ loader.dataset.dataset.y_star[loader.dataset.indices[problem_idx]]
             - loader.dataset.dataset.x_data[loader.dataset.indices[problem_idx], :, :]
         ).max()
         ineqcv_val = jnp.maximum(
-            g_mat[0] @ loader.dataset.dataset.ystar[loader.dataset.indices[problem_idx]]
+            g_mat[0] @ loader.dataset.dataset.y_star[loader.dataset.indices[problem_idx]]
             - h[0, :, :],
             0,
         ).max()
@@ -290,11 +290,11 @@ def evaluate_instance(
     else:
         objective_val = loader.dataset.objectives[problem_idx].item()
         eqcv_val = jnp.abs(
-            a_dyn[0] @ loader.dataset.ystar[problem_idx]
+            a_dyn[0] @ loader.dataset.y_star[problem_idx]
             - loader.dataset.x_data[problem_idx, :, :]
         ).max()
         ineqcv_val = jnp.maximum(
-            g_mat[0] @ loader.dataset.ystar[problem_idx] - h[0, :, :], 0
+            g_mat[0] @ loader.dataset.y_star[problem_idx] - h[0, :, :], 0
         ).max()
 
     print("Optimal Solution")

@@ -33,6 +33,7 @@ class BoxConstraint(Constraint):
         if self.lb is not None:
             self._dim = self.lb.shape[1]
         else:
+            # If lb is missing, ub still determines the dimensionality of the box.
             assert self.ub is not None
             self._dim = self.ub.shape[1]
         self.scale = jnp.ones((1, self._dim, 1))
@@ -64,10 +65,12 @@ class BoxConstraint(Constraint):
         )
         mask = yraw.box.mask if yraw.box and yraw.box.mask is not None else self.mask
         if lb is None:
+            # An absent lower bound is treated as an unbounded interval below.
             assert ub is not None
             lb = -jnp.inf * jnp.ones_like(ub)
         if ub is None:
             ub = jnp.inf * jnp.ones_like(lb)
+        # A mask is always required to know which coordinates are clipped.
         assert mask is not None
         # NOTE: Mask is never None
 

@@ -68,6 +68,7 @@ class Project:
             for c in (self.eq_constraint, self.box_constraint, self.ineq_constraint)
             if c
         ]
+        # The projection layer is meaningful only if at least one constraint is active.
         assert len(constraints) > 0, "At least one constraint must be provided."
         self.dim = constraints[0].dim
 
@@ -93,8 +94,11 @@ class Project:
             (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
                 parser.parse(method=None)
             )
+            # Parsing an inequality-constrained problem must produce a lifted equality.
             assert self.lifted_eq_constraint is not None
+            # Parsing an inequality-constrained problem must produce a lifted box.
             assert self.lifted_box_constraint is not None
+            # Setup always stores equilibration parameters before this branch runs.
             assert self.equilibration_params is not None
             # Only equilibrate when we have a single a_dyn.
             if (
@@ -205,7 +209,9 @@ class Project:
         if self.is_single_simple_constraint:
             return self.single_constraint.cv(y)
 
+        # The lifted equality constraint must exist for the general projection path.
         assert self.lifted_eq_constraint is not None
+        # The lifted box constraint must exist for the general projection path.
         assert self.lifted_box_constraint is not None
         if y.x.shape[1] != self.dim_lifted:
             y = self.lift(y)
@@ -266,6 +272,7 @@ class Project:
             terminate = jnp.array(False)
             # Call the projection function with all given arguments.
             y0 = self.initialize(yraw)
+            xproj = yraw
             while not (terminate or iter_exec >= max_iter):
                 xproj, y = self.call(
                     s0=y0,
@@ -294,7 +301,7 @@ class Project:
         """
         if yraw.eq and yraw.eq.a_dyn is not None:
             a_dyn_pinv = jnp.linalg.pinv(yraw.eq.a_dyn)
-            yraw = yraw.update(eq=yraw.eq.update(Apinv=a_dyn_pinv))
+            yraw = yraw.update(eq=yraw.eq.update(a_dyn_pinv=a_dyn_pinv))
 
         return self.single_constraint.project(yraw)
 

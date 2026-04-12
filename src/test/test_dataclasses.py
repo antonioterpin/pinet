@@ -202,14 +202,18 @@ def test_eq_update_returns_new_and_sets_fields():
     b = jnp.ones((2, 3, 1))
     apinv = jnp.ones((2, 4, 3))
 
-    spec1 = spec0.update(a_dyn=a_dyn, b=b, Apinv=apinv)
+    spec1 = spec0.update(a_dyn=a_dyn, b=b, a_dyn_pinv=apinv)
 
-    assert spec1 is not spec0
-    assert spec1.a_dyn is a_dyn
-    assert spec1.b is b
-    assert spec1.Apinv is apinv
+    assert spec1 is not spec0, "update() should return a new equality specification."
+    assert spec1.a_dyn is a_dyn, "Updated equality specification should store a_dyn."
+    assert spec1.b is b, "Updated equality specification should store b."
+    assert spec1.a_dyn_pinv is apinv, (
+        "Updated equality specification should store a_dyn_pinv."
+    )
     # original remains unchanged
-    assert spec0.a_dyn is None and spec0.b is None and spec0.Apinv is None
+    assert spec0.a_dyn is None and spec0.b is None and spec0.a_dyn_pinv is None, (
+        "update() should not mutate the original equality specification."
+    )
 
 
 def test_eq_update_unknown_kw_raises_typeerror():
@@ -226,12 +230,14 @@ def test_box_update_returns_new_and_sets_fields():
 
     spec1 = spec0.update(lb=lb, ub=ub, mask=mask)
 
-    assert spec1 is not spec0
-    assert spec1.lb is lb
-    assert spec1.ub is ub
-    assert spec1.mask is mask
+    assert spec1 is not spec0, "update() should return a new box specification."
+    assert spec1.lb is lb, "Updated box specification should store lb."
+    assert spec1.ub is ub, "Updated box specification should store ub."
+    assert spec1.mask is mask, "Updated box specification should store mask."
     # original remains unchanged
-    assert spec0.lb is None and spec0.ub is None and spec0.mask is None
+    assert spec0.lb is None and spec0.ub is None and spec0.mask is None, (
+        "update() should not mutate the original box specification."
+    )
 
 
 def test_box_update_unknown_kw_raises_typeerror():
@@ -247,7 +253,7 @@ def test_projection_update_sets_eq_and_box_and_returns_new():
     eq = EqualityConstraintsSpecification(
         a_dyn=jnp.ones((2, 1, 3)),
         b=jnp.ones((2, 1, 1)),
-        Apinv=jnp.ones((2, 3, 1)),
+        a_dyn_pinv=jnp.ones((2, 3, 1)),
     )
     box = BoxConstraintSpecification(
         lb=jnp.zeros((2, 3, 1)),
@@ -257,11 +263,13 @@ def test_projection_update_sets_eq_and_box_and_returns_new():
 
     pi1 = pi0.update(eq=eq, box=box)
 
-    assert pi1 is not pi0
-    assert pi1.eq is eq
-    assert pi1.box is box
+    assert pi1 is not pi0, "update() should return a new projection instance."
+    assert pi1.eq is eq, "Updated projection instance should store the equality spec."
+    assert pi1.box is box, "Updated projection instance should store the box spec."
     # original remains unchanged
-    assert pi0.eq is None and pi0.box is None
+    assert pi0.eq is None and pi0.box is None, (
+        "update() should not mutate the original projection instance."
+    )
 
 
 def test_projection_update_x_and_returns_new():
@@ -270,9 +278,9 @@ def test_projection_update_x_and_returns_new():
     pi0 = ProjectionInstance(x=x0)
     pi1 = pi0.update(x=x1)
 
-    assert pi1 is not pi0
-    assert (pi1.x == x1).all()
-    assert (pi0.x == x0).all()
+    assert pi1 is not pi0, "update() should return a new projection instance."
+    assert (pi1.x == x1).all(), "Updated projection instance should store the new x."
+    assert (pi0.x == x0).all(), "update() should not mutate the original x."
 
 
 def test_projection_update_unknown_kw_raises_typeerror():
@@ -294,21 +302,35 @@ def test_equilibration_update_changes_fields_and_returns_new():
         safeguard=True,
     )
 
-    assert ep1 is not ep0
-    assert ep1.max_iter == expected_max_iter
-    assert ep1.tol == pytest.approx(1e-4)
-    assert ep1.ord == 1
-    assert ep1.col_scaling is True
-    assert ep1.update_mode == "Jacobi"
-    assert ep1.safeguard is True
+    assert ep1 is not ep0, "update() should return a new equilibration parameter set."
+    assert ep1.max_iter == expected_max_iter, (
+        "Updated equilibration parameters should store max_iter."
+    )
+    assert ep1.tol == pytest.approx(1e-4), (
+        "Updated equilibration parameters should store tol."
+    )
+    assert ep1.ord == 1, "Updated equilibration parameters should store ord."
+    assert ep1.col_scaling is True, (
+        "Updated equilibration parameters should store col_scaling."
+    )
+    assert ep1.update_mode == "Jacobi", (
+        "Updated equilibration parameters should store update_mode."
+    )
+    assert ep1.safeguard is True, (
+        "Updated equilibration parameters should store safeguard."
+    )
 
     # original remains defaults
-    assert ep0.max_iter == 0
-    assert ep0.tol == pytest.approx(1e-3)
-    assert ep0.ord == default_ord
-    assert ep0.col_scaling is False
-    assert ep0.update_mode == "Gauss"
-    assert ep0.safeguard is False
+    assert ep0.max_iter == 0, "update() should not mutate the original max_iter."
+    assert ep0.tol == pytest.approx(1e-3), "update() should not mutate the original tol."
+    assert ep0.ord == default_ord, "update() should not mutate the original ord."
+    assert ep0.col_scaling is False, (
+        "update() should not mutate the original col_scaling."
+    )
+    assert ep0.update_mode == "Gauss", (
+        "update() should not mutate the original update_mode."
+    )
+    assert ep0.safeguard is False, "update() should not mutate the original safeguard."
 
 
 def test_equilibration_update_unknown_kw_raises_typeerror():

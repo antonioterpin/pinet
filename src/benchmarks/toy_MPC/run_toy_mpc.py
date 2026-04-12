@@ -198,7 +198,7 @@ def main(
     loader_key, key = jax.random.split(key, 2)
     # Parse data
     (
-        a_dyns,
+        a_dyn,
         lbxs,
         ubxs,
         lbus,
@@ -221,11 +221,11 @@ def main(
         use_jax_loader=use_jax_loader,
     )
 
-    y_dim = a_dyns.shape[2]
+    y_dim = a_dyn.shape[2]
     # The X contains only the initial conditions.
     # To properly define the equality constraints we need to append zeros
     x_full = jnp.concatenate(
-        (x_data, jnp.zeros((x_data.shape[0], a_dyns.shape[1] - x_data.shape[1], 1))),
+        (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),
         axis=1,
     )
     lb = jnp.concatenate((lbxs, lbus), axis=1)
@@ -236,7 +236,7 @@ def main(
     model, params, train_step = setup_model(
         rng_key=key,
         hyperparameters=hyperparameters,
-        a_dyn=a_dyns,
+        a_dyn=a_dyn,
         x_data=x_data,
         b=x_full,
         lb=lb,
@@ -273,7 +273,7 @@ def main(
                     (
                         x_batch,
                         jnp.zeros(
-                            (x_batch.shape[0], a_dyns.shape[1] - x_batch.shape[1], 1)
+                            (x_batch.shape[0], a_dyn.shape[1] - x_batch.shape[1], 1)
                         ),
                     ),
                     axis=1,
@@ -300,7 +300,7 @@ def main(
                         (
                             x_valid,
                             jnp.zeros(
-                                (x_valid.shape[0], a_dyns.shape[1] - x_valid.shape[1], 1)
+                                (x_valid.shape[0], a_dyn.shape[1] - x_valid.shape[1], 1)
                             ),
                         ),
                         axis=1,
@@ -313,7 +313,7 @@ def main(
                     )
                     validation_loss = batched_objective(predictions)
                     eqcv = jnp.abs(
-                        a_dyns[0] @ predictions.reshape(-1, y_dim, 1) - x_valid_full
+                        a_dyn[0] @ predictions.reshape(-1, y_dim, 1) - x_valid_full
                     ).max()
                     ineqcvub = jnp.max(
                         jnp.maximum(predictions.reshape(-1, y_dim, 1) - ub, 0), axis=1
@@ -363,7 +363,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Validation",
-            a_dyn=a_dyns,
+            a_dyn=a_dyn,
             lb=lb,
             ub=ub,
             cv_tol=1e-3,
@@ -375,7 +375,7 @@ def main(
                 state=state,
                 batched_objective=batched_objective,
                 prefix="Test",
-                a_dyn=a_dyns,
+                a_dyn=a_dyn,
                 lb=lb,
                 ub=ub,
                 cv_tol=1e-3,
@@ -388,7 +388,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Test",
-            a_dyn=a_dyns,
+            a_dyn=a_dyn,
             lb=lb,
             ub=ub,
             cv_tol=1e-3,
@@ -530,7 +530,7 @@ if __name__ == "__main__":
         loader_key, key = jax.random.split(key, 2)
         # Parse data
         (
-            a_dyns,
+            a_dyn,
             lbxs,
             ubxs,
             lbus,
@@ -552,11 +552,11 @@ if __name__ == "__main__":
             rng_key=loader_key,
             use_jax_loader=use_jax_loader,
         )
-        y_dim = a_dyns.shape[2]
+        y_dim = a_dyn.shape[2]
         # The X contains only the initial conditions.
         # To properly define the equality constraints we need to append zeros
         x_full = jnp.concatenate(
-            (x_data, jnp.zeros((x_data.shape[0], a_dyns.shape[1] - x_data.shape[1], 1))),
+            (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),
             axis=1,
         )
         dimx = lbxs.shape[1]
@@ -566,7 +566,7 @@ if __name__ == "__main__":
         model, params, train_step = setup_model(
             rng_key=key,
             hyperparameters=hyperparameters,
-            a_dyn=a_dyns,
+            a_dyn=a_dyn,
             x_data=x_data,
             b=x_full,
             lb=lb,
@@ -597,7 +597,7 @@ if __name__ == "__main__":
 
         trajectories_pred, trajectories_cp = generate_trajectories(
             state=state,
-            a_dyns=a_dyns,
+            a_dyn=a_dyn,
             lbxs=lbxs,
             ubxs=ubxs,
             lbus=lbus,

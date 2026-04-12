@@ -97,7 +97,10 @@ def test_equality_eye(method, seed, n_batch_a, n_batch_b, n_batch_x):
     # Prepare input
     inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp).x
-    assert jnp.allclose(z, y)
+    assert jnp.allclose(z, y), (
+        "Projection onto the identity equality constraint should equal b. "
+        f"Expected {y}, got {z}."
+    )
 
 
 @pytest.mark.parametrize(
@@ -125,7 +128,10 @@ def test_equality_diagonal(method, seed, n_batch_a, n_batch_b, n_batch_x):
     # Prepare input
     inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp).x
-    assert jnp.allclose(z, y)
+    assert jnp.allclose(z, y), (
+        "Projection onto an invertible diagonal equality constraint should match "
+        f"the analytical solution. Expected {y}, got {z}."
+    )
 
 
 @pytest.mark.parametrize(
@@ -155,7 +161,10 @@ def test_equality_generic_invertible(method, seed, n_batch_a, n_batch_b, n_batch
     # Prepare input
     inp = ProjectionInstance(x=x)
     z = eq_constraint.project(inp).x
-    assert jnp.allclose(z, y)
+    assert jnp.allclose(z, y), (
+        "Projection onto a generic invertible equality constraint should match "
+        f"the linear solve reference. Expected {y}, got {z}."
+    )
 
 
 @pytest.mark.parametrize(
@@ -212,7 +221,10 @@ def test_equality_qp(method, seed, n_batch_a, n_batch_b, n_batch_x):
         # Extract true projection
         y = jnp.expand_dims(jnp.array(ycp.value), axis=1)
 
-        assert jnp.allclose(z[ii, :], y)
+        assert jnp.allclose(z[ii, :], y), (
+            "Equality projection should match the CVXPY solution for each batch "
+            f"element. Batch {ii}: expected {y}, got {z[ii, :]}."
+        )
 
 
 def test_equality_method_none_raises_not_implemented():

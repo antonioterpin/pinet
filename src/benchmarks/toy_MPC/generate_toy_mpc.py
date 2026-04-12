@@ -30,11 +30,11 @@ xhat = jnp.array([3, -12])
 # [x_0, x_1, ..., x_T, u_0, u_1, ..., u_{T-1}] = [x; u]
 # Setup equality constraints
 # They look like [A_x, A_u] [x; u] == [x_0; 0]
-A_x = jnp.diag(jnp.ones(horizon + 1)) - jnp.diag(jnp.ones(horizon), k=-1)
-A_x = jnp.kron(A_x, jnp.eye(base_dim))
-A_u = jnp.diag(jnp.ones(horizon), k=-1)[:, :-1]
-A_u = jnp.kron(A_u, jnp.eye(base_dim))
-a_dyn = jnp.concatenate((A_x, A_u), axis=1)
+a_x = jnp.diag(jnp.ones(horizon + 1)) - jnp.diag(jnp.ones(horizon), k=-1)
+a_x = jnp.kron(a_x, jnp.eye(base_dim))
+a_u = jnp.diag(jnp.ones(horizon), k=-1)[:, :-1]
+a_u = jnp.kron(a_u, jnp.eye(base_dim))
+a_dyn = jnp.concatenate((a_x, a_u), axis=1)
 # Setup Inequality constraints
 # -boundx <= x <= boundx
 # -boundu <= u <= boundu
@@ -72,15 +72,15 @@ x0set = jax.random.uniform(
     key, shape=(NUM_EXAMPLES, base_dim), minval=-boundx, maxval=boundx
 )
 objectives = jnp.zeros(NUM_EXAMPLES)
-ystar = jnp.zeros((NUM_EXAMPLES, dimx + dimu))
+y_star = jnp.zeros((NUM_EXAMPLES, dimx + dimu))
 print(f"Solving {NUM_EXAMPLES} problem instances")
 for idx in tqdm(range(NUM_EXAMPLES)):
     xinit.value = np.array(x0set[idx])
     problem.solve()
     objectives = objectives.at[idx].set(problem.value)
-    ystar = ystar.at[idx, :].set(jnp.array(z.value))
+    y_star = y_star.at[idx, :].set(jnp.array(z.value))
 # Generate matrices with appropriate shape
-a_dyns = a_dyn.reshape((1, a_dyn.shape[0], a_dyn.shape[1]))
+a_dyn = a_dyn.reshape((1, a_dyn.shape[0], a_dyn.shape[1]))
 lbxs = lbx.reshape(1, -1, 1)
 ubxs = ubx.reshape(1, -1, 1)
 lbus = lbu.reshape(1, -1, 1)
@@ -93,7 +93,7 @@ if save_results:
     path = datasets_path / filename
     jnp.savez(
         path,
-        a_dyns=a_dyns,
+        a_dyn=a_dyn,
         lbxs=lbxs,
         ubxs=ubxs,
         lbus=lbus,
@@ -101,7 +101,7 @@ if save_results:
         x0sets=x0sets,
         xhat=xhat,
         objectives=objectives,
-        ystar=ystar,
+        y_star=y_star,
         horizon=horizon,
         base_dim=base_dim,
         alpha=alpha,

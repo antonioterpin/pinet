@@ -101,6 +101,7 @@ def get_cvxpy_projection(
     )
     objective = cp.Minimize(cp.sum_squares(ycvxpy - xproj))
     problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    # The cvxpylayer backend requires the problem to satisfy DPP rules.
     assert problem_cvxpy.is_dpp()
 
     cvxpylayer = CvxpyLayer(

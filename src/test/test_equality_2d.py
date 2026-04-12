@@ -100,7 +100,10 @@ def test_equality_constraint_2d(method: str, seed: int) -> None:
 
     atol = 3e-2
     rtol = 1e-3
-    assert jnp.allclose(predictions, projected_y, atol=atol, rtol=rtol)
+    assert jnp.allclose(predictions, projected_y, atol=atol, rtol=rtol), (
+        "Trained predictions should lie on the y=x projection of the ground truth. "
+        f"Expected {projected_y}, got {predictions}."
+    )
 
     # Plot dataset and print extra results
     # Create a scatter plot

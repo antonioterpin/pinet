@@ -34,6 +34,7 @@ class AffineInequalityConstraint(Constraint):
 
         # Check if batch sizes for constr_matrix and l are consistent.
         # They should either be the same, or one of them should be 1.
+        # constr_matrix and lb must be batch-compatible, allowing singleton broadcasting.
         assert (
             self.constr_matrix.shape[0] == self.lb.shape[0]
             or self.constr_matrix.shape[0] == 1
@@ -45,6 +46,7 @@ class AffineInequalityConstraint(Constraint):
 
         # Check if batch sizes for constr_matrix and u are consistent.
         # They should either be the same, or one of them should be 1.
+        # constr_matrix and ub must be batch-compatible, allowing singleton broadcasting.
         assert (
             self.constr_matrix.shape[0] == self.ub.shape[0]
             or self.constr_matrix.shape[0] == 1
@@ -54,9 +56,11 @@ class AffineInequalityConstraint(Constraint):
             f"constr_matrix{self.constr_matrix.shape}, ub{self.ub.shape}"
         )
 
+        # Each inequality row needs one lower bound entry.
         assert self.constr_matrix.shape[1] == self.lb.shape[1], (
             "Number of rows in constr_matrix must equal size of l."
         )
+        # Each inequality row needs one upper bound entry.
         assert self.constr_matrix.shape[1] == self.ub.shape[1], (
             "Number of rows in constr_matrix must equal size of u."
         )

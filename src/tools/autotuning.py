@@ -10,6 +10,7 @@ jupytext --set-formats ipynb,py:percent --sync src/hcnn/autotuning.py
 # %%
 import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, cast
 
 import jax
@@ -42,6 +43,35 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 dataset_dir = "absolute/path/to/datasets"
 
 
+@dataclass(frozen=True)
+class LoadedData:
+    """Container for problem tensors, dataset inputs, and dataloaders.
+
+    Attributes:
+        filename: Dataset filename or filename prefix used to load the problem.
+        q: Linear cost term of the quadratic program.
+        p: Quadratic cost matrix of the quadratic program.
+        a_dyn: Equality-constraint matrix.
+        constr_matrix: Inequality-constraint matrix.
+        h: Constraint right-hand side tensor.
+        x_dataset: Input dataset associated with the loaded problem instance.
+        train_loader: Dataloader for the training split.
+        valid_loader: Dataloader for the validation split.
+        test_loader: Dataloader for the test split.
+    """
+
+    filename: str
+    q: jnp.ndarray
+    p: jnp.ndarray
+    a_dyn: jnp.ndarray
+    constr_matrix: jnp.ndarray
+    h: jnp.ndarray
+    x_dataset: jnp.ndarray
+    train_loader: Any
+    valid_loader: Any
+    test_loader: Any
+
+
 def load_data(
     use_dc3_dataset: bool,
     use_convex: bool,
@@ -50,18 +80,7 @@ def load_data(
     problem_nineq: int,
     problem_neq: int,
     problem_examples: int,
-) -> tuple[
-    str,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    Any,
-    Any,
-    Any,
-]:
+) -> LoadedData:
     """Load problem data and dataloaders.
 
     Args:
@@ -74,8 +93,8 @@ def load_data(
         problem_examples: Number of examples in the dataset.
 
     Returns:
-        tuple: Filename, problem tensors, dataset inputs, and train/validation/test
-            dataloaders.
+        LoadedData: Filename, problem tensors, dataset inputs, and
+            train/validation/test dataloaders.
 
     Raises:
         NotImplementedError: If a non-convex simple QP dataset is requested.
@@ -128,34 +147,23 @@ def load_data(
         p = p[0, :, :]
         x_dataset = dataset.x_data
 
-    return (
-        filename,
-        q,
-        p,
-        a_dyn,
-        constr_matrix,
-        h,
-        x_dataset,
-        train_loader,
-        valid_loader,
-        test_loader,
+    return LoadedData(
+        filename=filename,
+        q=q,
+        p=p,
+        a_dyn=a_dyn,
+        constr_matrix=constr_matrix,
+        h=h,
+        x_dataset=x_dataset,
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        test_loader=test_loader,
     )
 
 
 # %%
 # Load a batch of data for autotuning
-(
-    filename,
-    q,
-    p,
-    a_dyn,
-    constr_matrix,
-    h,
-    x_dataset,
-    train_loader,
-    valid_loader,
-    test_loader,
-) = load_data(
+data = load_data(
     use_dc3_dataset=True,
     use_convex=True,
     problem_seed=42,
@@ -164,6 +172,16 @@ def load_data(
     problem_neq=500,
     problem_examples=10000,
 )
+filename = data.filename
+q = data.q
+p = data.p
+a_dyn = data.a_dyn
+constr_matrix = data.constr_matrix
+h = data.h
+x_dataset = data.x_dataset
+train_loader = data.train_loader
+valid_loader = data.valid_loader
+test_loader = data.test_loader
 n_samples = 150
 x_batch, _ = next(iter(valid_loader))
 x_batch = x_batch[:n_samples]

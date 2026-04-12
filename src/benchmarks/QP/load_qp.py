@@ -21,12 +21,12 @@ class SimpleQPDataset(Dataset):
         """
         data = jnp.load(filepath)
         # Parameter values for each instance
-        self.x_data = data["X"]
+        self.x_data = data["x_data"]
         # Constant problem ingredients
-        self.const = (data["Q"], data["p"], data["A"], data["G"], data["h"])
+        self.const = (data["q_mat"], data["p"], data["a_dyn"], data["g_mat"], data["h"])
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.ystar = data["Ystar"]
+        self.y_star = data["y_star"]
 
     def __len__(self) -> int:
         """Length of dataset.
@@ -111,7 +111,7 @@ class DC3Dataset(Dataset):
         # Constant problem ingredients
         self.const = (data["Q"], data["p"], data["A"], data["G"], data["h"])
         # Problem solutions
-        self.ystar = data["Ystar"]
+        self.y_star = data["Ystar"]
 
         # Compute objectives
         if use_convex:
@@ -125,7 +125,7 @@ class DC3Dataset(Dataset):
                 return 0.5 * y.T @ data["Q"] @ y + data["p"][0, :, :].T @ jnp.sin(y)
 
         self.obj_fun = jax.vmap(obj_fun, in_axes=[0])
-        self.objectives = self.obj_fun(self.ystar[:, :, 0])
+        self.objectives = self.obj_fun(self.y_star[:, :, 0])
 
     def __len__(self) -> int:
         """Length of dataset.

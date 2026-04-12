@@ -355,8 +355,14 @@ def test_general_eq_ineq(seed, batch_size):
         yraw=ProjectionInstance(x=x[..., None]),
         n_iter=n_iter,
     )[0].x[..., 0]
-    assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4)
-    assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4)
+    assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4), (
+        "Unrolled projection should match the CVXPY reference solution. "
+        f"Expected {yqp}, got {y_unroll}."
+    )
+    assert jnp.allclose(y_impl, yqp, atol=1e-4, rtol=1e-4), (
+        "Implicit projection should match the CVXPY reference solution. "
+        f"Expected {yqp}, got {y_impl}."
+    )
 
     # Simple "loss" function as inner product
     n_iter = 500
@@ -397,8 +403,14 @@ def test_general_eq_ineq(seed, batch_size):
         ),
         in_axes=[0, 1],
     )(x, vec).reshape(batch_size, -1)
-    assert jnp.allclose(grad_unroll, grad_fpi, atol=1e-4, rtol=1e-4)
-    assert jnp.allclose(grad_unroll, grad_linsys, atol=1e-4, rtol=1e-4)
+    assert jnp.allclose(grad_unroll, grad_fpi, atol=1e-4, rtol=1e-4), (
+        "FPI implicit gradients should match unrolled gradients. "
+        f"Expected {grad_unroll}, got {grad_fpi}."
+    )
+    assert jnp.allclose(grad_unroll, grad_linsys, atol=1e-4, rtol=1e-4), (
+        "Linear-system implicit gradients should match unrolled gradients. "
+        f"Expected {grad_unroll}, got {grad_linsys}."
+    )
 
     # Compute the gradient with finite differences
     epsilon = 1e-5

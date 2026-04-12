@@ -57,6 +57,7 @@ class ConstraintParser:
         self.box_constraint = box_constraint
 
         # Batch consistency checks
+        # Equality and inequality matrices must have compatible batch dimensions.
         assert (
             self.eq_constraint.a_dyn.shape[0]
             == self.ineq_constraint.constr_matrix.shape[0]
@@ -64,14 +65,18 @@ class ConstraintParser:
             or self.ineq_constraint.constr_matrix.shape[0] == 1
         ), "Batch sizes of a_dyn and constr_matrix must be consistent."
         if self.box_constraint is not None:
+            # An explicit box constraint must provide its lower bounds.
             assert self.box_constraint.lb is not None
+            # An explicit box constraint must provide its upper bounds.
             assert self.box_constraint.ub is not None
+            # Inequality lower bounds and box lower bounds must batch together.
             assert (
                 self.ineq_constraint.lb.shape[0] == self.box_constraint.lb.shape[0]
                 or self.ineq_constraint.lb.shape[0] == 1
                 or self.box_constraint.lb.shape[0] == 1
             ), "Batch sizes of lb and lower_bound must be consistent."
 
+            # Inequality upper bounds and box upper bounds must batch together.
             assert (
                 self.ineq_constraint.ub.shape[0] == self.box_constraint.ub.shape[0]
                 or self.ineq_constraint.ub.shape[0] == 1
@@ -154,8 +159,11 @@ class ConstraintParser:
             )
         else:
             # We project both the lifted and the initial box
+            # The original box mask is needed to place existing bounds in the lift.
             assert self.box_constraint.mask is not None
+            # The original lower bounds are needed to concatenate lifted bounds.
             assert self.box_constraint.lb is not None
+            # The original upper bounds are needed to concatenate lifted bounds.
             assert self.box_constraint.ub is not None
             box_mask = jnp.concatenate(
                 [
@@ -221,7 +229,9 @@ class ConstraintParser:
                 x=jnp.concatenate([y.x, self.ineq_constraint.constr_matrix @ y.x], axis=1)
             )
             if self.eq_constraint.var_b:
+                # Variable equality data must be present before extending the RHS.
                 assert y.eq is not None
+                # The lifted RHS can be built only if the original b is available.
                 assert y.eq.b is not None
                 y = y.update(
                     eq=y.eq.update(

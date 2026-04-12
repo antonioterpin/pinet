@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def generate_bar_data(
+def generate_bar_plot_data(
     id: str,
     config: str,
     filename: str,
@@ -376,7 +376,7 @@ if __name__ == "__main__":
         help="Configuration (default: pinet, options: dc3, softMLP, jaxopt, pinet)",
     )
     parser.add_argument(
-        "--generate_bar_data",
+        "--generate_bar_plot_data",
         action="store_true",
         default=False,
         help="Generate bar plot data",
@@ -412,10 +412,10 @@ if __name__ == "__main__":
         )
 
     opt_obj_test, opt_obj_valid = load_optimal_objectives(args.id)
-    if args.generate_bar_data:
+    if args.generate_bar_plot_data:
         print("Generating bar plot data for id:", args.id, "and config:", args.config)
         # Call bar plot generation functionality here
-        generate_bar_data(
+        generate_bar_plot_data(
             args.id,
             args.config,
             filename=filename,

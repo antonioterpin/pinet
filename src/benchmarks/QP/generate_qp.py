@@ -49,7 +49,7 @@ def solve_problems(
     if convex:
         print("Solving problem instances")
         objectives = jnp.zeros(n_samples)
-        ystar = jnp.zeros((n_samples, y_dim, 1))
+        y_star = jnp.zeros((n_samples, y_dim, 1))
         for problem_idx in tqdm(range(n_samples)):
             ycp = cp.Variable(y_dim)
             constraints = cast(
@@ -67,11 +67,11 @@ def solve_problems(
                     f"OSQP did not return a solution for problem {problem_idx}."
                 )
             objectives = objectives.at[problem_idx].set(problem.value)
-            ystar = ystar.at[problem_idx, :, :].set(jnp.expand_dims(ycp.value, axis=1))
+            y_star = y_star.at[problem_idx, :, :].set(jnp.expand_dims(ycp.value, axis=1))
     else:
         raise NotImplementedError
 
-    return objectives, ystar
+    return objectives, y_star
 
 
 if __name__ == "__main__":
@@ -110,7 +110,7 @@ if __name__ == "__main__":
         datasets_dir = os.path.join(os.path.dirname(__file__), "datasets")
 
         # Solve all the problem instances
-        objectives, ystar = solve_problems(
+        objectives, y_star = solve_problems(
             q_mat, p[0, :, :], a_dyn, x_data, g_mat, h, CONVEX
         )
 
@@ -140,5 +140,5 @@ if __name__ == "__main__":
             g_mat=g_mat,
             h=h,
             objectives=objectives,
-            ystar=ystar,
+            y_star=y_star,
         )

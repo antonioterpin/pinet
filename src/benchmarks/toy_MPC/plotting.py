@@ -85,7 +85,7 @@ def plot_training(
 
 def generate_trajectories(
     state: TrainState,
-    a_dyns: jnp.ndarray,
+    a_dyn: jnp.ndarray,
     lbxs: jnp.ndarray,
     ubxs: jnp.ndarray,
     lbus: jnp.ndarray,
@@ -103,7 +103,7 @@ def generate_trajectories(
 
     Args:
         state: The trained model state.
-        a_dyns: The equality constraint matrix.
+        a_dyn: The equality constraint matrix.
         lbxs: Lower bounds for state variables.
         ubxs: Upper bounds for state variables.
         lbus: Lower bounds for control inputs.
@@ -126,7 +126,7 @@ def generate_trajectories(
     xinit = jnp.array([[-7, -5]]).reshape(ntraj, base_dim, 1)
     # Evaluate the network on these initial points
     x_init_full = jnp.concatenate(
-        (xinit, jnp.zeros((xinit.shape[0], a_dyns.shape[1] - xinit.shape[1], 1))), axis=1
+        (xinit, jnp.zeros((xinit.shape[0], a_dyn.shape[1] - xinit.shape[1], 1))), axis=1
     )
     trajectories = state.apply_fn(
         {"params": state.params},
@@ -140,7 +140,7 @@ def generate_trajectories(
         xcp = cp.Variable(y_dim)
         xinitcp = cp.Parameter(int(base_dim))
         constraints = [
-            a_dyns[0] @ xcp == cp.hstack([xinitcp, np.zeros(dimx - base_dim)]),
+            a_dyn[0] @ xcp == cp.hstack([xinitcp, np.zeros(dimx - base_dim)]),
             xcp[:dimx] >= lbxs[0, :, 0],
             xcp[:dimx] <= ubxs[0, :, 0],
             xcp[dimx:] >= lbus[0, :, 0],

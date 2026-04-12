@@ -27,6 +27,7 @@ def ruiz_equilibration(
             such that scaled_a_dyn = diag(d_r) @ a_dyn @ diag(d_c).
         d_c: Column scaling factors.
     """
+    # Ruiz equilibration is defined here only for plain 2D matrices.
     assert a_dyn.ndim == EXPECTED_MATRIX_NDIM, (
         "Input matrix to equilibration must be 2-dimensional."
     )

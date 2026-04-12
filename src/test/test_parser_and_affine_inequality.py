@@ -52,10 +52,20 @@ def test_simple_2d(method, seed, batch_size):
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
     (lifted_eq, lifted_box, _) = parser.parse()
-    assert lifted_eq is not None
-    assert lifted_box is not None
-    assert lifted_box.lb is not None
-    assert lifted_box.ub is not None
+    assert lifted_eq is not None, (
+        "Parser should return a lifted equality constraint for mixed equality and "
+        "inequality constraints."
+    )
+    assert lifted_box is not None, (
+        "Parser should return a lifted box constraint for mixed equality and "
+        "inequality constraints."
+    )
+    assert lifted_box.lb is not None, (
+        "Lifted box constraint should expose lower bounds after parsing."
+    )
+    assert lifted_box.ub is not None, (
+        "Lifted box constraint should expose upper bounds after parsing."
+    )
 
     # Point to be projected
     x = jax.random.uniform(key, shape=(batch_size, dim, 1), minval=-2, maxval=2)
@@ -85,7 +95,10 @@ def test_simple_2d(method, seed, batch_size):
         problem_exact.solve()
         # Extract true projection
         y = jnp.reshape(jnp.array(ycp.value), shape=(1, 2, 1))
-        assert jnp.allclose(y, yclosed[ii, :])
+        assert jnp.allclose(y, yclosed[ii, :]), (
+            "Closed-form projection should match the direct QP solution. "
+            f"Batch {ii}: expected {yclosed[ii, :]}, got {y}."
+        )
 
     # Compute the projection with QP, but in lifted form
     # Last n_ineq variables corresponding to inequality lifting
@@ -105,9 +118,14 @@ def test_simple_2d(method, seed, batch_size):
         )
         problem_lifted.solve()
         # Extract lifted projection
-        assert yliftedcp.value is not None
+        assert yliftedcp.value is not None, (
+            "Lifted QP solve should return a primal solution."
+        )
         ylifted = jnp.expand_dims(jnp.array(yliftedcp.value[:dim]), axis=1)
-        assert jnp.allclose(ylifted, yclosed[ii, :])
+        assert jnp.allclose(ylifted, yclosed[ii, :]), (
+            "Lifted QP projection should match the closed-form solution. "
+            f"Batch {ii}: expected {yclosed[ii, :]}, got {ylifted}."
+        )
 
     # Compute the projection with iterative
     n_iter = 200
@@ -118,7 +136,10 @@ def test_simple_2d(method, seed, batch_size):
 
     yiterated = final_step(sk).x[:, :dim, :]
 
-    assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6)
+    assert jnp.allclose(yclosed, yiterated, rtol=1e-6, atol=1e-6), (
+        "Iterative lifted projection should match the closed-form solution. "
+        f"Expected {yclosed}, got {yiterated}."
+    )
 
 
 VALID_METHODS = ["pinv"]
@@ -174,10 +195,20 @@ def test_general_eq_ineq(method, seed, batch_size):
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
     (lifted_eq, lifted_box, _) = parser.parse(method=method)
-    assert lifted_eq is not None
-    assert lifted_box is not None
-    assert lifted_box.lb is not None
-    assert lifted_box.ub is not None
+    assert lifted_eq is not None, (
+        "Parser should return a lifted equality constraint for the general "
+        "equality-plus-inequality case."
+    )
+    assert lifted_box is not None, (
+        "Parser should return a lifted box constraint for the general "
+        "equality-plus-inequality case."
+    )
+    assert lifted_box.lb is not None, (
+        "Lifted box constraint should include lower bounds in the general case."
+    )
+    assert lifted_box.ub is not None, (
+        "Lifted box constraint should include upper bounds in the general case."
+    )
     # Point to be projected
     x = jax.random.uniform(key[2], shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
@@ -215,12 +246,17 @@ def test_general_eq_ineq(method, seed, batch_size):
             objective=objective_lifted, constraints=constraints_lifted
         )
         problem_lifted.solve()
-        assert yliftedproj.value is not None
+        assert yliftedproj.value is not None, (
+            "Lifted QP solve should return a primal solution in the general case."
+        )
         ylifted = ylifted.at[ii, :, :].set(
             jnp.array(yliftedproj.value[:dim]).reshape((dim, 1))
         )
 
-    assert jnp.allclose(yqp, ylifted, rtol=1e-6, atol=1e-6)
+    assert jnp.allclose(yqp, ylifted, rtol=1e-6, atol=1e-6), (
+        "Lifted QP projection should match the original QP solution in the "
+        f"general case. Expected {yqp}, got {ylifted}."
+    )
 
     # Compute the projection with iterative
     n_iter = 500
@@ -232,7 +268,10 @@ def test_general_eq_ineq(method, seed, batch_size):
 
     yiterated = final_step(xk).x[:, :dim, :]
 
-    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
+    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3), (
+        "Iterative lifted projection should match the original QP solution in "
+        f"the general case. Expected {yqp}, got {yiterated}."
+    )
 
 
 VALID_METHODS = ["pinv"]
@@ -385,10 +424,20 @@ def test_general_eq_ineq_box(
         box_constraint=box_constraint,
     )
     (lifted_eq, lifted_box, _) = parser.parse(method=method)
-    assert lifted_eq is not None
-    assert lifted_box is not None
-    assert lifted_box.lb is not None
-    assert lifted_box.ub is not None
+    assert lifted_eq is not None, (
+        "Parser should return a lifted equality constraint for mixed equality, "
+        "inequality, and box constraints."
+    )
+    assert lifted_box is not None, (
+        "Parser should return a lifted box constraint for mixed equality, "
+        "inequality, and box constraints."
+    )
+    assert lifted_box.lb is not None, (
+        "Lifted box constraint should include lower bounds for the mixed case."
+    )
+    assert lifted_box.ub is not None, (
+        "Lifted box constraint should include upper bounds for the mixed case."
+    )
 
     # Point to be projected
     x = jax.random.uniform(key[3], shape=(batch_size_x, dim, 1), minval=-3, maxval=3)
@@ -443,12 +492,17 @@ def test_general_eq_ineq_box(
             objective=objective_lifted, constraints=constraints_lifted
         )
         problem_lifted.solve(solver=cp.OSQP, eps_abs=1e-7, eps_rel=1e-7, verbose=False)
-        assert yliftedproj.value is not None
+        assert yliftedproj.value is not None, (
+            "Lifted QP solve should return a primal solution for the mixed case."
+        )
         ylifted = ylifted.at[ii, :, :].set(
             jnp.array(yliftedproj.value[:dim]).reshape((dim, 1))
         )
 
-    assert jnp.allclose(yqp, ylifted, rtol=1e-5, atol=1e-5)
+    assert jnp.allclose(yqp, ylifted, rtol=1e-5, atol=1e-5), (
+        "Lifted QP projection should match the original QP solution for mixed "
+        f"equality, inequality, and box constraints. Expected {yqp}, got {ylifted}."
+    )
 
     # Compute with iterative using lifting of:
     # Equality + Inequality + Box
@@ -461,7 +515,11 @@ def test_general_eq_ineq_box(
 
     yiterated = final_step(xk).x[:, :dim, :]
 
-    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
+    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3), (
+        "Iterative lifted projection should match the original QP solution for "
+        "mixed equality, inequality, and box constraints. "
+        f"Expected {yqp}, got {yiterated}."
+    )
     # Compute with iterative using lifting of:
     # Equality + Inequality
     # Write box constraints as affine inequality constraints
@@ -503,10 +561,20 @@ def test_general_eq_ineq_box(
     )
 
     (lifted_eq, lifted_box, _) = parser_aug.parse()
-    assert lifted_eq is not None
-    assert lifted_box is not None
-    assert lifted_box.lb is not None
-    assert lifted_box.ub is not None
+    assert lifted_eq is not None, (
+        "Parser should return a lifted equality constraint after augmenting box "
+        "constraints as affine inequalities."
+    )
+    assert lifted_box is not None, (
+        "Parser should return a lifted box constraint after augmenting box "
+        "constraints as affine inequalities."
+    )
+    assert lifted_box.lb is not None, (
+        "Augmented lifted box constraint should include lower bounds."
+    )
+    assert lifted_box.ub is not None, (
+        "Augmented lifted box constraint should include upper bounds."
+    )
 
     n_iter = 5000
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
@@ -517,7 +585,10 @@ def test_general_eq_ineq_box(
 
     yiterated = final_step(xk).x[:, :dim, :]
 
-    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3)
+    assert jnp.allclose(yqp, yiterated, rtol=1e-3, atol=1e-3), (
+        "Iterative projection with augmented affine inequalities should match "
+        f"the original QP solution. Expected {yqp}, got {yiterated}."
+    )
 
 
 SEEDS = [24, 42]
@@ -542,20 +613,40 @@ def test_simple_no_equality(seed, batch_size):
     # Parse constraints
     parser = ConstraintParser(eq_constraint=None, ineq_constraint=ineq_constraint)
     (lifted_eq, lifted_box, _) = parser.parse()
-    assert lifted_eq is not None
-    assert lifted_box is not None
-    assert lifted_box.lb is not None
-    assert lifted_box.ub is not None
+    assert lifted_eq is not None, (
+        "Parser should synthesize a lifted equality constraint even when the "
+        "original problem has no equality constraints."
+    )
+    assert lifted_box is not None, (
+        "Parser should synthesize a lifted box constraint for pure inequality "
+        "constraints."
+    )
+    assert lifted_box.lb is not None, (
+        "Lifted box constraint should expose lower bounds for the pure inequality case."
+    )
+    assert lifted_box.ub is not None, (
+        "Lifted box constraint should expose upper bounds for the pure inequality case."
+    )
 
     # Point to be projected
     x = jax.random.uniform(key, shape=(batch_size, dim, 1), minval=-2, maxval=2)
 
     # Compute the projection with iterative
     (lifted_eq, lifted_box, _) = parser.parse()
-    assert lifted_eq is not None
-    assert lifted_box is not None
-    assert lifted_box.lb is not None
-    assert lifted_box.ub is not None
+    assert lifted_eq is not None, (
+        "Parser should keep returning a lifted equality constraint on repeated "
+        "parses of the pure inequality case."
+    )
+    assert lifted_box is not None, (
+        "Parser should keep returning a lifted box constraint on repeated parses "
+        "of the pure inequality case."
+    )
+    assert lifted_box.lb is not None, (
+        "Repeated parse should preserve lifted lower bounds in the pure inequality case."
+    )
+    assert lifted_box.ub is not None, (
+        "Repeated parse should preserve lifted upper bounds in the pure inequality case."
+    )
 
     n_iter = 500
     (iteration_step, final_step) = build_iteration_step(lifted_eq, lifted_box, dim)
@@ -598,12 +689,21 @@ def test_simple_no_equality(seed, batch_size):
         )
         problem_lifted.solve()
         # Extract lifted projection
-        assert yliftedcp.value is not None
+        assert yliftedcp.value is not None, (
+            "Lifted QP solve should return a primal solution in the pure inequality case."
+        )
         ylifted = jnp.expand_dims(jnp.array(yliftedcp.value[:dim]), axis=1)
 
         # Check the projections match
-        assert jnp.allclose(ylifted, y_qp[0, :, :])
-        assert jnp.allclose(y_qp[0, :, :], yiterated[ii, :, :], rtol=1e-6, atol=1e-6)
+        assert jnp.allclose(ylifted, y_qp[0, :, :]), (
+            "Lifted QP projection should match the original QP solution in the "
+            f"pure inequality case. Batch {ii}: expected {y_qp[0, :, :]}, got {ylifted}."
+        )
+        assert jnp.allclose(y_qp[0, :, :], yiterated[ii, :, :], rtol=1e-6, atol=1e-6), (
+            "Iterative lifted projection should match the original QP solution in "
+            "the pure inequality case. "
+            f"Batch {ii}: expected {y_qp[0, :, :]}, got {yiterated[ii, :, :]}."
+        )
 
 
 def test_affine_inequality_project_cannot_be_called_directly():
@@ -634,11 +734,21 @@ def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
     eq_out, box_out, _ = parser.parse(method="pinv")
 
     # Still the same exact object (no lifting performed)
-    assert eq_out is eq
-    assert box_out is None
-    assert eq_out is not None
-    assert eq_out.a_dyn is a_dyn
-    assert eq_out.b is b
+    assert eq_out is eq, (
+        "Parser should return the original equality constraint when no lifting is needed."
+    )
+    assert box_out is None, (
+        "Parser should not synthesize a box constraint when none is provided."
+    )
+    assert eq_out is not None, (
+        "Parser should preserve the equality constraint when no lifting is needed."
+    )
+    assert eq_out.a_dyn is a_dyn, (
+        "Parser should preserve the original equality matrix when no lifting is needed."
+    )
+    assert eq_out.b is b, (
+        "Parser should preserve the original equality RHS when no lifting is needed."
+    )
 
 
 def test_constraint_parser_no_ineq_with_box_returns_inputs():
@@ -657,14 +767,33 @@ def test_constraint_parser_no_ineq_with_box_returns_inputs():
     eq_out, box_out, _ = parser.parse(method="pinv")
 
     # Still the same exact objects (no lifting performed)
-    assert eq_out is eq
-    assert box_out is box
-    assert box_out is not None
-    assert box_out.mask is not None
-    assert box_out.lb is not None
-    assert box_out.ub is not None
+    assert eq_out is eq, (
+        "Parser should return the original equality constraint when only a box "
+        "constraint is provided."
+    )
+    assert box_out is box, (
+        "Parser should return the original box constraint when no lifting is needed."
+    )
+    assert box_out is not None, (
+        "Parser should preserve the box constraint when no lifting is needed."
+    )
+    assert box_out.mask is not None, (
+        "Preserved box constraint should still expose its mask."
+    )
+    assert box_out.lb is not None, (
+        "Preserved box constraint should still expose its lower bounds."
+    )
+    assert box_out.ub is not None, (
+        "Preserved box constraint should still expose its upper bounds."
+    )
 
     # Sanity: mask/bounds unchanged
-    assert jnp.array_equal(box_out.mask, mask)
-    assert jnp.array_equal(box_out.lb, lb)
-    assert jnp.array_equal(box_out.ub, ub)
+    assert jnp.array_equal(box_out.mask, mask), (
+        "Parser should preserve the original box mask when no lifting is needed."
+    )
+    assert jnp.array_equal(box_out.lb, lb), (
+        "Parser should preserve the original box lower bounds when no lifting is needed."
+    )
+    assert jnp.array_equal(box_out.ub, ub), (
+        "Parser should preserve the original box upper bounds when no lifting is needed."
+    )

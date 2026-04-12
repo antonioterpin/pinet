@@ -26,19 +26,19 @@ class ToyMPCDataset(Dataset):
         self.x0sets = data["x0sets"]
         # Constant problem ingredients
         self.const = (
-            const["As"],
+            const["a_dyn"],
             const["lbxs"],
             const["ubxs"],
             const["lbus"],
             const["ubus"],
             const["xhat"],
             const["alpha"],
-            const["T"],
+            const["horizon"],
             const["base_dim"],
         )
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.ystar = data["Ystar"]
+        self.y_star = data["y_star"]
 
     def __len__(self) -> int:
         """Length of dataset.
@@ -245,7 +245,7 @@ def load_data(
             rng_key=loader_keys[2],
         )
 
-    a_dyns, lbxs, ubxs, lbus, ubus, xhat, alpha, horizon, base_dim = toy_dataset.const
+    a_dyn, lbxs, ubxs, lbus, ubus, xhat, alpha, horizon, base_dim = toy_dataset.const
     x_data = toy_dataset.x0sets
     dimx = lbxs.shape[1]
 
@@ -265,7 +265,7 @@ def load_data(
     batched_objective = jax.vmap(quadratic_form, in_axes=[0])
 
     return (
-        a_dyns,
+        a_dyn,
         lbxs,
         ubxs,
         lbus,

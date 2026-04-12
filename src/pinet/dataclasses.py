@@ -20,13 +20,13 @@ class EqualityConstraintsSpecification:
         a_dyn (Optional[jnp.ndarray]): Matrix representing the LHS of the equality
             constraint.
             Shape (batch_size, n_constraints, dimension).
-        Apinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix a_dyn.
+        a_dyn_pinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix a_dyn.
             Shape (batch_size, dimension, n_constraints).
     """
 
     b: jnp.ndarray | None = None
     a_dyn: jnp.ndarray | None = None
-    Apinv: jnp.ndarray | None = None
+    a_dyn_pinv: jnp.ndarray | None = None
 
     def validate(self) -> None:
         """Validate the equality constraints specification.

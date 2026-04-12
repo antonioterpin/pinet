@@ -258,6 +258,7 @@ for i in range(batch_size):
 
     if x_var.value is None:
         raise RuntimeError(f"sample {i}: {problem.status}")
+    # The SOC slack must be produced whenever the solve succeeded.
     assert s_var.value is not None
     x_sol.append(x_var.value.reshape(n, 1))
     s_sol.append(s_var.value.reshape(m, 1))
@@ -275,6 +276,7 @@ sigma = 0.1
 omega = 1.8
 
 a_dyn_aug = jnp.concatenate((a_dyn, jnp.eye(m)), axis=1)
+# The augmented equality matrix must match the primal-plus-slack dimension.
 assert a_dyn_aug.shape == (
     m,
     m + n,

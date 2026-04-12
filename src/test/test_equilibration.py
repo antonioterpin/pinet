@@ -1,7 +1,8 @@
 """Test projection layer and vjp, with equilibration."""
 
+from dataclasses import dataclass
 from itertools import product
-from typing import cast
+from typing import Literal, cast
 
 import cvxpy as cp
 import jax
@@ -25,6 +26,63 @@ jax.config.update("jax_enable_x64", True)
 
 SEEDS = [24, 42]
 BATCH_SIZE = [1, 5]
+
+
+@dataclass(frozen=True)
+class LossInputs:
+    """Structured inputs shared by the test loss closures.
+
+    Attributes:
+        b: Equality right-hand side used when `var_b` is enabled.
+        var_b: Whether the equality constraint treats `b` as a variable input.
+        pl_unroll: Projection layer using unrolled differentiation.
+        pl_unroll_equil: Projection layer using unrolling with equilibration.
+        pl_impl_equil: Projection layer using implicit differentiation with
+            equilibration.
+        n_iter: Number of forward projection iterations.
+        sigma: Penalty parameter for the non-equilibrated projection.
+        sigma_equil: Penalty parameter for the equilibrated projection.
+        omega: Relaxation parameter used by the projection.
+    """
+
+    b: jnp.ndarray
+    var_b: bool
+    pl_unroll: Project
+    pl_unroll_equil: Project
+    pl_impl_equil: Project
+    n_iter: int
+    sigma: float
+    sigma_equil: float
+    omega: float
+
+    def projection_input(self, x: jnp.ndarray) -> ProjectionInstance:
+        """Build the projection input expected by the layer under test.
+
+        Args:
+            x: Raw point to project.
+
+        Returns:
+            Projection instance containing the point and optional equality data.
+        """
+        return ProjectionInstance(
+            x=x[..., None],
+            eq=EqualityConstraintsSpecification(b=self.b) if self.var_b else None,
+        )
+
+
+@dataclass(frozen=True)
+class LossOptions:
+    """Per-call options for the test loss closure.
+
+    Attributes:
+        mode: Projection variant used to evaluate the loss.
+        n_iter_bwd: Number of backward fixed-point iterations.
+        fpi: Whether to use fixed-point iteration in the backward pass.
+    """
+
+    mode: Literal["unroll", "unroll_equil", "impl_equil"]
+    n_iter_bwd: int = -1
+    fpi: bool = True
 
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
@@ -170,81 +228,89 @@ def test_general_eq_ineq(seed, batch_size):
             sigma=sigma_equil,
             omega=omega,
         )[0]
-        assert jnp.allclose(y_unroll.x[..., 0], yqp, atol=1e-4, rtol=1e-4)
-        assert jnp.allclose(y_impl.x[..., 0], yqp, atol=1e-4, rtol=1e-4)
-        assert jnp.allclose(y_impl_equil.x[..., 0], yqp, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(y_unroll.x[..., 0], yqp, atol=1e-4, rtol=1e-4), (
+            "Unrolled projection should match the CVXPY reference solution. "
+            f"Expected {yqp}, got {y_unroll.x[..., 0]}."
+        )
+        assert jnp.allclose(y_impl.x[..., 0], yqp, atol=1e-4, rtol=1e-4), (
+            "Equilibrated unrolled projection should match the CVXPY reference "
+            f"solution. Expected {yqp}, got {y_impl.x[..., 0]}."
+        )
+        assert jnp.allclose(y_impl_equil.x[..., 0], yqp, atol=1e-4, rtol=1e-4), (
+            "Implicit equilibrated projection should match the CVXPY reference "
+            f"solution. Expected {yqp}, got {y_impl_equil.x[..., 0]}."
+        )
 
         # Check that the VJP is computed correctly
         # Compare with loop unrolling
         # Simple "loss" function as inner product
         n_iter = 1000
         vec = jnp.array(jax.random.normal(key[4], shape=(dim, batch_size)))
+        loss_inputs = LossInputs(
+            b=b,
+            var_b=var_b,
+            pl_unroll=pl_unroll,
+            pl_unroll_equil=pl_unroll_equil,
+            pl_impl_equil=pl_impl_equil,
+            n_iter=n_iter,
+            sigma=sigma,
+            sigma_equil=sigma_equil,
+            omega=omega,
+        )
 
-        def loss(
-            x,
-            v,
-            mode,
-            n_iter_bwd,
-            fpi,
-            *,
-            current_var_b=var_b,
-            current_pl_unroll=pl_unroll,
-            current_pl_unroll_equil=pl_unroll_equil,
-            current_pl_impl_equil=pl_impl_equil,
-            current_n_iter=n_iter,
-            current_sigma=sigma,
-            current_sigma_equil=sigma_equil,
-            current_omega=omega,
-        ):
-            inp = ProjectionInstance(
-                x=x[..., None],
-                eq=EqualityConstraintsSpecification(b=b) if current_var_b else None,
-            )
-            if mode == "unroll":
+        def loss(x, v, inputs: LossInputs, options: LossOptions):
+            inp = inputs.projection_input(x)
+            if options.mode == "unroll":
                 return (
-                    current_pl_unroll.call(
+                    inputs.pl_unroll.call(
                         yraw=inp,
-                        n_iter=current_n_iter,
-                        sigma=current_sigma,
-                        omega=current_omega,
+                        n_iter=inputs.n_iter,
+                        sigma=inputs.sigma,
+                        omega=inputs.omega,
                     )[0].x[..., 0]
                     @ v
                 ).mean()
-            elif mode == "unroll_equil":
+            elif options.mode == "unroll_equil":
                 return (
-                    current_pl_unroll_equil.call(
+                    inputs.pl_unroll_equil.call(
                         yraw=inp,
-                        n_iter=current_n_iter,
-                        sigma=current_sigma_equil,
-                        omega=current_omega,
+                        n_iter=inputs.n_iter,
+                        sigma=inputs.sigma_equil,
+                        omega=inputs.omega,
                     )[0].x[..., 0]
                     @ v
                 ).mean()
-            elif mode == "impl_equil":
+            elif options.mode == "impl_equil":
                 return (
-                    current_pl_impl_equil.call(
+                    inputs.pl_impl_equil.call(
                         yraw=inp,
-                        n_iter=current_n_iter,
-                        sigma=current_sigma_equil,
-                        omega=current_omega,
-                        n_iter_bwd=n_iter_bwd,
-                        fpi=fpi,
+                        n_iter=inputs.n_iter,
+                        sigma=inputs.sigma_equil,
+                        omega=inputs.omega,
+                        n_iter_bwd=options.n_iter_bwd,
+                        fpi=options.fpi,
                     )[0].x[..., 0]
                     @ v
                 ).mean()
 
         grad_unroll = jax.grad(loss, argnums=0)(
-            x, vec, mode="unroll", n_iter_bwd=-1, fpi=True
+            x, vec, loss_inputs, LossOptions(mode="unroll")
         )
         grad_unroll_equil = jax.grad(loss, argnums=0)(
-            x, vec, mode="unroll_equil", n_iter_bwd=-1, fpi=True
+            x, vec, loss_inputs, LossOptions(mode="unroll_equil")
         )
         grad_impl_equil = jax.grad(loss, argnums=0)(
-            x, vec, mode="impl_equil", n_iter_bwd=100, fpi=False
+            x, vec, loss_inputs, LossOptions(mode="impl_equil", n_iter_bwd=100, fpi=False)
         )
 
-        assert jnp.allclose(grad_unroll, grad_unroll_equil, atol=1e-4, rtol=1e-4)
-        assert jnp.allclose(grad_unroll, grad_impl_equil, atol=1e-4, rtol=1e-4)
+        assert jnp.allclose(grad_unroll, grad_unroll_equil, atol=1e-4, rtol=1e-4), (
+            "Equilibrated unrolled VJP should match the baseline unrolled VJP. "
+            f"Expected {grad_unroll}, got {grad_unroll_equil}."
+        )
+        assert jnp.allclose(grad_unroll, grad_impl_equil, atol=1e-4, rtol=1e-4), (
+            "Implicit equilibrated VJP should match the baseline unrolled VJP. "
+            f"Expected {grad_unroll}, got {grad_impl_equil}."
+        )
 
 
 @pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
@@ -275,11 +341,20 @@ def test_row_scaling_balances_rows(update_mode):
     scaled, d_r, d_c = ruiz_equilibration(a_dyn, params)
     ratio_after = _row_ratio(scaled, 2.0)
 
-    assert ratio_after < ratio_before
-    assert ratio_after < max_balanced_row_ratio
+    assert ratio_after < ratio_before, (
+        "Ruiz equilibration should reduce the row norm ratio. "
+        f"Expected ratio_after < {ratio_before}, got {ratio_after}."
+    )
+    assert ratio_after < max_balanced_row_ratio, (
+        "Ruiz equilibration should keep the balanced row ratio below the target "
+        f"threshold. Expected < {max_balanced_row_ratio}, got {ratio_after}."
+    )
     # scaled = diag(d_r) a_dyn diag(d_c)
     recon = (a_dyn * d_r[:, None]) * d_c[None, :]
-    assert jnp.allclose(scaled, recon, atol=1e-12)
+    assert jnp.allclose(scaled, recon, atol=1e-12), (
+        "Scaled matrix should equal diag(d_r) @ a_dyn @ diag(d_c). "
+        f"Expected {recon}, got {scaled}."
+    )
 
 
 @pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
@@ -306,9 +381,18 @@ def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
     s1, dr1, dc1 = ruiz_equilibration(a_dyn, p_one)
     s2, dr2, dc2 = ruiz_equilibration(a_dyn, p_tol)
 
-    assert jnp.allclose(s1, s2, atol=1e-12, rtol=0.0)
-    assert jnp.allclose(dr1, dr2, atol=1e-12, rtol=0.0)
-    assert jnp.allclose(dc1, dc2, atol=1e-12, rtol=0.0)
+    assert jnp.allclose(s1, s2, atol=1e-12, rtol=0.0), (
+        "One-step equilibration via max_iter should match the high-tolerance path. "
+        f"Expected {s1}, got {s2}."
+    )
+    assert jnp.allclose(dr1, dr2, atol=1e-12, rtol=0.0), (
+        "Row scaling factors should match between the one-step and "
+        f"high-tolerance paths. Expected {dr1}, got {dr2}."
+    )
+    assert jnp.allclose(dc1, dc2, atol=1e-12, rtol=0.0), (
+        "Column scaling factors should match between the one-step and "
+        f"high-tolerance paths. Expected {dc1}, got {dc2}."
+    )
 
 
 def test_safeguard_when_condition_worsens_triggers_identity_scalings():
@@ -341,13 +425,25 @@ def test_safeguard_when_condition_worsens_triggers_identity_scalings():
     cond_after_no = jnp.linalg.cond(s_no).item()
 
     # Sanity: this is the branch where safeguard should matter
-    assert cond_after_no > cond_before
+    assert cond_after_no > cond_before, (
+        "This test matrix should worsen the condition number without the "
+        f"safeguard. Expected cond_after_no > {cond_before}, got {cond_after_no}."
+    )
 
     s_yes, dr_yes, dc_yes = ruiz_equilibration(a_dyn, p2)
     cond_after_yes = jnp.linalg.cond(s_yes).item()
 
     # Guard must not return something worse than original
-    assert cond_after_yes <= cond_before + 1e-12
+    assert cond_after_yes <= cond_before + 1e-12, (
+        "Safeguarded equilibration should not worsen the original condition "
+        f"number. Expected <= {cond_before + 1e-12}, got {cond_after_yes}."
+    )
     # Guarded scalings should be identity
-    assert jnp.allclose(dr_yes, jnp.ones(a_dyn.shape[0]))
-    assert jnp.allclose(dc_yes, jnp.ones(a_dyn.shape[1]))
+    assert jnp.allclose(dr_yes, jnp.ones(a_dyn.shape[0])), (
+        "Safeguard should return identity row scalings when equilibration "
+        f"worsens conditioning. Got {dr_yes}."
+    )
+    assert jnp.allclose(dc_yes, jnp.ones(a_dyn.shape[1])), (
+        "Safeguard should return identity column scalings when equilibration "
+        f"worsens conditioning. Got {dc_yes}."
+    )
