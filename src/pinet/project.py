@@ -182,6 +182,14 @@ class Project:
                     scale=self.d_c[:, : self.dim, :],
                 )
 
+        if is_single_simple_constraint:
+            # For a single simple constraint the projection is a closed-form
+            # one-step operation: proj(x) = x - A^+ (Ax - b).
+            # The ADMM initializer zeros out yraw.x, causing _project_single
+            # to project the origin rather than the actual input point.
+            # Override initialize so yraw.x is preserved end-to-end.
+            self.initialize = lambda yraw: yraw
+
         project_fn = (
             _project_general
             if (self.unroll or is_single_simple_constraint)
@@ -344,7 +352,7 @@ def _project_general(
     s0: Optional[ProjectionInstance] = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
     omega: float = PROJECTION_DEFAULT_OMEGA,
-    n_iter: int = 0,
+    n_iter: int = 100,
 ) -> tuple[ProjectionInstance, ProjectionInstance]:
     """Project a batch of points using Douglas-Rachford.
 
@@ -365,19 +373,19 @@ def _project_general(
         tuple[ProjectionInstance, ProjectionInstance]: First output is the projected
             point, and second output is the value of the governing sequence.
     """
-    if n_iter > 0:
-        s0 = initialize_fn(yraw) if s0 is None else s0
-        sk, _ = jax.lax.scan(
-            lambda s_prev, _: (
-                step_iteration(s_prev, yraw, sigma, omega),
-                None,
-            ),
-            s0,
+    assert n_iter > 0, "Number of iterations must be positive."
+
+    s0 = initialize_fn(yraw) if s0 is None else s0
+    sk, _ = jax.lax.scan(
+        lambda s_prev, _: (
+            step_iteration(s_prev, yraw, sigma, omega),
             None,
-            length=n_iter,
-        )
-    else:
-        sk = yraw
+        ),
+        s0,
+        None,
+        length=n_iter,
+    )
+
     y = step_final(sk).x[:, : yraw.x.shape[1], :]
     y_scaled = y * d_c[:, : yraw.x.shape[1], :]
 
