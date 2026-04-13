@@ -113,6 +113,95 @@ box = BoxConstraint(BoxConstraintSpecification(lb=lb_x, ub=ub_x, mask=mask))
 # box.project(...) clips x[:, mask, :] into [lb_x, ub_x].
 ```
 
+## NonLinearConstraint — generic non-linear constraints
+
+`NonLinearConstraint` is the generic interface for constraints of the form
+`g(A @ y + a) <= f @ y + b`, where the non-linearity is specified through
+`nl_type`. The user defines the constraint once through a
+`NonLinearSpecification`, then passes both the constraint object and the
+corresponding runtime specification to `Project`.
+
+Internally, the constraint parser lifts the problem into the intersection of:
+- an affine equality constraint, and
+- primitive constraints we can project onto efficiently, such as second-order cones.
+
+At the moment, the public non-linear path supports `SOCType`. As with the other
+constraints, `A` and `f` define the fixed structure of the constraint, while
+`a` and `b` may vary across the batch.
+
+```python
+import jax.numpy as jnp
+from pinet import NonLinearConstraint, NonLinearSpecification, SOCType
+
+# Example: ||A @ y + a||_2 <= f @ y + b
+B = 5
+A_nl = jnp.array([[[1.0, 0.0], [0.0, 1.0]]])  # (1, 2, d)
+a_nl = jnp.zeros((B, 2, 1))                    # (B, 2, 1)
+f_nl = jnp.array([[[1.0, 0.0]]])              # (1, 1, d)
+b_nl = jnp.full((B, 1, 1), 0.5)               # (B, 1, 1)
+
+nl_spec = NonLinearSpecification(
+    nl_type=SOCType,
+    A=A_nl,
+    a=a_nl,
+    f=f_nl,
+    b=b_nl,
+)
+nl = NonLinearConstraint(spec=nl_spec)
+```
+
+Small working example with `Project`:
+
+```python
+import jax.numpy as jnp
+from pinet import AffineInequalityConstraint, NonLinearConstraint
+from pinet import NonLinearSpecification, ProjectionInstance, Project, SOCType
+
+B, d = 1, 2
+
+# Simple affine inequality: -2 <= y_i <= 2
+C = jnp.eye(d).reshape(1, d, d)               # (1, d, d)
+lb = jnp.full((B, d, 1), -2.0)                # (B, d, 1)
+ub = jnp.full((B, d, 1),  2.0)                # (B, d, 1)
+ineq = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+# Non-linear constraint: ||y||_2 <= y_0 + 0.5
+A_nl = jnp.array([[[1.0, 0.0], [0.0, 1.0]]])  # (1, 2, d)
+a_nl = jnp.zeros((B, 2, 1))                    # (B, 2, 1)
+f_nl = jnp.array([[[1.0, 0.0]]])              # (1, 1, d)
+b_nl = jnp.full((B, 1, 1), 0.5)               # (B, 1, 1)
+
+nl_spec = NonLinearSpecification(
+    nl_type=SOCType,
+    A=A_nl,
+    a=a_nl,
+    f=f_nl,
+    b=b_nl,
+)
+nl = NonLinearConstraint(spec=nl_spec)
+
+proj = Project(
+    ineq_constraint=ineq,
+    nl_constraints=[nl],
+)
+
+x0 = jnp.array([[[10.0], [-10.0]]])             # point to project, shape (B, d, 1)
+yraw = ProjectionInstance(x=x0, nl=[nl_spec])
+
+y, sK = proj.call(yraw=yraw, n_iter=500, sigma=1.0, omega=1.7)
+
+# Check the maximum violation across all constraints
+cv = proj.cv(y)
+```
+
+To add a new non-linear constraint type, you need to:
+- define a new `NonLinearConstraintType`;
+- implement a primitive constraint with a `project()` and `cv()` method;
+- extend the constraint parser so it lifts the generic non-linear form to that primitive constraint;
+- update `NonLinearSpecification.to_primitive_spec()` to convert the generic runtime specification into the primitive one.
+
+In other words, users only work with `NonLinearConstraint`, while developers need to provide the corresponding lifted representation and primitive projector.
+
 ## Combine constraints with `Project` (Douglas–Rachford)
 
 `Project` handles:
