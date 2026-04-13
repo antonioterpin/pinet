@@ -2,7 +2,6 @@
 
 import functools
 from dataclasses import dataclass, replace
-from typing import Optional
 
 import jax
 import jax.numpy as jnp
@@ -26,27 +25,38 @@ class EqualityConstraintsSpecification:
     Attributes:
         b (Optional[jnp.ndarray]): Vector representing the RHS of the equality constraint.
             Shape (batch_size, n_constraints, 1)
-        A (Optional[jnp.ndarray]): Matrix representing the LHS of the equality constraint.
+        a_dyn (Optional[jnp.ndarray]): Matrix representing the LHS of the equality
+            constraint.
             Shape (batch_size, n_constraints, dimension).
-        Apinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix A.
+        a_dyn_pinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix a_dyn.
             Shape (batch_size, dimension, n_constraints).
     """
 
-    b: Optional[jnp.ndarray] = None
-    A: Optional[jnp.ndarray] = None
-    Apinv: Optional[jnp.ndarray] = None
+    b: jnp.ndarray | None = None
+    a_dyn: jnp.ndarray | None = None
+    a_dyn_pinv: jnp.ndarray | None = None
 
     def validate(self) -> None:
         """Validate the equality constraints specification.
 
         NOTE: This checks cannot be done after tracing, but this function
         can be used to validate the inputs before tracing.
-        """
-        if self.A is not None and self.b is None:
-            raise ValueError("If A is provided, b must also be provided.")
 
-    def update(self, **kwargs) -> "EqualityConstraintsSpecification":
-        """Update some attribute by keyword."""
+        Raises:
+            ValueError: If a_dyn is provided but b is not.
+        """
+        if self.a_dyn is not None and self.b is None:
+            raise ValueError("If a_dyn is provided, b must also be provided.")
+
+    def update(self, **kwargs: object) -> "EqualityConstraintsSpecification":
+        """Update some attribute by keyword.
+
+        Args:
+            **kwargs: Keyword arguments matching field names to update.
+
+        Returns:
+            EqualityConstraintsSpecification: Updated instance.
+        """
         return replace(self, **kwargs)
 
 
@@ -58,75 +68,99 @@ class BoxConstraintSpecification:
     Attributes:
         lb (jnp.ndarray): Lower bound of the box. Shape (batch_size, n_constraints, 1).
         ub (jnp.ndarray): Upper bound of the box. Shape (batch_size, n_constraints, 1).
-        maskidx (Optional[jnp.ndarray]):
+        mask (jnp.ndarray | None):
             Mask to apply the constraint only to some dimensions.
     """
 
-    lb: Optional[jnp.ndarray] = None
-    ub: Optional[jnp.ndarray] = None
-    mask: Optional[jnp.ndarray] = None
+    lb: jnp.ndarray | None = None
+    ub: jnp.ndarray | None = None
+    mask: jnp.ndarray | None = None
 
-    def update(self, **kwargs) -> "BoxConstraintSpecification":
-        """Update some attribute by keyword."""
+    def update(self, **kwargs: object) -> "BoxConstraintSpecification":
+        """Update some attribute by keyword.
+
+        Args:
+            **kwargs: Keyword arguments matching field names to update.
+
+        Returns:
+            BoxConstraintSpecification: Updated instance.
+        """
         return replace(self, **kwargs)
+
+    def _validate_bound_shapes(self) -> None:
+        if (
+            self.lb is not None
+            and hasattr(self.lb, "ndim")
+            and self.lb.ndim != EXPECTED_BOUND_NDIM
+        ):
+            raise ValueError(
+                "Lower bound must have shape (batch_size, n_constraints, 1). "
+                f"Received shape: {getattr(self.lb, 'shape', None)}."
+            )
+        if (
+            self.ub is not None
+            and hasattr(self.ub, "ndim")
+            and self.ub.ndim != EXPECTED_BOUND_NDIM
+        ):
+            raise ValueError(
+                "Upper bound must have shape (batch_size, n_constraints, 1). "
+                f"Received shape: {getattr(self.ub, 'shape', None)}."
+            )
+
+    def _validate_bound_compatibility(self) -> None:
+        if self.lb is None or self.ub is None:
+            return
+        if hasattr(self.lb, "shape") and hasattr(self.ub, "shape"):
+            if self.lb.shape[1:] != self.ub.shape[1:]:
+                raise ValueError(
+                    "Lower and upper bounds must have the same shape. "
+                    f"Received shapes: {self.lb.shape} and {self.ub.shape}."
+                )
+            if (
+                self.lb.shape[0] != self.ub.shape[0]
+                and self.lb.shape[0] != 1
+                and self.ub.shape[0] != 1
+            ):
+                raise ValueError(
+                    "Batch size of lower and upper bounds must be the same "
+                    "or one of them must be 1. "
+                    f"Received shapes: {self.lb.shape} and {self.ub.shape}."
+                )
+
+        if not jnp.all(self.lb <= self.ub):
+            raise ValueError("Lower bound must be less than or equal to the upper bound.")
+
+    def _validate_mask(self) -> None:
+        if self.mask is None:
+            return
+        if getattr(self.mask, "dtype", None) != jnp.bool_:
+            raise TypeError("Mask must be a boolean array.")
+        if getattr(self.mask, "ndim", None) != 1:
+            raise ValueError("Mask must be a 1D array.")
+
+        dim = getattr(self.lb, "shape", None) or getattr(self.ub, "shape", None)
+        if dim is not None and dim[1] != int(jnp.sum(self.mask)):
+            raise ValueError(
+                "Number of active entries in the mask must match the bounds. "
+                f"Received mask shape: {getattr(self.mask, 'shape', None)}, "
+                f"bound shape: {dim}."
+            )
 
     def validate(self) -> None:
         """Validate the box constraint specification.
 
         NOTE: This checks cannot be done after tracing, but this function
         can be used to validate the inputs before tracing.
+
+        Raises:
+            ValueError: If bounds are invalid or inconsistent.
         """
         if self.lb is None and self.ub is None:
             raise ValueError("At least one of lower or upper bounds must be provided.")
 
-        if self.lb is not None and hasattr(self.lb, "ndim") and self.lb.ndim != 3:
-            raise ValueError(
-                "Lower bound must have shape (batch_size, n_constraints, 1). "
-                f"Received shape: {getattr(self.lb, 'shape', None)}."
-            )
-        if self.ub is not None and hasattr(self.ub, "ndim") and self.ub.ndim != 3:
-            raise ValueError(
-                "Upper bound must have shape (batch_size, n_constraints, 1). "
-                f"Received shape: {getattr(self.ub, 'shape', None)}."
-            )
-
-        if self.lb is not None and self.ub is not None:
-            if hasattr(self.lb, "shape") and hasattr(self.ub, "shape"):
-                if self.lb.shape[1:] != self.ub.shape[1:]:
-                    raise ValueError(
-                        "Lower and upper bounds must have the same shape. "
-                        f"Received shapes: {self.lb.shape} and {self.ub.shape}."
-                    )
-                if (
-                    self.lb.shape[0] != self.ub.shape[0]
-                    and self.lb.shape[0] != 1
-                    and self.ub.shape[0] != 1
-                ):
-                    raise ValueError(
-                        "Batch size of lower and upper bounds must be the same "
-                        "or one of them must be 1. "
-                        f"Received shapes: {self.lb.shape} and {self.ub.shape}."
-                    )
-
-            if not jnp.all(self.lb <= self.ub):
-                raise ValueError(
-                    "Lower bound must be less than or equal to the upper bound."
-                )
-
-        if self.mask is not None:
-            if getattr(self.mask, "dtype", None) != jnp.bool_:
-                raise TypeError("Mask must be a boolean array.")
-            if getattr(self.mask, "ndim", None) != 1:
-                raise ValueError("Mask must be a 1D array.")
-
-            dim = getattr(self.lb, "shape", None) or getattr(self.ub, "shape", None)
-            if dim is not None:
-                if dim[1] != int(jnp.sum(self.mask)):
-                    raise ValueError(
-                        "Number of active entries in the mask must match the bounds. "
-                        f"Received mask shape: {getattr(self.mask, 'shape', None)}, "
-                        f"bound shape: {dim}."
-                    )
+        self._validate_bound_shapes()
+        self._validate_bound_compatibility()
+        self._validate_mask()
 
 
 @jax.tree_util.register_dataclass
@@ -378,15 +412,25 @@ class ProjectionInstance:
 
         NOTE: This checks cannot be done after tracing, but this function
         can be used to validate the inputs before tracing.
+
+        Raises:
+            ValueError: If x does not have shape (batch_size, dimension, 1).
         """
-        if self.x.ndim != 3:
+        if self.x.ndim != EXPECTED_PROJECTION_NDIM:
             raise ValueError(
                 "x must have shape (batch_size, dimension, 1). "
                 f"Received shape: {self.x.shape}."
             )
 
-    def update(self, **kwargs) -> "ProjectionInstance":
-        """Update some attribute by keyword."""
+    def update(self, **kwargs: object) -> "ProjectionInstance":
+        """Update some attribute by keyword.
+
+        Args:
+            **kwargs: Keyword arguments matching field names to update.
+
+        Returns:
+            ProjectionInstance: Updated instance.
+        """
         return replace(self, **kwargs)
 
 
@@ -404,7 +448,7 @@ class EquilibrationParams:
             Available options are:
                 - "Jacobi" means compute both row and column norms and update.
                 - "Gauss" means compute row, update, compute column, update.
-        safeguard (bool): Check if the condition number of A has decreased.
+        safeguard (bool): Check if the condition number of a_dyn has decreased.
     """
 
     max_iter: int = EQUILIBRATION_DEFAULT_MAX_ITER
@@ -415,7 +459,11 @@ class EquilibrationParams:
     safeguard: bool = EQUILIBRATION_DEFAULT_SAFEGUARD
 
     def validate(self) -> None:
-        """Validate the equilibration parameters."""
+        """Validate the equilibration parameters.
+
+        Raises:
+            ValueError: If any parameter is invalid.
+        """
         if self.max_iter < 0:
             raise ValueError("max_iter must be non-negative.")
         if self.tol <= 0:
@@ -425,6 +473,13 @@ class EquilibrationParams:
         if self.update_mode not in ["Gauss", "Jacobi"]:
             raise ValueError('update_mode must be either "Gauss" or "Jacobi".')
 
-    def update(self, **kwargs) -> "EquilibrationParams":
-        """Update some attribute by keyword."""
+    def update(self, **kwargs: object) -> "EquilibrationParams":
+        """Update some attribute by keyword.
+
+        Args:
+            **kwargs: Keyword arguments matching field names to update.
+
+        Returns:
+            EquilibrationParams: Updated instance.
+        """
         return replace(self, **kwargs)

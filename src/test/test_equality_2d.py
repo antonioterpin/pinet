@@ -1,6 +1,7 @@
 """Test the HardConstrainedMLP on 2d with 1 equality constraint."""
 
 from itertools import product
+from typing import cast
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +20,11 @@ VALID_METHODS = ["pinv"]
 
 
 class HardConstrainedMLP(nn.Module):
-    """Simple MLP with hard constraints on the output."""
+    """Simple MLP with hard constraints on the output.
+
+    Attributes:
+        eq_constraint: Equality constraint applied to the output projection.
+    """
 
     eq_constraint: EqualityConstraint
 
@@ -38,31 +43,35 @@ class HardConstrainedMLP(nn.Module):
 
 
 @pytest.mark.parametrize("method, seed", product(VALID_METHODS, SEEDS))
-def test_equality_constraint_2d(method, seed):
+def test_equality_constraint_2d(method: str, seed: int) -> None:
     """Test HardConstrainedMLP on a 2D fitting with equality constraints.
+
+    Args:
+        method: Method used to solve the equality-constrained projection.
+        seed: Random seed used to initialize model parameters.
 
     The problem consists in fitting a (1D) parametrization of a 2D curve.
     The output is constrained to lie on the y=x line, i.e., one
     equality constraint.
     """
     # Test parameters
-    N_SAMPLES = 2000
-    LEARNING_RATE = 5e-3
-    N_EPOCHS = 2000
+    n_samples = 2000
+    learning_rate = 5e-3
+    n_epochs = 2000
 
     # Generate dataset
-    x = jnp.linspace(0.0, 1.0, N_SAMPLES).reshape(-1, 1)
+    x = jnp.linspace(0.0, 1.0, n_samples).reshape(-1, 1)
     y = jnp.hstack((x, x + jnp.sin(1.0 * jnp.pi * x)))
 
     # Define and initialize the hard-constrained MLP
     # Define equality constraint LHS and RHS
-    A = jnp.expand_dims(jnp.array([[1.0, -1.0]]), axis=0)
+    a_dyn = jnp.expand_dims(jnp.array([[1.0, -1.0]]), axis=0)
     b = jnp.zeros(shape=(1, 1, 1))
     # Instantiate equality constraint
-    eq_constraint = EqualityConstraint(A=A, b=b, method=method)
+    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
     model = HardConstrainedMLP(eq_constraint)
     params = model.init(jax.random.PRNGKey(seed=seed), jnp.ones((1, 1)), 0)
-    tx = optax.adam(LEARNING_RATE)
+    tx = optax.adam(learning_rate)
     state = train_state.TrainState.create(
         apply_fn=model.apply, params=params["params"], tx=tx
     )
@@ -71,25 +80,30 @@ def test_equality_constraint_2d(method, seed):
     @jax.jit
     def train_step(state, x_batch, y_batch, step):
         def loss_fn(params):
-            predictions = state.apply_fn({"params": params}, x_batch, step)
+            predictions = cast(
+                jax.Array, state.apply_fn({"params": params}, x_batch, step)
+            )
             return jnp.mean((predictions - y_batch) ** 2)
 
         grads = jax.grad(loss_fn)(state.params)
         return state.apply_gradients(grads=grads)
 
     # Run training
-    for step in range(N_EPOCHS):
+    for step in range(n_epochs):
         state = train_step(state, x, y, step)
 
     # Get predictions
-    predictions = model.apply({"params": state.params}, x, 100000)
+    predictions = cast(jax.Array, model.apply({"params": state.params}, x, 100000))
 
     # Project ground truth onto the y=x axis
     projected_y = jnp.repeat(jnp.average(y, axis=1, keepdims=True), repeats=2, axis=1)
 
     atol = 3e-2
     rtol = 1e-3
-    assert jnp.allclose(predictions, projected_y, atol=atol, rtol=rtol)
+    assert jnp.allclose(predictions, projected_y, atol=atol, rtol=rtol), (
+        "Trained predictions should lie on the y=x projection of the ground truth. "
+        f"Expected {projected_y}, got {predictions}."
+    )
 
     # Plot dataset and print extra results
     # Create a scatter plot

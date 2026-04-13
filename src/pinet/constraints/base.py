@@ -15,7 +15,7 @@ class Constraint:
         """Project the input to the feasible region.
 
         Args:
-            yraw (ProjectionInstance): ProjectionInstance to project.
+            yraw: ProjectionInstance to project.
 
         Returns:
             ProjectionInstance: The projected input.
@@ -26,7 +26,7 @@ class Constraint:
         """Compute the constraint violation.
 
         Args:
-            yraw (ProjectionInstance): ProjectionInstance to evaluate.
+            yraw: ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.

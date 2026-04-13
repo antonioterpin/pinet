@@ -10,7 +10,6 @@ from .non_linear_types import L2NormType, NonLinearConstraintType, SOCType
 from .soc_constraint import SocConstraint
 
 __all__ = [
-    "EqualityConstraint",
     "AffineInequalityConstraint",
     "BoxConstraint",
     "CartesianConstraint",

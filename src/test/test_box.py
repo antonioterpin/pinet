@@ -31,9 +31,7 @@ def test_box(lb, ub, x, y):
     box_constraint = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
     z = box_constraint.project(ProjectionInstance(x=x)).x
 
-    assert jnp.allclose(
-        y, z
-    ), f"""
+    assert jnp.allclose(y, z), f"""
         Projection of {x} onto:
             lb: {lb}
             ub: {ub}
@@ -42,6 +40,7 @@ def test_box(lb, ub, x, y):
 
 
 def test_mask():
+    expected_second_value = 2
     box_constraint = BoxConstraint(
         BoxConstraintSpecification(
             lb=jnp.array([1]).reshape((1, 1, 1)),
@@ -53,7 +52,9 @@ def test_mask():
     y = box_constraint.project(ProjectionInstance(x=x)).x
 
     assert y[0, 0, 0] == 1, "The first element should be clipped to 1."
-    assert y[0, 1, 0] == 2, "The second element should not be clipped."
+    assert y[0, 1, 0] == expected_second_value, (
+        "The second element should not be clipped."
+    )
 
 
 @pytest.mark.parametrize(
@@ -65,7 +66,7 @@ def test_box_parametrized(n_batch_l, n_batch_u, n_batch_x, seed):
         return
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=4)
-    mask = jax.random.bernoulli(key[0], shape=(DIM)).astype(jnp.bool_)
+    mask = jax.random.bernoulli(key[0], shape=(DIM,)).astype(jnp.bool_)
     active_entries = mask.sum().item()
 
     lb = jax.random.uniform(
@@ -113,12 +114,10 @@ def test_box_parametrized(n_batch_l, n_batch_u, n_batch_x, seed):
     z_variable = box_constraint_variable.project(proj).x
 
     # Should match the same baseline and the static version
-    assert jnp.allclose(
-        y, z_variable
-    ), "Projection (variable) should match the for loop."
-    assert jnp.allclose(
-        z_static, z_variable
-    ), "Static and variable bound paths should be equivalent."
+    assert jnp.allclose(y, z_variable), "Projection (variable) should match the for loop."
+    assert jnp.allclose(z_static, z_variable), (
+        "Static and variable bound paths should be equivalent."
+    )
 
 
 @pytest.mark.parametrize(
@@ -161,9 +160,7 @@ def test_box_variable_bounds_from_projection_instance_param(lb, ub, x, expected)
     )
     z = box_constraint.project(proj).x
 
-    assert jnp.allclose(
-        z, expected
-    ), f"""
+    assert jnp.allclose(z, expected), f"""
         Variable-bounds projection failed.
         x: {x} lb: {lb} ub: {ub}
         expected: {expected}
@@ -210,9 +207,7 @@ def test_box_variable_bounds_edge_cases(base_lb, base_ub, var_lb, var_ub, x, exp
     )
     z = box_constraint.project(proj).x
 
-    assert jnp.allclose(
-        z, expected
-    ), f"""
+    assert jnp.allclose(z, expected), f"""
         Edge-case variable-bounds projection failed.
         base_lb: {base_lb}, base_ub: {base_ub}
         var_lb: {var_lb}, var_ub: {var_ub}

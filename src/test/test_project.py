@@ -1,6 +1,7 @@
 """Tests for the Project class."""
 
 from itertools import product
+from typing import cast
 
 import cvxpy as cp
 import jax
@@ -8,6 +9,7 @@ import jax.numpy as jnp
 import jax.random as jrnd
 import numpy as np
 import pytest
+from cvxpy.constraints.constraint import Constraint as CvxConstraint
 
 from pinet import (
     AffineInequalityConstraint,
@@ -28,9 +30,9 @@ SEEDS = [24, 42]
 BATCH_SIZE = [1, 5]
 
 
-# TODO: Add another test where varA, varB are false.
+# TODO: Add another test where var_a_dyn, var_b are false.
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
-def test_project_eq_ineq_varA_varb(seed, batch_size):
+def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     dim = 100
     n_eq = 40
     n_ineq = 50
@@ -38,33 +40,38 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, 10)
     # Generate equality constraint LHS
-    A = jax.random.normal(key[0], (batch_size, n_eq, dim))
+    a_dyn = jax.random.normal(key[0], (batch_size, n_eq, dim))
     # Generate equality constraint RHS
-    b = A @ jax.random.normal(key[1], (batch_size, dim, 1))
+    b = a_dyn @ jax.random.normal(key[1], (batch_size, dim, 1))
     # Generate random point
     xinfeas = jax.random.normal(key[2], (batch_size, dim))
     # Compute projection with cvxpy
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yprojcv = cp.Variable(dim)
-        constraints = [A[ii, :, :] @ yprojcv == b[ii, :, 0]]
+        constraints = cast(
+            list[CvxConstraint], [a_dyn[ii, :, :] @ yprojcv == b[ii, :, 0]]
+        )
         objective = cp.Minimize(cp.sum_squares(yprojcv - xinfeas[ii, :]))
         problem = cp.Problem(objective, constraints)
         problem.solve(verbose=False)
         yqp = yqp.at[ii, :].set(jnp.array(yprojcv.value).reshape(dim))
 
     # Compute projection with Project
-    eq_constraint = EqualityConstraint(A, b, method="pinv", var_b=True)
+    eq_constraint = EqualityConstraint(a_dyn, b, method="pinv", var_b=True)
     projection_layer = Project(eq_constraint=eq_constraint)
     yprojiter = projection_layer.call(
         yraw=ProjectionInstance(
             x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b)
         )
     )[0].x
-    assert jnp.allclose(yprojiter[..., 0], yqp)
+    assert jnp.allclose(yprojiter[..., 0], yqp), (
+        "Project should match the CVXPY equality-only solution. "
+        f"Expected {yqp}, got {yprojiter[..., 0]}."
+    )
 
     # Generate new RHS
-    b_new = A @ jax.random.normal(key[3], (batch_size, dim, 1))
+    b_new = a_dyn @ jax.random.normal(key[3], (batch_size, dim, 1))
     yprojiter = projection_layer.call(
         yraw=ProjectionInstance(
             x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b_new)
@@ -74,16 +81,21 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yprojcv = cp.Variable(dim)
-        constraints_b_new = [A[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
+        constraints_b_new = cast(
+            list[CvxConstraint], [a_dyn[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
+        )
         objective_b_new = cp.Minimize(cp.sum_squares(yprojcv - xinfeas[ii, :]))
         problem_b_new = cp.Problem(objective_b_new, constraints_b_new)
         problem_b_new.solve(verbose=False)
         yqp = yqp.at[ii, :].set(jnp.array(yprojcv.value).reshape(dim))
 
-    assert jnp.allclose(yprojiter[..., 0], yqp)
+    assert jnp.allclose(yprojiter[..., 0], yqp), (
+        "Project should recompute the equality-only solution after updating b. "
+        f"Expected {yqp}, got {yprojiter[..., 0]}."
+    )
     # %%
     # Generate inequality constraints LHS
-    C = jax.random.normal(key[4], shape=(batch_size, n_ineq, dim))
+    constr_matrix = jax.random.normal(key[4], shape=(batch_size, n_ineq, dim))
     b = jnp.zeros(shape=(batch_size, n_eq, 1))
     lb = jnp.zeros(shape=(batch_size, n_ineq, 1))
     ub = jnp.zeros(shape=(batch_size, n_ineq, 1))
@@ -93,13 +105,16 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         bfeas = cp.Variable(n_eq)
         lfeas = cp.Variable(n_ineq)
         ufeas = cp.Variable(n_ineq)
-        constraints = [
-            A[ii, :, :] @ xfeas == bfeas,
-            lfeas <= C[ii, :, :] @ xfeas,
-            C[ii, :, :] @ xfeas <= ufeas,
-            -1 <= xfeas,
-            xfeas <= 1,
-        ]
+        constraints = cast(
+            list[CvxConstraint],
+            [
+                a_dyn[ii, :, :] @ xfeas == bfeas,
+                lfeas <= constr_matrix[ii, :, :] @ xfeas,
+                constr_matrix[ii, :, :] @ xfeas <= ufeas,
+                -1 <= xfeas,
+                xfeas <= 1,
+            ],
+        )
         objective = cp.Minimize(jnp.ones(shape=(dim)) @ xfeas)
         problem = cp.Problem(objective=objective, constraints=constraints)
         problem.solve()
@@ -110,8 +125,10 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         ub = ub.at[ii, :, :].set(jnp.array(ufeas.value).reshape((n_ineq, 1)))
 
     # Check projection layer without var_b
-    eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=False)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(
+        constr_matrix=constr_matrix, lb=lb, ub=ub
+    )
 
     projection_layer_novarb = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
@@ -122,8 +139,10 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         n_iter=500,
     )[0].x
     # Check projection layer with var_b
-    eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method, var_b=True)
+    ineq_constraint = AffineInequalityConstraint(
+        constr_matrix=constr_matrix, lb=lb, ub=ub
+    )
 
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
@@ -137,18 +156,27 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yproj = cp.Variable(dim)
-        constraints = [
-            A[ii, :, :] @ yproj == b[ii, :, 0],
-            lb[ii, :, 0] <= C[ii, :, :] @ yproj,
-            C[ii, :, :] @ yproj <= ub[ii, :, 0],
-        ]
+        constraints = cast(
+            list[CvxConstraint],
+            [
+                a_dyn[ii, :, :] @ yproj == b[ii, :, 0],
+                lb[ii, :, 0] <= constr_matrix[ii, :, :] @ yproj,
+                constr_matrix[ii, :, :] @ yproj <= ub[ii, :, 0],
+            ],
+        )
         objective = cp.Minimize(cp.sum_squares(yproj - xinfeas[ii, :]))
         problem_qp = cp.Problem(objective=objective, constraints=constraints)
         problem_qp.solve()
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
-    assert jnp.allclose(xprojiter[..., 0], yqp, atol=1e-3, rtol=1e-3)
-    assert jnp.allclose(xprojiter_novarb[..., 0], yqp, atol=1e-3, rtol=1e-3)
+    assert jnp.allclose(xprojiter[..., 0], yqp, atol=1e-3, rtol=1e-3), (
+        "Project with variable b should match the equality-plus-inequality QP "
+        f"solution. Expected {yqp}, got {xprojiter[..., 0]}."
+    )
+    assert jnp.allclose(xprojiter_novarb[..., 0], yqp, atol=1e-3, rtol=1e-3), (
+        "Project with fixed b should match the equality-plus-inequality QP "
+        f"solution. Expected {yqp}, got {xprojiter_novarb[..., 0]}."
+    )
     # Test call and check method
     sigma = 1.0
     omega = 1.7
@@ -180,74 +208,108 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
         )
         _, flag_novarb, _ = check_novarb(ProjectionInstance(x=xinfeas[..., None]))
 
-        assert flag
-        assert flag_novarb
+        assert flag, (
+            "call_and_check should report convergence for the variable-b "
+            f"projection with reduction={reduction}."
+        )
+        assert flag_novarb, (
+            "call_and_check should report convergence for the fixed-b "
+            f"projection with reduction={reduction}."
+        )
 
     # %%
     b_new = b + jax.random.normal(key[5], shape=(batch_size, n_eq, 1))
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yproj = cp.Variable(dim)
-        constraints = [
-            A[ii, :, :] @ yproj == b_new[ii, :, 0],
-            lb[ii, :, 0] <= C[ii, :, :] @ yproj,
-            C[ii, :, :] @ yproj <= ub[ii, :, 0],
-        ]
+        constraints = cast(
+            list[CvxConstraint],
+            [
+                a_dyn[ii, :, :] @ yproj == b_new[ii, :, 0],
+                lb[ii, :, 0] <= constr_matrix[ii, :, :] @ yproj,
+                constr_matrix[ii, :, :] @ yproj <= ub[ii, :, 0],
+            ],
+        )
         objective = cp.Minimize(cp.sum_squares(yproj - xinfeas[ii, :]))
         problem_qp = cp.Problem(objective=objective, constraints=constraints)
         problem_qp.solve(verbose=False)
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
+    assert inp_varb.eq is not None, (
+        "Projection input for the variable-b case should contain equality data."
+    )
     inp_varb_new = inp_varb.update(eq=inp_varb.eq.update(b=b_new))
     xprojiter = projection_layer.call(yraw=inp_varb_new, n_iter=500)[0].x
-    assert jnp.allclose(xprojiter[..., 0], yqp, atol=1e-3, rtol=1e-3)
+    assert jnp.allclose(xprojiter[..., 0], yqp, atol=1e-3, rtol=1e-3), (
+        "Project should match the QP solution after updating the equality RHS. "
+        f"Expected {yqp}, got {xprojiter[..., 0]}."
+    )
     # %%
     # Generate new LHS and RHS
-    A_new = jax.random.normal(key[6], (batch_size, n_eq, dim))
-    b_new = A_new @ jax.random.normal(key[7], (batch_size, dim, 1))
-    eq_constraint = EqualityConstraint(A=A_new, b=b_new, method=method, var_A=True)
+    a_dyn_new = jax.random.normal(key[6], (batch_size, n_eq, dim))
+    b_new = a_dyn_new @ jax.random.normal(key[7], (batch_size, dim, 1))
+    eq_constraint = EqualityConstraint(
+        a_dyn=a_dyn_new, b=b_new, method=method, var_a_dyn=True
+    )
     projection_layer = Project(eq_constraint=eq_constraint)
     inp = ProjectionInstance(
-        x=xinfeas[..., None], eq=EqualityConstraintsSpecification(A=A_new, b=b_new)
+        x=xinfeas[..., None],
+        eq=EqualityConstraintsSpecification(a_dyn=a_dyn_new, b=b_new),
     )
     xprojiter = projection_layer.call(yraw=inp)[0].x
     # New cvxpy problem
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yprojcv = cp.Variable(dim)
-        constraints_new = [A_new[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
+        constraints_new = cast(
+            list[CvxConstraint], [a_dyn_new[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
+        )
         objective_new = cp.Minimize(cp.sum_squares(yprojcv - xinfeas[ii, :]))
         problem_new = cp.Problem(objective_new, constraints_new)
         problem_new.solve(verbose=False)
         yqp = yqp.at[ii, :].set(jnp.array(yprojcv.value).reshape(dim))
 
-    assert jnp.allclose(xprojiter[..., 0], yqp)
+    assert jnp.allclose(xprojiter[..., 0], yqp), (
+        "Project should match the CVXPY solution after updating the equality "
+        f"matrix and RHS. Expected {yqp}, got {xprojiter[..., 0]}."
+    )
     # %% Solve projection with both equality and inequality
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yproj = cp.Variable(dim)
-        constraints = [
-            A_new[ii, :, :] @ yproj == b_new[ii, :, 0],
-            lb[ii, :, 0] <= C[ii, :, :] @ yproj,
-            C[ii, :, :] @ yproj <= ub[ii, :, 0],
-        ]
+        constraints = cast(
+            list[CvxConstraint],
+            [
+                a_dyn_new[ii, :, :] @ yproj == b_new[ii, :, 0],
+                lb[ii, :, 0] <= constr_matrix[ii, :, :] @ yproj,
+                constr_matrix[ii, :, :] @ yproj <= ub[ii, :, 0],
+            ],
+        )
         objective = cp.Minimize(cp.sum_squares(yproj - xinfeas[ii, :]))
         problem_qp = cp.Problem(objective=objective, constraints=constraints)
         problem_qp.solve(verbose=False)
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
-    eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=True, var_A=True)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    eq_constraint = EqualityConstraint(
+        a_dyn=a_dyn, b=b, method=method, var_b=True, var_a_dyn=True
+    )
+    ineq_constraint = AffineInequalityConstraint(
+        constr_matrix=constr_matrix, lb=lb, ub=ub
+    )
 
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
     inp = ProjectionInstance(
-        x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b_new, A=A_new)
+        x=xinfeas[..., None],
+        eq=EqualityConstraintsSpecification(b=b_new, a_dyn=a_dyn_new),
     )
     xprojiter = projection_layer.call(yraw=inp, n_iter=500)[0].x
 
-    assert jnp.allclose(xprojiter.reshape(yqp.shape), yqp, atol=1e-3, rtol=1e-3)
+    assert jnp.allclose(xprojiter.reshape(yqp.shape), yqp, atol=1e-3, rtol=1e-3), (
+        "Project should match the QP solution when both equality and inequality "
+        f"data are variable. Expected {yqp}, got {xprojiter.reshape(yqp.shape)}."
+    )
 
 
 def test_call_default_n_iter_projects_correctly():
@@ -310,16 +372,16 @@ def test_call_n_iter_zero_raises():
 
 @pytest.mark.parametrize("bad_reduction", ["median", 1.5, 0.0, -0.2, 2])
 def test_call_and_check_invalid_reduction_raises(bad_reduction):
-    # Minimal feasible setup: A x = b with b constructed from a random x0
+    # Minimal feasible setup: a_dyn x = b with b constructed from a random x0
     dim, n_eq, batch = 5, 2, 1
     key = jax.random.PRNGKey(0)
-    kA, kx0, kx = jax.random.split(key, 3)
+    k_a_dyn, kx0, kx = jax.random.split(key, 3)
 
-    A = jax.random.normal(kA, (batch, n_eq, dim))
+    a_dyn = jax.random.normal(k_a_dyn, (batch, n_eq, dim))
     x0 = jax.random.normal(kx0, (batch, dim, 1))
-    b = A @ x0
+    b = a_dyn @ x0
 
-    eq = EqualityConstraint(A=A, b=b, method="pinv", var_b=False)
+    eq = EqualityConstraint(a_dyn=a_dyn, b=b, method="pinv", var_b=False)
     layer = Project(eq_constraint=eq)
 
     xinfeas = jax.random.normal(kx, (batch, dim, 1))

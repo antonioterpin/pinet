@@ -1,9 +1,9 @@
 """Parser of constraints to lifted representation module."""
 
-from typing import Callable, Optional
+from collections.abc import Callable
+from typing import Optional
 
 import jax.numpy as jnp
-import numpy as np
 
 from pinet.dataclasses import (
     BoxConstraintSpecification,
@@ -40,14 +40,18 @@ class ConstraintParser:
         """Initialize the constraint parser.
 
         Args:
-            eq_constraint (EqualityConstraint): An equality constraint.
-            ineq_constraint (AffineInequalityConstraint): An inequality constraint.
-            box_constraint (BoxConstraint): A box constraint.
-            nl_constraints (Optional[list[NonLinearConstraint]]): Non-linear constraints.
+            eq_constraint: An equality constraint.
+            ineq_constraint: An inequality constraint.
+            box_constraint: A box constraint.
+            nl_constraints: Non-linear constraints.
         """
         if ineq_constraint is None and nl_constraints is None:
             # The constraints do not need lifting.
-            self.parse = lambda method: (eq_constraint, box_constraint, lambda y: y)
+            self.parse = lambda method="pinv": (
+                eq_constraint,
+                box_constraint,
+                lambda y: y,
+            )
             return
 
         self.dim = (
@@ -57,11 +61,11 @@ class ConstraintParser:
         )
         if eq_constraint is None:
             eq_constraint = EqualityConstraint(
-                A=jnp.empty((1, 0, self.dim)),
+                a_dyn=jnp.empty((1, 0, self.dim)),
                 b=jnp.empty((1, 0, 1)),
                 method=None,
                 var_b=False,
-                var_A=False,
+                var_a_dyn=False,
             )
 
         self.eq_constraint = eq_constraint
@@ -74,19 +78,26 @@ class ConstraintParser:
         self.nl_constraints = nl_constraints
 
         # Batch consistency checks
-        if self.ineq_constraint is not None:
-            assert (
-                self.eq_constraint.A.shape[0] == self.ineq_constraint.C.shape[0]
-                or self.eq_constraint.A.shape[0] == 1
-                or self.ineq_constraint.C.shape[0] == 1
-            ), "Batch sizes of A and C must be consistent."
-        if self.box_constraint is not None and self.ineq_constraint is not None:
+        # Equality and inequality matrices must have compatible batch dimensions.
+        assert (
+            self.eq_constraint.a_dyn.shape[0]
+            == self.ineq_constraint.constr_matrix.shape[0]
+            or self.eq_constraint.a_dyn.shape[0] == 1
+            or self.ineq_constraint.constr_matrix.shape[0] == 1
+        ), "Batch sizes of a_dyn and constr_matrix must be consistent."
+        if self.box_constraint is not None:
+            # An explicit box constraint must provide its lower bounds.
+            assert self.box_constraint.lb is not None
+            # An explicit box constraint must provide its upper bounds.
+            assert self.box_constraint.ub is not None
+            # Inequality lower bounds and box lower bounds must batch together.
             assert (
                 self.ineq_constraint.lb.shape[0] == self.box_constraint.lb.shape[0]
                 or self.ineq_constraint.lb.shape[0] == 1
                 or self.box_constraint.lb.shape[0] == 1
             ), "Batch sizes of lb and lower_bound must be consistent."
 
+            # Inequality upper bounds and box upper bounds must batch together.
             assert (
                 self.ineq_constraint.ub.shape[0] == self.box_constraint.ub.shape[0]
                 or self.ineq_constraint.ub.shape[0] == 1
@@ -110,47 +121,53 @@ class ConstraintParser:
         else:
             self.parse = self.parse_polytope
 
-    def parse_polytope(
-        self, method: Optional[str] = "pinv"
-    ) -> tuple[EqualityConstraint, BoxConstraint, Callable]:
+    def parse(
+        self, method: str | None = "pinv"
+    ) -> tuple[
+        EqualityConstraint | None,
+        BoxConstraint | None,
+        Callable[[ProjectionInstance], ProjectionInstance],
+    ]:
         """Parse the constraints into a lifted representation.
 
         Args:
-            method (Optional[str]): Method to use for solving linear systems.
+            method: Method to use for solving linear systems.
                 Valid methods are "pinv", and None.
 
         Returns:
             A tuple of constraints: (eq_constraint, box_constraint)
         """
-        # Build lifted A matrix.
-        # Maximum batch size between A and C
-        mbAC = max(self.eq_constraint.A.shape[0], self.ineq_constraint.C.shape[0])
+        # Build lifted a_dyn matrix.
+        # Maximum batch size between a_dyn and constr_matrix.
+        mb_ac = max(
+            self.eq_constraint.a_dyn.shape[0], self.ineq_constraint.constr_matrix.shape[0]
+        )
         first_row_batched = jnp.tile(
             jnp.concatenate(
                 [
-                    self.eq_constraint.A,
+                    self.eq_constraint.a_dyn,
                     jnp.zeros(
-                        shape=(self.eq_constraint.A.shape[0], self.n_eq, self.n_ineq)
+                        shape=(self.eq_constraint.a_dyn.shape[0], self.n_eq, self.n_ineq)
                     ),
                 ],
                 axis=2,
             ),
-            (mbAC // self.eq_constraint.A.shape[0], 1, 1),
+            (mb_ac // self.eq_constraint.a_dyn.shape[0], 1, 1),
         )
         second_row_batched = jnp.tile(
             jnp.concatenate(
                 [
-                    self.ineq_constraint.C,
+                    self.ineq_constraint.constr_matrix,
                     -jnp.tile(
                         jnp.eye(self.n_ineq).reshape(1, self.n_ineq, self.n_ineq),
-                        (self.ineq_constraint.C.shape[0], 1, 1),
+                        (self.ineq_constraint.constr_matrix.shape[0], 1, 1),
                     ),
                 ],
                 axis=2,
             ),
-            (mbAC // self.ineq_constraint.C.shape[0], 1, 1),
+            (mb_ac // self.ineq_constraint.constr_matrix.shape[0], 1, 1),
         )
-        A_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
+        a_dyn_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
         b_lifted = jnp.concatenate(
             [
                 self.eq_constraint.b,
@@ -159,17 +176,17 @@ class ConstraintParser:
             axis=1,
         )
         eq_lifted = EqualityConstraint(
-            A=A_lifted,
+            a_dyn=a_dyn_lifted,
             b=b_lifted,
             method=method,
             var_b=self.eq_constraint.var_b,
-            var_A=self.eq_constraint.var_A,
+            var_a_dyn=self.eq_constraint.var_a_dyn,
         )
 
         if self.box_constraint is None:
             # We only project the lifted part.
-            box_mask = np.concatenate(
-                [np.zeros(self.dim, dtype=bool), np.ones(self.n_ineq, dtype=bool)]
+            box_mask = jnp.concatenate(
+                [jnp.zeros(self.dim, dtype=bool), jnp.ones(self.n_ineq, dtype=bool)]
             )
             box_lifted = BoxConstraint(
                 BoxConstraintSpecification(
@@ -180,6 +197,12 @@ class ConstraintParser:
             )
         else:
             # We project both the lifted and the initial box
+            # The original box mask is needed to place existing bounds in the lift.
+            assert self.box_constraint.mask is not None
+            # The original lower bounds are needed to concatenate lifted bounds.
+            assert self.box_constraint.lb is not None
+            # The original upper bounds are needed to concatenate lifted bounds.
+            assert self.box_constraint.ub is not None
             box_mask = jnp.concatenate(
                 [
                     self.box_constraint.mask,
@@ -230,10 +253,24 @@ class ConstraintParser:
                 )
             )
 
-        def lift(y):
-            """Lift the input to the lifted dimension."""
-            y = y.update(x=jnp.concatenate([y.x, self.ineq_constraint.C @ y.x], axis=1))
+        def lift(y: ProjectionInstance) -> ProjectionInstance:
+            """Lift the input to the lifted dimension.
+
+            Args:
+                y: Projection instance to be lifted by augmenting the primal
+                    variable with the inequality slack component.
+
+            Returns:
+                The lifted projection instance.
+            """
+            y = y.update(
+                x=jnp.concatenate([y.x, self.ineq_constraint.constr_matrix @ y.x], axis=1)
+            )
             if self.eq_constraint.var_b:
+                # Variable equality data must be present before extending the RHS.
+                assert y.eq is not None
+                # The lifted RHS can be built only if the original b is available.
+                assert y.eq.b is not None
                 y = y.update(
                     eq=y.eq.update(
                         b=jnp.concatenate(

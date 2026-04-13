@@ -1,6 +1,7 @@
 """Projection layers using other approaches."""
 
-from typing import Callable
+from collections.abc import Callable
+from typing import cast
 
 import cvxpy as cp
 import jax
@@ -12,25 +13,29 @@ jax.config.update("jax_enable_x64", True)
 
 
 def get_jaxopt_projection(
-    A: jnp.ndarray, C: jnp.ndarray, d: jnp.ndarray, dim: int, tol=1e-3
+    a_dyn: jnp.ndarray,
+    constr_matrix: jnp.ndarray,
+    d: jnp.ndarray,
+    dim: int,
+    tol: float = 1e-3,
 ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
     """Compute a batched projection function for polyhedral constraints using JAXopt.
 
     This function creates a projection operator using the jaxopt.OSQP solver.
     The projection is formulated as the quadratic program:
     minimize   (1/2) * ||x - xx||^2
-    subject to A x = b
-               C x <= d,
+    subject to a_dyn x = b
+               constr_matrix x <= d,
     where the quadratic term is given by the identity matrix of size `dim`.
 
     The resulting function is JIT-compiled and vectorized.
 
     Args:
-        A (jnp.ndarray): Coefficient matrix for equality constraints.
-        C (jnp.ndarray): Coefficient matrix for inequality constraints.
-        d (jnp.ndarray): Right-hand side vector for inequality constraints.
-        dim (int): Dimension of the variable x.
-        tol (float, optional): Tolerance for the solver. Defaults to 1e-3.
+        a_dyn: Coefficient matrix for equality constraints.
+        constr_matrix: Coefficient matrix for inequality constraints.
+        d: Right-hand side vector for inequality constraints.
+        dim: Dimension of the variable x.
+        tol: Tolerance for the solver. Defaults to 1e-3.
 
     Returns:
         Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
@@ -39,12 +44,16 @@ def get_jaxopt_projection(
         and returns their corresponding projections.
     """
     qp = jaxopt.OSQP(tol=tol)
-    Q = jnp.eye(dim)
+    q_mat = jnp.eye(dim)
     jaxopt_proj = jax.jit(
         jax.vmap(
-            lambda xx, bb: qp.run(
-                params_obj=(Q, -xx), params_eq=(A, bb[:, 0]), params_ineq=(C, d)
-            ).params.primal,
+            lambda xx, bb: (
+                qp.run(
+                    params_obj=(q_mat, -xx),
+                    params_eq=(a_dyn, bb[:, 0]),
+                    params_ineq=(constr_matrix, d),
+                ).params.primal
+            ),
             in_axes=[0, 0],
         )
     )
@@ -53,8 +62,8 @@ def get_jaxopt_projection(
 
 
 def get_cvxpy_projection(
-    A: jnp.ndarray,
-    C: jnp.ndarray,
+    a_dyn: jnp.ndarray,
+    constr_matrix: jnp.ndarray,
     d: jnp.ndarray,
     dim: int,
 ) -> Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray]]:
@@ -63,14 +72,14 @@ def get_cvxpy_projection(
     The projection is formulated as a quadratic minimization problem that minimizes
     the squared distance between the projection variable and an input point xproj, subject
     to the constraints:
-        A @ y = b   (equality constraints)
-        C @ y <= d  (inequality constraints)
+        a_dyn @ y = b   (equality constraints)
+        constr_matrix @ y <= d  (inequality constraints)
 
     Args:
-        A (jnp.ndarray): Coefficient matrix for equality constraints.
-        C (jnp.ndarray): Coefficient matrix for inequality constraints..
-        d (jnp.ndarray): Right-hand side vector for inequality constraints.
-        dim (int): Dimension of the variable x.
+        a_dyn: Coefficient matrix for equality constraints.
+        constr_matrix: Coefficient matrix for inequality constraints.
+        d: Right-hand side vector for inequality constraints.
+        dim: Dimension of the variable x.
 
     Returns:
         Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray]]:
@@ -79,16 +88,20 @@ def get_cvxpy_projection(
         the equality constraints.
         The callable returns the projected vector as a jnp.ndarray.
     """
-    n_eq = A.shape[0]
+    n_eq = a_dyn.shape[0]
     ycvxpy = cp.Variable(dim)
     xproj = cp.Parameter(dim)
     b = cp.Parameter(n_eq)
-    constraints = [
-        A @ ycvxpy == b,
-        C @ ycvxpy <= d,
-    ]
+    constraints = cast(
+        list[cp.Constraint],
+        [
+            a_dyn @ ycvxpy == b,
+            constr_matrix @ ycvxpy <= d,
+        ],
+    )
     objective = cp.Minimize(cp.sum_squares(ycvxpy - xproj))
     problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    # The cvxpylayer backend requires the problem to satisfy DPP rules.
     assert problem_cvxpy.is_dpp()
 
     cvxpylayer = CvxpyLayer(
