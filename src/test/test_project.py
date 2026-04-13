@@ -250,6 +250,64 @@ def test_project_eq_ineq_varA_varb(seed, batch_size):
     assert jnp.allclose(xprojiter.reshape(yqp.shape), yqp, atol=1e-3, rtol=1e-3)
 
 
+def test_call_default_n_iter_projects_correctly():
+    """Regression test for PR #94: default n_iter was 0,
+       causing call() to return yraw unchanged.
+
+    With n_iter=0 the scan was skipped and the raw input was returned without
+    projecting. The fix sets the default to 100 and adds an assertion, so calling call()
+    without an explicit n_iter must now produce a valid projection.
+    """
+    dim, n_eq, batch = 20, 5, 1
+    key = jax.random.PRNGKey(7)
+    kA, kx0, kx = jax.random.split(key, 3)
+
+    A = jax.random.normal(kA, (batch, n_eq, dim))
+    x0 = jax.random.normal(kx0, (batch, dim, 1))
+    b = A @ x0  # feasible RHS constructed from a random point
+
+    # Deliberately pick a point that does NOT satisfy A x = b
+    xinfeas = jax.random.normal(kx, (batch, dim, 1))
+    assert jnp.linalg.norm(A @ xinfeas - b) > 1e-3, "Test point must be infeasible"
+
+    eq = EqualityConstraint(A=A, b=b, method="pinv", var_b=False)
+    layer = Project(eq_constraint=eq)
+
+    # Call without specifying n_iter — uses the default (100 after the fix, 0 before)
+    result = layer.call(yraw=ProjectionInstance(x=xinfeas))[0].x
+
+    # The projected point must satisfy the equality constraint
+    residual = jnp.linalg.norm(A @ result - b)
+    assert residual < 1e-4, f"Expected ||Ax - b|| < 1e-4, got {residual:.6f}"
+
+    assert not jnp.allclose(
+        result, xinfeas
+    ), "Projection must differ from the infeasible input (n_iter=0 regression)"
+
+
+def test_call_n_iter_zero_raises():
+    """Regression test for PR #94: n_iter=0 must raise AssertionError after the fix.
+
+    Before the fix, passing n_iter=0 silently returned the raw input. The fix replaces the
+    conditional branch with an explicit assertion so that invalid inputs are caught early.
+    """
+    dim, n_eq, batch = 5, 2, 1
+    key = jax.random.PRNGKey(0)
+    kA, kx0, kx = jax.random.split(key, 3)
+
+    A = jax.random.normal(kA, (batch, n_eq, dim))
+    x0 = jax.random.normal(kx0, (batch, dim, 1))
+    b = A @ x0
+
+    eq = EqualityConstraint(A=A, b=b, method="pinv", var_b=False)
+    layer = Project(eq_constraint=eq)
+
+    xinfeas = jax.random.normal(kx, (batch, dim, 1))
+
+    with pytest.raises(AssertionError, match="Number of iterations must be positive"):
+        layer.call(yraw=ProjectionInstance(x=xinfeas), n_iter=0)
+
+
 @pytest.mark.parametrize("bad_reduction", ["median", 1.5, 0.0, -0.2, 2])
 def test_call_and_check_invalid_reduction_raises(bad_reduction):
     # Minimal feasible setup: A x = b with b constructed from a random x0
