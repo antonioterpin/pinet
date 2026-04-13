@@ -126,6 +126,14 @@ class Project:
                 self.d_c[:, : self.dim, :],
             )
 
+        if is_single_simple_constraint:
+            # For a single simple constraint the projection is a closed-form
+            # one-step operation: proj(x) = x - A^+ (Ax - b).
+            # The ADMM initializer zeros out yraw.x, causing _project_single
+            # to project the origin rather than the actual input point.
+            # Override initialize so yraw.x is preserved end-to-end.
+            self.initialize = lambda yraw: yraw
+
         project_fn = (
             _project_general
             if (self.unroll or is_single_simple_constraint)
