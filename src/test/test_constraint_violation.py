@@ -196,6 +196,36 @@ def test_inequality_box_cv():
     assert jnp.allclose(cv_proj, 0.0), f"Expected 0.0, but got {cv_proj}."
 
 
+def test_equality_only_cv():
+    """Regression: Project.cv with equality-only constraints.
+
+    Must not raise AttributeError.
+    """
+    A = jnp.array([1.0, 2.0, 0.0]).reshape(1, 1, 3)
+    b = jnp.array([3.0]).reshape(1, 1, 1)
+    eq_constraint = EqualityConstraint(A, b, method="pinv")
+    projection_layer = Project(eq_constraint=eq_constraint)
+
+    x = jnp.concatenate(
+        [
+            jnp.array([1.0, 2.0, 5.0]).reshape(1, -1, 1),
+            jnp.array([1.0, 1.0, 0.0]).reshape(1, -1, 1),
+        ],
+        axis=0,
+    )
+    y = ProjectionInstance(x=x)
+
+    cv = projection_layer.cv(y=y)
+
+    expected_cv = eq_constraint.cv(y)
+    assert jnp.allclose(cv, expected_cv), f"Expected {expected_cv}, but got {cv}."
+
+    # After projection, cv must be zero
+    x_proj = projection_layer.call(yraw=y, n_iter=0)[0]
+    cv_proj = projection_layer.cv(x_proj)
+    assert jnp.allclose(cv_proj, 0.0, atol=1e-6), f"Expected 0.0, but got {cv_proj}."
+
+
 @pytest.mark.parametrize("method", ["pinv", None])
 @pytest.mark.parametrize("seed, batch_size", product([24, 42], [1, 5]))
 def test_equality_inequality_box_cv(method, seed, batch_size):
