@@ -82,6 +82,7 @@ class Project:
             and self.nl_constraints is None
             and len(constraints) == 1
         )
+        self.is_single_simple_constraint = is_single_simple_constraint
 
         self.dim_lifted = self.dim
         self.step_iteration = lambda s_prev, yraw, sigma, omega: s_prev
@@ -237,6 +238,8 @@ class Project:
         Returns:
             jnp.ndarray: Constraint violation for each point in the batch.
         """
+        if self.is_single_simple_constraint:
+            return self.single_constraint.cv(y)
         if y.x.shape[1] != self.dim_lifted:
             y = self.lift(y)
         return jnp.maximum(
