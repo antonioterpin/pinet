@@ -4,6 +4,7 @@ from typing import Callable
 
 import jax.numpy as jnp
 
+from pinet.constants import Constants
 from pinet.constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
@@ -12,9 +13,12 @@ from pinet.constraints import (
 )
 from pinet.dataclasses import ProjectionInstance
 
+PROJECTION_DEFAULT_SIGMA = Constants.PROJECTION_DEFAULT_SIGMA
+PROJECTION_DEFAULT_OMEGA = Constants.PROJECTION_DEFAULT_OMEGA
+
 
 def initialize(
-    yraw: jnp.ndarray,
+    yraw: ProjectionInstance,
     ineq_constraint: AffineInequalityConstraint,
     box_constraint: BoxConstraint,
     dim: int,
@@ -97,8 +101,8 @@ def build_iteration_step(
     def iteration_step(
         sk: ProjectionInstance,
         yraw: ProjectionInstance,
-        sigma: float = 1.0,
-        omega: float = 1.7,
+        sigma: float = PROJECTION_DEFAULT_SIGMA,
+        omega: float = PROJECTION_DEFAULT_OMEGA,
     ) -> ProjectionInstance:
         """One iteration of the ADMM solver.
 
