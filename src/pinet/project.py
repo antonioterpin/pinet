@@ -6,15 +6,24 @@ from functools import partial
 import jax
 from jax import numpy as jnp
 
+from .constants import Constants
 from .constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
     ConstraintParser,
     EqualityConstraint,
+    NonLinearConstraint,
 )
 from .dataclasses import EquilibrationParams, ProjectionInstance
 from .equilibration import ruiz_equilibration
 from .solver import build_iteration_step, initialize
+
+PROJECTION_DEFAULT_SIGMA = Constants.PROJECTION_DEFAULT_SIGMA
+PROJECTION_DEFAULT_OMEGA = Constants.PROJECTION_DEFAULT_OMEGA
+PROJECTION_DEFAULT_CHECK_EVERY = Constants.PROJECTION_DEFAULT_CHECK_EVERY
+PROJECTION_DEFAULT_TOL = Constants.PROJECTION_DEFAULT_TOL
+PROJECTION_DEFAULT_MAX_ITER = Constants.PROJECTION_DEFAULT_MAX_ITER
+PROJECTION_DEFAULT_CHECK_REDUCTION = Constants.PROJECTION_DEFAULT_CHECK_REDUCTION
 
 
 class Project:
@@ -24,6 +33,7 @@ class Project:
         eq_constraint: Equality constraint.
         ineq_constraint: Affine inequality constraint.
         box_constraint: Box constraint.
+        nl_constraints: List of non-linear constraints.
         unroll: Use loop unrolling for backpropagation.
         equilibration_params: Parameters for equilibration.
     """
@@ -31,6 +41,7 @@ class Project:
     eq_constraint: EqualityConstraint | None = None
     ineq_constraint: AffineInequalityConstraint | None = None
     box_constraint: BoxConstraint | None = None
+    nl_constraints: list[NonLinearConstraint] | None = None
     unroll: bool = False
     equilibration_params: EquilibrationParams | None = None
 
@@ -39,6 +50,7 @@ class Project:
         eq_constraint: EqualityConstraint | None = None,
         ineq_constraint: AffineInequalityConstraint | None = None,
         box_constraint: BoxConstraint | None = None,
+        nl_constraints: list[NonLinearConstraint] | None = None,
         unroll: bool = False,
         equilibration_params: EquilibrationParams | None = None,
     ) -> None:
@@ -48,12 +60,14 @@ class Project:
             eq_constraint: Equality constraint.
             ineq_constraint: Affine inequality constraint.
             box_constraint: Box constraint.
+            nl_constraints: List of non-linear constraints.
             unroll: Use loop unrolling for backpropagation.
             equilibration_params: Parameters for equilibration.
         """
         self.eq_constraint = eq_constraint
         self.ineq_constraint = ineq_constraint
         self.box_constraint = box_constraint
+        self.nl_constraints = nl_constraints
         self.unroll = unroll
         if equilibration_params is None:
             self.equilibration_params = EquilibrationParams()
@@ -65,16 +79,24 @@ class Project:
         """Setup the projection layer."""
         constraints = [
             c
-            for c in (self.eq_constraint, self.box_constraint, self.ineq_constraint)
-            if c
+            for c in (
+                self.eq_constraint,
+                self.box_constraint,
+                self.ineq_constraint,
+                *(self.nl_constraints or []),
+            )
+            if c is not None
         ]
         # The projection layer is meaningful only if at least one constraint is active.
         assert len(constraints) > 0, "At least one constraint must be provided."
         self.dim = constraints[0].dim
 
-        self.is_single_simple_constraint = (
-            self.ineq_constraint is None and len(constraints) == 1
+        is_single_simple_constraint = (
+            self.ineq_constraint is None
+            and self.nl_constraints is None
+            and len(constraints) == 1
         )
+        self.is_single_simple_constraint = is_single_simple_constraint
 
         self.dim_lifted = self.dim
         self.step_iteration = lambda s_prev, yraw, sigma, omega: s_prev
@@ -83,72 +105,113 @@ class Project:
         self.d_r = jnp.ones((1, self.single_constraint.n_constraints, 1))
         self.d_c = jnp.ones((1, self.single_constraint.dim, 1))
         if not self.is_single_simple_constraint:
-            # Constraints need to be parsed
-            if self.ineq_constraint is not None:
-                self.dim_lifted += self.ineq_constraint.n_constraints
-            parser = ConstraintParser(
-                eq_constraint=self.eq_constraint,
-                ineq_constraint=self.ineq_constraint,
-                box_constraint=self.box_constraint,
-            )
-            (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
-                parser.parse(method=None)
-            )
-            # Parsing an inequality-constrained problem must produce a lifted equality.
-            assert self.lifted_eq_constraint is not None
-            # Parsing an inequality-constrained problem must produce a lifted box.
-            assert self.lifted_box_constraint is not None
-            # Setup always stores equilibration parameters before this branch runs.
-            assert self.equilibration_params is not None
-            # Only equilibrate when we have a single a_dyn.
-            if (
-                not self.lifted_eq_constraint.var_a_dyn
-                and self.lifted_eq_constraint.a_dyn.shape[0] == 1
-            ):
-                scaled_a_dyn, self.d_r, self.d_c = ruiz_equilibration(
-                    self.lifted_eq_constraint.a_dyn[0], self.equilibration_params
+            if self.nl_constraints is None:
+                # Constraints need to be parsed
+                if self.ineq_constraint is not None:
+                    self.dim_lifted += self.ineq_constraint.n_constraints
+                parser = ConstraintParser(
+                    eq_constraint=self.eq_constraint,
+                    ineq_constraint=self.ineq_constraint,
+                    box_constraint=self.box_constraint,
                 )
-                # Update a_dyn in lifted equality and setup projection
-                self.lifted_eq_constraint.a_dyn = scaled_a_dyn.reshape(
-                    1,
-                    self.lifted_eq_constraint.a_dyn.shape[1],
-                    self.lifted_eq_constraint.a_dyn.shape[2],
+                (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
+                    parser.parse(method=None)
                 )
-                self.d_r = self.d_r.reshape(1, -1, 1)
-                self.d_c = self.d_c.reshape(1, -1, 1)
+                # Parsing an inequality-constrained problem must produce a lifted equality.
+                assert self.lifted_eq_constraint is not None
+                # Parsing an inequality-constrained problem must produce a lifted box.
+                assert self.lifted_box_constraint is not None
+                # Setup always stores equilibration parameters before this branch runs.
+                assert self.equilibration_params is not None
+                # Only equilibrate when we have a single a_dyn.
+                if (
+                    not self.lifted_eq_constraint.var_a_dyn
+                    and self.lifted_eq_constraint.a_dyn.shape[0] == 1
+                ):
+                    scaled_a_dyn, self.d_r, self.d_c = ruiz_equilibration(
+                        self.lifted_eq_constraint.a_dyn[0], self.equilibration_params
+                    )
+                    # Update a_dyn in lifted equality and setup projection
+                    self.lifted_eq_constraint.a_dyn = scaled_a_dyn.reshape(
+                        1,
+                        self.lifted_eq_constraint.a_dyn.shape[1],
+                        self.lifted_eq_constraint.a_dyn.shape[2],
+                    )
+                    self.d_r = self.d_r.reshape(1, -1, 1)
+                    self.d_c = self.d_c.reshape(1, -1, 1)
+                else:
+                    # No equilibration for variable a_dyn
+                    n_ineq = (
+                        self.ineq_constraint.n_constraints
+                        if self.ineq_constraint is not None
+                        else 0
+                    )
+                    n_eq = (
+                        self.eq_constraint.n_constraints
+                        if self.eq_constraint is not None
+                        else 0
+                    )
+                    self.d_r = jnp.ones((1, n_eq + n_ineq, 1))
+                    self.d_c = jnp.ones((1, self.dim_lifted, 1))
+
+                self.lifted_eq_constraint.method = "pinv"
+                self.lifted_eq_constraint.setup()
+
+                # Scale the equality RHS
+                self.lifted_eq_constraint.b *= self.d_r
+                # Scale the lifted box constraints
+                mask = self.lifted_box_constraint.mask
+                scale = self.d_c[:, mask, :]
+                self.lifted_box_constraint.scale = 1 / scale
+                self.lifted_box_constraint.ub *= self.lifted_box_constraint.scale
+                self.lifted_box_constraint.lb *= self.lifted_box_constraint.scale
+
+                self.step_iteration, self.step_final = build_iteration_step(
+                    self.lifted_eq_constraint,
+                    self.lifted_box_constraint,
+                    self.dim,
+                    self.d_c[:, : self.dim, :],
+                )
             else:
-                # No equilibration for variable a_dyn
-                n_ineq = (
-                    self.ineq_constraint.n_constraints
-                    if self.ineq_constraint is not None
-                    else 0
+                # Compute lifted dimension
+                if self.ineq_constraint is not None:
+                    self.dim_lifted += self.ineq_constraint.n_constraints
+                for nl in self.nl_constraints:
+                    self.dim_lifted += nl.A.shape[1]
+                    if nl.f is not None:
+                        self.dim_lifted += 1
+
+                parser = ConstraintParser(
+                    eq_constraint=self.eq_constraint,
+                    ineq_constraint=self.ineq_constraint,
+                    box_constraint=self.box_constraint,
+                    nl_constraints=self.nl_constraints,
                 )
-                n_eq = (
-                    self.eq_constraint.n_constraints
-                    if self.eq_constraint is not None
-                    else 0
-                )
-                self.d_r = jnp.ones((1, n_eq + n_ineq, 1))
+                # TODO: Change the "lifted_box_constraint" name?
+                # This is cartesian constraint now.
+                (
+                    self.lifted_eq_constraint,
+                    self.lifted_box_constraint,
+                    self.lift,
+                ) = parser.parse(method="pinv")
+                # Impose no rescaling
+                self.d_r = jnp.ones((1, self.lifted_eq_constraint.A.shape[1], 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
-            self.lifted_eq_constraint.method = "pinv"
-            self.lifted_eq_constraint.setup()
+                self.step_iteration, self.step_final = build_iteration_step(
+                    eq_constraint=self.lifted_eq_constraint,
+                    box_constraint=self.lifted_box_constraint,
+                    dim=self.dim,
+                    scale=self.d_c[:, : self.dim, :],
+                )
 
-            # Scale the equality RHS
-            self.lifted_eq_constraint.b *= self.d_r
-            # Scale the lifted box constraints
-            mask = self.lifted_box_constraint.mask
-            scale = self.d_c[:, mask, :]
-            self.lifted_box_constraint.scale = 1 / scale
-            self.lifted_box_constraint.ub *= self.lifted_box_constraint.scale
-            self.lifted_box_constraint.lb *= self.lifted_box_constraint.scale
-
-            self.step_iteration, self.step_final = build_iteration_step(
-                self.lifted_eq_constraint,
-                self.lifted_box_constraint,
-                self.dim,
-                self.d_c[:, : self.dim, :],
-            )
+        if is_single_simple_constraint:
+            # For a single simple constraint the projection is a closed-form
+            # one-step operation: proj(x) = x - A^+ (Ax - b).
+            # The ADMM initializer zeros out yraw.x, causing _project_single
+            # to project the origin rather than the actual input point.
+            # Override initialize so yraw.x is preserved end-to-end.
+            self.initialize = lambda yraw: yraw
 
         project_fn = (
             _project_general
@@ -222,12 +285,12 @@ class Project:
 
     def call_and_check(
         self,
-        sigma: float = 1.0,
-        omega: float = 1.7,
-        check_every: int = 10,
-        tol: float = 1e-3,
-        max_iter: int = 100,
-        reduction: str | float = "max",
+        sigma: float = PROJECTION_DEFAULT_SIGMA,
+        omega: float = PROJECTION_DEFAULT_OMEGA,
+        check_every: int = PROJECTION_DEFAULT_CHECK_EVERY,
+        tol: float = PROJECTION_DEFAULT_TOL,
+        max_iter: int = PROJECTION_DEFAULT_MAX_ITER,
+        reduction: str | float = PROJECTION_DEFAULT_CHECK_REDUCTION,
     ) -> Callable[[ProjectionInstance], tuple[ProjectionInstance, jax.Array, int]]:
         """Returns a function that projects input and checks constraint violation.
 
@@ -318,9 +381,9 @@ def _project_general(
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
-    sigma: float = 1.0,
-    omega: float = 1.7,
-    n_iter: int = 0,
+    sigma: float = PROJECTION_DEFAULT_SIGMA,
+    omega: float = PROJECTION_DEFAULT_OMEGA,
+    n_iter: int = 100,
 ) -> tuple[ProjectionInstance, ProjectionInstance]:
     """Project a batch of points using Douglas-Rachford.
 
@@ -342,19 +405,19 @@ def _project_general(
         tuple[ProjectionInstance, ProjectionInstance]: First output is the projected
             point, and second output is the value of the governing sequence.
     """
-    if n_iter > 0:
-        s0 = initialize_fn(yraw) if s0 is None else s0
-        sk, _ = jax.lax.scan(
-            lambda s_prev, _: (
-                step_iteration(s_prev, yraw, sigma, omega),
-                None,
-            ),
-            s0,
+    assert n_iter > 0, "Number of iterations must be positive."
+
+    s0 = initialize_fn(yraw) if s0 is None else s0
+    sk, _ = jax.lax.scan(
+        lambda s_prev, _: (
+            step_iteration(s_prev, yraw, sigma, omega),
             None,
-            length=n_iter,
-        )
-    else:
-        sk = yraw
+        ),
+        s0,
+        None,
+        length=n_iter,
+    )
+
     y = step_final(sk).x[:, : yraw.x.shape[1], :]
     y_scaled = y * d_c[:, : yraw.x.shape[1], :]
 
@@ -385,8 +448,8 @@ def _project_general_custom(
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
-    sigma: float = 1.0,
-    omega: float = 1.7,
+    sigma: float = PROJECTION_DEFAULT_SIGMA,
+    omega: float = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
@@ -417,8 +480,8 @@ def _project_general_fwd(
     d_c: jnp.ndarray,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
-    sigma: float = 1.0,
-    omega: float = 1.7,
+    sigma: float = PROJECTION_DEFAULT_SIGMA,
+    omega: float = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
