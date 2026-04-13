@@ -5,14 +5,21 @@ from itertools import product
 import cvxpy as cp
 import jax
 import jax.numpy as jnp
+import jax.random as jrnd
+import numpy as np
 import pytest
 
 from pinet import (
     AffineInequalityConstraint,
+    BoxConstraint,
+    BoxConstraintSpecification,
     EqualityConstraint,
     EqualityConstraintsSpecification,
+    NonLinearConstraint,
+    NonLinearSpecification,
     Project,
     ProjectionInstance,
+    SOCType,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -322,3 +329,323 @@ def test_call_and_check_invalid_reduction_raises(bad_reduction):
 
     with pytest.raises(ValueError, match="Invalid reduction method"):
         project_and_check(ProjectionInstance(x=xinfeas))
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_project_cv_linear_constraints(seed):
+    """Test Project.cv for linear constraints (eq + ineq, no nonlinear)."""
+    dim = 4
+    n_eq = 1
+    n_ineq = 2
+    key = jrnd.PRNGKey(seed)
+    key, kA, kx, kC = jrnd.split(key, 4)
+
+    A = jrnd.normal(kA, shape=(1, n_eq, dim))
+    x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-1.0, maxval=1.0)
+    b = A @ x_feas
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+
+    C = jrnd.normal(kC, shape=(1, n_ineq, dim))
+    Cx = C @ x_feas
+    lb = Cx - 0.1
+    ub = Cx + 0.1
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    layer = Project(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+    )
+
+    xinfeas = jnp.ones((1, dim, 1)) * 3.0
+    yraw = ProjectionInstance(x=xinfeas)
+
+    cv_layer = layer.cv(yraw)
+    y_lifted = layer.lift(yraw)
+    cv_expected = jnp.maximum(
+        layer.lifted_eq_constraint.cv(y_lifted),
+        layer.lifted_box_constraint.cv(y_lifted),
+    )
+
+    assert jnp.allclose(cv_layer, cv_expected)
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_project_cv_nonlinear_constraints(seed):
+    """Test Project.cv for nonlinear constraints (eq + ineq + SOC, no box)."""
+    dim = 3
+    n_eq = 1
+    n_ineq = 1
+    key = jrnd.PRNGKey(seed)
+    key, kA, kx, kC, knA, knf = jrnd.split(key, 6)
+
+    A = jrnd.normal(kA, shape=(1, n_eq, dim))
+    x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-0.5, maxval=0.5)
+    b = A @ x_feas
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+
+    C = jrnd.normal(kC, shape=(1, n_ineq, dim))
+    Cx = C @ x_feas
+    lb = Cx - 0.2
+    ub = Cx + 0.2
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+
+    A_soc = jrnd.normal(knA, shape=(1, 2, dim))
+    a_soc = jnp.zeros((1, 2, 1))
+    f_soc = jrnd.normal(knf, shape=(1, 1, dim))
+    # Build b so that x_feas is safely feasible for the SOC constraint.
+    b_soc = (
+        jnp.linalg.norm(A_soc @ x_feas + a_soc, ord=2, axis=1, keepdims=True)
+        - f_soc @ x_feas
+        + 0.5
+    )
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc,
+        a=a_soc,
+        f=f_soc,
+        b=b_soc,
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    layer = Project(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+
+    xinfeas = jnp.ones((1, dim, 1)) * 2.0
+    yraw = ProjectionInstance(x=xinfeas, nl=[nl_spec])
+
+    cv_layer = layer.cv(yraw)
+    y_lifted = layer.lift(yraw)
+    cv_expected = jnp.maximum(
+        layer.lifted_eq_constraint.cv(y_lifted),
+        layer.lifted_box_constraint.cv(y_lifted),
+    )
+
+    assert jnp.allclose(cv_layer, cv_expected)
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
+def test_project_box_ineq_eq_soc(seed, batch_size):
+    dim = 200
+    n_A = 12
+    n_C = 25
+    n_A_soc_1 = 32
+    n_A_soc_2 = 42
+    key = jrnd.PRNGKey(seed)
+    # Generate a random point which will be feasible by construction
+    key, subkey = jrnd.split(key)
+    x_feas = jrnd.uniform(subkey, shape=(1, dim, 1), minval=-2, maxval=2)
+
+    # Equality constraint
+    A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
+    b = A @ x_feas
+    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+
+    # Box constraint
+    mask = jnp.array([True] * dim, dtype=jnp.bool_)
+    lb_box = jnp.array([-2.0] * dim).reshape(1, -1, 1)
+    ub_box = jnp.array([2.0] * dim).reshape(1, -1, 1)
+    box_spec = BoxConstraintSpecification(mask=mask, lb=lb_box, ub=ub_box)
+    box_spec.validate()
+    box_constraint = BoxConstraint(box_spec=box_spec)
+
+    # Inequality constraint
+    eps_ineq = 1e-2  # slack for inequality constraints
+    key, subkey = jrnd.split(key)
+    C = jrnd.uniform(subkey, shape=(1, n_C, dim), minval=-2, maxval=2)
+    lb_ineq = C @ x_feas - eps_ineq
+    key, subkey = jrnd.split(key)
+    ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_C, 1), minval=0, maxval=1)
+    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb_ineq, ub=ub_ineq)
+
+    # SOC constraint 1
+    eps_soc = 1e-2  # Slack to ensure feasibility of x_feas
+    key, subkey = jrnd.split(key)
+    A_soc_1 = jrnd.uniform(subkey, shape=(1, n_A_soc_1, dim), minval=-2, maxval=2)
+    key, subkey = jrnd.split(key)
+    a_soc_1 = jrnd.uniform(
+        subkey, shape=(batch_size, n_A_soc_1, 1), minval=0.5, maxval=2
+    )
+    key, subkey = jrnd.split(key)
+    f_soc_1 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=0, maxval=1)
+    b_soc_1 = (
+        eps_soc
+        + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1, ord=2, axis=1, keepdims=True)
+        - f_soc_1 @ x_feas
+    )
+
+    nl_spec_1 = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc_1,
+        a=a_soc_1,
+        f=f_soc_1,
+        b=b_soc_1,
+    )
+    soc_constraint_1 = NonLinearConstraint(
+        spec=nl_spec_1,
+    )
+
+    # SOC constraint 2
+    key, subkey = jrnd.split(key)
+    A_soc_2 = jrnd.uniform(subkey, shape=(1, n_A_soc_2, dim), minval=-2, maxval=2)
+    key, subkey = jrnd.split(key)
+    a_soc_2 = jrnd.uniform(
+        subkey, shape=(batch_size, n_A_soc_2, 1), minval=0.5, maxval=2
+    )
+    key, subkey = jrnd.split(key)
+    f_soc_2 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=-1, maxval=1)
+    b_soc_2 = (
+        eps_soc
+        + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2, ord=2, axis=1, keepdims=True)
+        - f_soc_2 @ x_feas
+    )
+    nl_spec_2 = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc_2,
+        a=a_soc_2,
+        f=f_soc_2,
+        b=b_soc_2,
+    )
+    soc_constraint_2 = NonLinearConstraint(
+        spec=nl_spec_2,
+    )
+
+    nl_constraints = [
+        soc_constraint_1,
+        soc_constraint_2,
+    ]
+    # Build projection layer
+    projection_layer = Project(
+        eq_constraint=eq_constraint,
+        box_constraint=box_constraint,
+        ineq_constraint=ineq_constraint,
+        nl_constraints=nl_constraints,
+    )
+    # Generate points to be projected
+    key, subkey = jrnd.split(key)
+    yproj = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-5, maxval=5)
+    yraw = ProjectionInstance(x=yproj, nl=[nl_spec_1, nl_spec_2])
+
+    # Run projection
+    n_iter = 5000
+    sigma = 5.0
+    omega = 1.7
+    yk, sk = projection_layer.call(yraw=yraw, n_iter=n_iter, sigma=sigma, omega=omega)
+
+    # Compute projection with cvxpy
+    y_cvxpy = cp.Variable(dim)
+    x_cvxpy = cp.Parameter(dim)
+    b_eq_cvxpy = cp.Parameter(n_A)
+    a_soc_1_cvxpy = cp.Parameter(n_A_soc_1)
+    b_soc_1_cvxpy = cp.Parameter(1)
+    a_soc_2_cvxpy = cp.Parameter(n_A_soc_2)
+    b_soc_2_cvxpy = cp.Parameter(1)
+    constraints = [
+        A[0, :, :] @ y_cvxpy == b_eq_cvxpy,
+        lb_box[0, :, 0] <= y_cvxpy[mask],
+        y_cvxpy[mask] <= ub_box[0, :, 0],
+        lb_ineq[0, :, 0] <= C[0, :, :] @ y_cvxpy,
+        C[0, :, :] @ y_cvxpy <= ub_ineq[0, :, 0],
+        cp.SOC(
+            f_soc_1[0, :, :] @ y_cvxpy + b_soc_1_cvxpy,
+            A_soc_1[0, :, :] @ y_cvxpy + a_soc_1_cvxpy,
+        ),
+        cp.SOC(
+            f_soc_2[0, :, :] @ y_cvxpy + b_soc_2_cvxpy,
+            A_soc_2[0, :, :] @ y_cvxpy + a_soc_2_cvxpy,
+        ),
+    ]
+    objective = cp.Minimize(cp.sum_squares(y_cvxpy - x_cvxpy))
+    problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    y_opt = jnp.zeros((batch_size, dim, 1))
+    for ii in range(batch_size):
+        x_cvxpy.value = np.array(yproj[ii].reshape(-1))
+        b_eq_cvxpy.value = np.array(b[0, :, 0])
+        a_soc_1_cvxpy.value = np.array(a_soc_1[ii, :, 0])
+        b_soc_1_cvxpy.value = np.array(b_soc_1[ii, :, 0])
+        a_soc_2_cvxpy.value = np.array(a_soc_2[ii, :, 0])
+        b_soc_2_cvxpy.value = np.array(b_soc_2[ii, :, 0])
+        problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-10, eps_rel=1e-10)
+        y_opt = y_opt.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
+
+    assert jnp.allclose(
+        yk.x, y_opt, atol=1e-6, rtol=1e-6
+    ), """
+        Projected points do not match CVXPY solution.
+    """
+    assert jnp.allclose(
+        projection_layer.step_final(sk).x[:, dim:, :],
+        projection_layer.lifted_eq_constraint.A[0, n_A:, :dim] @ y_opt,
+        atol=1e-5,
+        rtol=1e-5,
+    ), """
+        Auxiliary variables do not match CVXPY solution.
+    """
+
+    # Generate new soc constraint parameters
+    key, subkey = jrnd.split(key)
+    a_soc_1_new = jrnd.uniform(
+        subkey, shape=(batch_size, n_A_soc_1, 1), minval=0.5, maxval=2
+    )
+    b_soc_1_new = (
+        eps_soc
+        + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1_new, ord=2, axis=1, keepdims=True)
+        - f_soc_1 @ x_feas
+    )
+    nl_spec_1_new = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc_1,
+        a=a_soc_1_new,
+        f=f_soc_1,
+        b=b_soc_1_new,
+    )
+
+    key, subkey = jrnd.split(key)
+    a_soc_2_new = jrnd.uniform(
+        subkey, shape=(batch_size, n_A_soc_2, 1), minval=0.5, maxval=2
+    )
+    b_soc_2_new = (
+        eps_soc
+        + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2_new, ord=2, axis=1, keepdims=True)
+        - f_soc_2 @ x_feas
+    )
+    nl_spec_2_new = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc_2,
+        a=a_soc_2_new,
+        f=f_soc_2,
+        b=b_soc_2_new,
+    )
+    yraw_new = yraw.update(nl=[nl_spec_1_new, nl_spec_2_new])
+    yk_new, sk_new = projection_layer.call(
+        yraw=yraw_new, n_iter=n_iter, sigma=sigma, omega=omega
+    )
+
+    y_opt_new = jnp.zeros((batch_size, dim, 1))
+    for ii in range(batch_size):
+        x_cvxpy.value = np.array(yproj[ii].reshape(-1))
+        b_eq_cvxpy.value = np.array(b[0, :, 0])
+        a_soc_1_cvxpy.value = np.array(a_soc_1_new[ii, :, 0])
+        b_soc_1_cvxpy.value = np.array(b_soc_1_new[ii, :, 0])
+        a_soc_2_cvxpy.value = np.array(a_soc_2_new[ii, :, 0])
+        b_soc_2_cvxpy.value = np.array(b_soc_2_new[ii, :, 0])
+        problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-10, eps_rel=1e-10)
+        y_opt_new = y_opt_new.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
+
+    assert jnp.allclose(
+        yk_new.x, y_opt_new, atol=1e-6, rtol=1e-6
+    ), """
+        Projected points do not match CVXPY solution.
+    """
+    assert jnp.allclose(
+        projection_layer.step_final(sk_new).x[:, dim:, :],
+        projection_layer.lifted_eq_constraint.A[0, n_A:, :dim] @ y_opt_new,
+        atol=1e-5,
+        rtol=1e-5,
+    ), """
+        Auxiliary variables do not match CVXPY solution.
+    """

@@ -7,7 +7,11 @@ from pinet import (
     BoxConstraintSpecification,
     EqualityConstraintsSpecification,
     EquilibrationParams,
+    L2NormType,
+    NonLinearSpecification,
     ProjectionInstance,
+    SocConstraintSpecification,
+    SOCType,
 )
 
 
@@ -306,3 +310,250 @@ def test_equilibration_update_unknown_kw_raises_typeerror():
     ep0 = EquilibrationParams()
     with pytest.raises(TypeError):
         ep0.update(foo="bar")
+
+
+def test_soc_validate_mask_u_must_be_boolean():
+    mask_u = jnp.array([1, 0, 1, 0, 1])  # int, not bool
+    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(TypeError, match="mask_u must be a boolean array."):
+        spec.validate()
+
+
+def test_soc_validate_mask_t_must_be_boolean():
+    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array([0, 1, 0])  # int, not bool
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(TypeError, match="mask_t must be a boolean array."):
+        spec.validate()
+
+
+def test_soc_validate_mask_u_must_be_1d():
+    mask_u = jnp.array([[True, False], [True, False]], dtype=jnp.bool_)  # 2D
+    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(ValueError, match="mask_u must be a 1D array."):
+        spec.validate()
+
+
+def test_soc_validate_mask_t_must_be_1d():
+    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array([[False, True], [False, False]], dtype=jnp.bool_)  # 2D
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(ValueError, match="mask_t must be a 1D array."):
+        spec.validate()
+
+
+def test_soc_validate_mask_u_mask_t_same_size():
+    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)  # size = 5
+    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)  # size = 3
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(ValueError, match="mask_u and mask_t must have the same size."):
+        spec.validate()
+
+
+def test_soc_validate_mask_t_must_select_exactly_one():
+    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array(
+        [False, True, True, False, False], dtype=jnp.bool_
+    )  # sum = 2, not 1
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(ValueError, match="mask_t must select exactly one element."):
+        spec.validate()
+
+
+def test_soc_validate_mask_t_must_select_at_least_one():
+    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array([False, False, False, False, False], dtype=jnp.bool_)  # sum = 0
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    with pytest.raises(ValueError, match="mask_t must select exactly one element."):
+        spec.validate()
+
+
+def test_soc_validate_a_must_be_3d():
+    mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+    a = jnp.ones((2, 3))  # 2D, not 3D
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, a=a)
+    with pytest.raises(ValueError, match="a must have shape"):
+        spec.validate()
+
+
+def test_soc_validate_b_must_be_3d():
+    mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+    b = jnp.ones((2, 1))  # 2D, not 3D
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, b=b)
+    with pytest.raises(ValueError, match="b must have shape"):
+        spec.validate()
+
+
+def test_soc_validate_a_second_dim_must_match_mask_u_size():
+    mask_u = jnp.array(
+        [True, False, True, False, True], dtype=jnp.bool_
+    )  # 3 True values
+    mask_t = jnp.array([False, True, False, False, False], dtype=jnp.bool_)
+    a = jnp.ones((2, 5, 1))  # second dim = 5, but mask_u has only 3 True values
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, a=a)
+    with pytest.raises(
+        ValueError,
+        match="The second dimension of a must match the number of True values in mask_u.",
+    ):
+        spec.validate()
+
+
+def test_soc_validate_b_second_dim_must_be_1():
+    mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
+    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+    b = jnp.ones((2, 3, 1))  # second dim = 3, not 1
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, b=b)
+    with pytest.raises(ValueError, match="The second dimension of b must be 1."):
+        spec.validate()
+
+
+def test_soc_validate_passes_with_valid_inputs():
+    mask_u = jnp.array(
+        [True, False, True, False, True], dtype=jnp.bool_
+    )  # 3 True values
+    mask_t = jnp.array([False, True, False, False, False], dtype=jnp.bool_)
+    a = jnp.ones((2, 3, 1))  # matches number of True values in mask_u
+    b = jnp.ones((2, 1, 1))  # second dim = 1
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, a=a, b=b)
+    spec.validate()  # should not raise
+
+
+def test_soc_validate_passes_with_minimal_inputs():
+    mask_u = jnp.array([True, False], dtype=jnp.bool_)
+    mask_t = jnp.array([False, True], dtype=jnp.bool_)
+    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
+    spec.validate()  # should not raise
+
+
+def test_nonlinear_validate_l2norm_with_rhs_not_supported():
+    spec = NonLinearSpecification(
+        nl_type=L2NormType,
+        A=jnp.ones((1, 2, 3)),
+        f=jnp.ones((1, 1, 3)),
+    )
+    with pytest.raises(
+        ValueError,
+        match=r"L2NormType with RHS \(f\) is not supported in NonLinearSpecification.",
+    ):
+        spec.validate()
+
+
+def test_nonlinear_validate_nl_type_must_be_constraint_type_instance():
+    spec = NonLinearSpecification(
+        nl_type="invalid_type",
+        A=jnp.ones((1, 2, 3)),
+    )
+    with pytest.raises(
+        ValueError,
+        match="nl_type must be a NonLinearConstraintType instance",
+    ):
+        spec.validate()
+
+
+def test_nonlinear_validate_inconsistent_batch_sizes_raises():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((2, 2, 3)),
+        a=jnp.ones((3, 2, 1)),
+        f=jnp.ones((2, 1, 3)),
+        b=jnp.ones((3, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="Inconsistent batch sizes"):
+        spec.validate()
+
+
+def test_nonlinear_validate_batch_sizes_allow_broadcast_with_all_present():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 2, 3)),
+        a=jnp.ones((4, 2, 1)),
+        f=jnp.ones((1, 1, 3)),
+        b=jnp.ones((4, 1, 1)),
+    )
+    spec.validate()
+
+
+def test_nonlinear_validate_A_or_f_batch_size_not_one():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((2, 2, 3)),
+        a=jnp.ones((1, 2, 1)),
+        f=jnp.ones((1, 1, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="A must have batch size 1"):
+        spec.validate()
+
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 2, 3)),
+        a=jnp.ones((1, 2, 1)),
+        f=jnp.ones((2, 1, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="f must have batch size 1"):
+        spec.validate()
+
+
+def test_nonlinear_validate_A_and_a_constraint_dimension():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 2, 1)),
+        f=jnp.ones((1, 1, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="A and a must have same constraint dimension"):
+        spec.validate()
+
+
+def test_nonlinear_validate_A_and_f_variable_dimension():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 3, 1)),
+        f=jnp.ones((1, 1, 2)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="A and f must have same variable dimension"):
+        spec.validate()
+
+
+def test_nonlinear_validate_f_and_b_constraint_dimension():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 3, 1)),
+        f=jnp.ones((1, 2, 3)),
+        b=jnp.ones((2, 1, 1)),
+    )
+    with pytest.raises(ValueError, match="f and b must have same constraint dimension"):
+        spec.validate()
+
+
+def test_nonlinear_validate_b_is_not_a_scalar():
+    spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=jnp.ones((1, 3, 3)),
+        a=jnp.ones((1, 3, 1)),
+        f=jnp.ones((1, 2, 3)),
+        b=jnp.ones((2, 2, 1)),
+    )
+    with pytest.raises(ValueError, match="b must be scalar"):
+        spec.validate()
+
+
+def test_nonlinear_to_primitive_spec_with_invalid_type():
+    spec = NonLinearSpecification(
+        nl_type="invalid_type",
+        A=jnp.ones((1, 2, 3)),
+    )
+    with pytest.raises(
+        NotImplementedError,
+        match="Conversion to primitive spec not implemented",
+    ):
+        spec.to_primitive_spec()
