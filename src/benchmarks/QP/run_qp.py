@@ -11,11 +11,11 @@ import jax
 import jax.numpy as jnp
 import optax
 import torch
-import wandb
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
+import wandb
 from benchmarks.model import setup_model
 from benchmarks.QP.load_qp import load_data
 from benchmarks.QP.plotting import plot_inference_boxes, plot_rs_vs_cv

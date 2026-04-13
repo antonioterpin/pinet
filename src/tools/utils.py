@@ -4,8 +4,9 @@ import logging
 import signal
 from typing import Any
 
-import wandb
 import yaml
+
+import wandb
 
 logger = logging.getLogger(__name__)
 
