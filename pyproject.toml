@@ -181,6 +181,18 @@ extend-ignore-names = [
 max-branches = 16
 max-statements = 120
 
+[tool.basedpyright]
+# equinox.Module sets fields via ``self.x = ...`` inside a custom ``__init__``;
+# calling ``super().__init__()`` is neither required nor supported by the
+# dataclass machinery that eqx.Module builds on.
+reportMissingSuperCall = false
+# Abstract constraint bases use eqx.Module's own abstract-method enforcement;
+# the implicit-Protocol diagnostic is spurious here.
+reportImplicitAbstractClass = false
+# Matrix-name identifiers (A, B, ``_A``, ...) are standard math notation across
+# the project; reassigning them in ``__init__`` is not a constant-redefinition.
+reportConstantRedefinition = false
+
 [tool.pydoclint]
 style = "google"
 # Docstring enforcement only targets the library API.

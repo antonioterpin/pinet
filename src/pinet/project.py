@@ -6,6 +6,7 @@ from functools import partial
 import jax
 from jax import numpy as jnp
 
+from ._typing import BatchedScalar, ScalingVector
 from .constants import Constants
 from .constraints import (
     AffineInequalityConstraint,
@@ -14,7 +15,11 @@ from .constraints import (
     EqualityConstraint,
     NonLinearConstraint,
 )
-from .dataclasses import EquilibrationParams, ProjectionInstance
+from .dataclasses import (
+    BoxConstraintSpecification,
+    EquilibrationParams,
+    ProjectionInstance,
+)
 from .equilibration import ruiz_equilibration
 from .solver import build_iteration_step, initialize
 
@@ -114,31 +119,23 @@ class Project:
                     ineq_constraint=self.ineq_constraint,
                     box_constraint=self.box_constraint,
                 )
-                (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
-                    parser.parse(method=None)
-                )
+                (parsed_eq, parsed_box, self.lift) = parser.parse(method=None)
                 # Inequality-constrained parsing must yield a lifted equality.
-                assert self.lifted_eq_constraint is not None
+                assert parsed_eq is not None
                 # Inequality-constrained parsing must yield a lifted box.
-                assert self.lifted_box_constraint is not None
+                assert parsed_box is not None
                 # Setup always stores equilibration parameters before this branch runs.
                 assert self.equilibration_params is not None
                 # Only equilibrate when we have a single a_dyn.
-                if (
-                    not self.lifted_eq_constraint.var_a_dyn
-                    and self.lifted_eq_constraint.a_dyn.shape[0] == 1
-                ):
-                    scaled_a_dyn, self.d_r, self.d_c = ruiz_equilibration(
-                        self.lifted_eq_constraint.a_dyn[0], self.equilibration_params
+                if not parsed_eq.var_a_dyn and parsed_eq.a_dyn.shape[0] == 1:
+                    scaled_a_dyn_flat, d_r_flat, d_c_flat = ruiz_equilibration(
+                        parsed_eq.a_dyn[0], self.equilibration_params
                     )
-                    # Update a_dyn in lifted equality and setup projection
-                    self.lifted_eq_constraint.a_dyn = scaled_a_dyn.reshape(
-                        1,
-                        self.lifted_eq_constraint.a_dyn.shape[1],
-                        self.lifted_eq_constraint.a_dyn.shape[2],
+                    scaled_a_dyn = scaled_a_dyn_flat.reshape(
+                        1, parsed_eq.a_dyn.shape[1], parsed_eq.a_dyn.shape[2]
                     )
-                    self.d_r = self.d_r.reshape(1, -1, 1)
-                    self.d_c = self.d_c.reshape(1, -1, 1)
+                    self.d_r = d_r_flat.reshape(1, -1, 1)
+                    self.d_c = d_c_flat.reshape(1, -1, 1)
                 else:
                     # No equilibration for variable a_dyn
                     n_ineq = (
@@ -151,29 +148,36 @@ class Project:
                         if self.eq_constraint is not None
                         else 0
                     )
+                    scaled_a_dyn = parsed_eq.a_dyn
                     self.d_r = jnp.ones((1, n_eq + n_ineq, 1))
                     self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
-                self.lifted_eq_constraint.method = "pinv"
-                self.lifted_eq_constraint.setup()
-
-                # Scale the equality RHS
-                self.lifted_eq_constraint.b *= self.d_r
-                # Scale the lifted box constraints
-                # The polytope path always produces a BoxConstraint (not a cartesian).
-                assert isinstance(self.lifted_box_constraint, BoxConstraint)
-                # BoxConstraint.__init__ guarantees mask/lb/ub are set.
-                assert self.lifted_box_constraint.mask is not None
-                assert self.lifted_box_constraint.lb is not None
-                assert self.lifted_box_constraint.ub is not None
-                mask = self.lifted_box_constraint.mask
-                scale = self.d_c[:, mask, :]
-                self.lifted_box_constraint.scale = 1 / scale
-                self.lifted_box_constraint.ub = (
-                    self.lifted_box_constraint.ub * self.lifted_box_constraint.scale
+                # Build the scaled lifted equality constraint with method="pinv".
+                self.lifted_eq_constraint = EqualityConstraint(
+                    a_dyn=scaled_a_dyn,
+                    b=parsed_eq.b * self.d_r,
+                    method="pinv",
+                    var_b=parsed_eq.var_b,
+                    var_a_dyn=parsed_eq.var_a_dyn,
                 )
-                self.lifted_box_constraint.lb = (
-                    self.lifted_box_constraint.lb * self.lifted_box_constraint.scale
+
+                # Scale the lifted box constraints.
+                # The polytope path always produces a BoxConstraint (not a cartesian).
+                assert isinstance(parsed_box, BoxConstraint)
+                # BoxConstraint.__init__ guarantees mask/lb/ub are set.
+                assert parsed_box.mask is not None
+                assert parsed_box.lb is not None
+                assert parsed_box.ub is not None
+                mask = parsed_box.mask
+                box_scale = 1 / self.d_c[:, mask, :]
+
+                self.lifted_box_constraint = BoxConstraint(
+                    BoxConstraintSpecification(
+                        lb=parsed_box.lb * box_scale,
+                        ub=parsed_box.ub * box_scale,
+                        mask=parsed_box.mask,
+                    ),
+                    scale=box_scale,
                 )
 
                 self.step_iteration, self.step_final = build_iteration_step(
@@ -272,15 +276,14 @@ class Project:
             d_r=self.d_r,
         )
 
-    def cv(self, y: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, y: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
             y: Point to be evaluated.
-                Shape of y.x is (batch_size, dimension, 1).
 
         Returns:
-            jnp.ndarray: Constraint violation for each point in the batch.
+            Constraint violation for each point in the batch.
         """
         if self.is_single_simple_constraint:
             return self.single_constraint.cv(y)
@@ -390,8 +393,8 @@ def _project_general(
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
-    d_r: jnp.ndarray,
-    d_c: jnp.ndarray,
+    d_r: ScalingVector,
+    d_c: ScalingVector,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
@@ -408,15 +411,13 @@ def _project_general(
         d_r: Scaling factor for the rows.
         d_c: Scaling factor for the columns.
         yraw: Point to be projected.
-            Shape (batch_size, dimension, 1).
         s0: Initial value for the governing sequence.
         sigma: ADMM parameter.
         omega: ADMM parameter.
         n_iter: Number of iterations to run.
 
     Returns:
-        tuple[ProjectionInstance, ProjectionInstance]: First output is the projected
-            point, and second output is the value of the governing sequence.
+        A pair ``(projected_point, governing_sequence_value)``.
     """
     assert n_iter > 0, "Number of iterations must be positive."
 
@@ -457,8 +458,8 @@ def _project_general_custom(
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
-    d_r: jnp.ndarray,
-    d_c: jnp.ndarray,
+    d_r: ScalingVector,
+    d_c: ScalingVector,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
@@ -489,8 +490,8 @@ def _project_general_fwd(
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
-    d_r: jnp.ndarray,
-    d_c: jnp.ndarray,
+    d_r: ScalingVector,
+    d_c: ScalingVector,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
@@ -500,7 +501,9 @@ def _project_general_fwd(
     fpi: bool = False,
 ) -> tuple[
     tuple[ProjectionInstance, ProjectionInstance],
-    tuple[ProjectionInstance, ProjectionInstance, jnp.ndarray, jnp.ndarray, float, float],
+    tuple[
+        ProjectionInstance, ProjectionInstance, ScalingVector, ScalingVector, float, float
+    ],
 ]:
     # unpack trailing options that belong only to custom vjp
     # The decorated function returns a (ProjectionInstance, ProjectionInstance) tuple,
@@ -538,8 +541,8 @@ def _project_general_bwd(
     residuals: tuple[
         ProjectionInstance,
         ProjectionInstance,
-        jnp.ndarray,
-        jnp.ndarray,
+        ScalingVector,
+        ScalingVector,
         float,
         float,
     ],
@@ -551,11 +554,11 @@ def _project_general_bwd(
     implicit function theorem.
     Note that, the arguments are:
     (i) any arguments for the
-    forward that are not jnp.ndarray;
+    forward that are not arrays;
     (ii) residuals: tuple with auxiliary data from the forward pass;
     (iii) cotangent: incoming cotangents.
     The function returns a tuple where each element corresponds
-    to a jnp.ndarray from the input.
+    to an array from the input.
 
     Args:
         initialize_fn: Function to initialize the governing sequence.

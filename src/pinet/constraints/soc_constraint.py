@@ -1,7 +1,10 @@
 """Second order cone constraint module."""
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 
+from pinet._typing import BatchedIneqBound, BatchedScalar, Mask1D
 from pinet.constants import Constants
 from pinet.constraints.base import Constraint
 from pinet.dataclasses import ProjectionInstance, SocConstraintSpecification
@@ -15,7 +18,21 @@ class SocConstraint(Constraint):
     The SOC constraint set is defined as:
     || y_[mask_u] + a ||_2 <= y_[mask_t] + b
     where mask_t has one True element and b is a scalar.
+
+    Attributes:
+        mask_u: Mask selecting the variables that form the cone vector ``u``.
+        mask_t: Mask selecting the scalar variable ``t``.
+        a: Offset vector added to ``u``.
+        b: Scalar offset added to ``t``.
+        eps: Small epsilon for numerical stability of the projection direction.
     """
+
+    mask_u: Mask1D
+    mask_t: Mask1D
+    a: BatchedIneqBound
+    b: BatchedScalar
+    eps: float = eqx.field(static=True)
+    _dim: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -29,22 +46,27 @@ class SocConstraint(Constraint):
         if socspec.mask_u is None or socspec.mask_t is None:
             raise ValueError("Both mask_u and mask_t must be provided.")
         socspec.validate()
-        self.mask_u: jnp.ndarray = socspec.mask_u
-        self.mask_t: jnp.ndarray = socspec.mask_t
+        self.mask_u = socspec.mask_u
+        self.mask_t = socspec.mask_t
         self._dim = int(self.mask_u.shape[0])
         # For numerical stability of projection
         self.eps = SOC_CONSTRAINT_EPSILON
-        self.a: jnp.ndarray = (
+        self.a = (
             socspec.a
             if socspec.a is not None
             else jnp.zeros((1, int(self.mask_u.sum()), 1))
         )
-        self.b: jnp.ndarray = socspec.b if socspec.b is not None else jnp.zeros((1, 1, 1))
+        self.b = socspec.b if socspec.b is not None else jnp.zeros((1, 1, 1))
 
     def unpack_instance(
         self, inp: ProjectionInstance
     ) -> tuple[
-        jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray
+        Mask1D,
+        BatchedIneqBound,
+        Mask1D,
+        BatchedScalar,
+        BatchedIneqBound,
+        BatchedScalar,
     ]:
         """Unpack point to project in convenient form.
 
@@ -75,23 +97,23 @@ class SocConstraint(Constraint):
                 The .x attribute is the point to project.
 
         Returns:
-            ProjectionInstance: The projected point for each point in the batch.
+            The projected point for each point in the batch.
         """
         mask_u, u, mask_t, t, a, b = self.unpack_instance(yraw)
         norm_u = jnp.linalg.norm(u, axis=1, keepdims=True)
-        z: jnp.ndarray = jnp.concatenate([u, t], axis=1)
+        z: jax.Array = jnp.concatenate([u, t], axis=1)
 
-        proj1: jnp.ndarray = z
-        proj2: jnp.ndarray = jnp.zeros_like(z)
-        direction: jnp.ndarray = jnp.concatenate(
+        proj1: jax.Array = z
+        proj2: jax.Array = jnp.zeros_like(z)
+        direction: jax.Array = jnp.concatenate(
             [u / (norm_u + self.eps), jnp.ones_like(t)], axis=1
         )
-        proj3: jnp.ndarray = (t + norm_u) / 2 * direction
+        proj3: jax.Array = (t + norm_u) / 2 * direction
 
         when1 = norm_u <= t
         when2 = norm_u <= -t
-        inner: jnp.ndarray = jnp.where(when2, proj2, proj3)
-        final_proj: jnp.ndarray = jnp.where(when1, proj1, inner)
+        inner: jax.Array = jnp.where(when2, proj2, proj3)
+        final_proj: jax.Array = jnp.where(when1, proj1, inner)
 
         return yraw.update(
             x=yraw.x.at[:, mask_u, :]
@@ -100,18 +122,17 @@ class SocConstraint(Constraint):
             .set(final_proj[:, -1:, :] - b)
         )
 
-    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
-        The SOC constraint is: ||u + a||_2 <= t + b
-        The violation is: max(0, ||u + a||_2 - (t + b))
+        The SOC constraint is: ||u + a||_2 <= t + b. The violation is
+        ``max(0, ||u + a||_2 - (t + b))``.
 
         Args:
             yraw: ProjectionInstance to evaluate.
 
         Returns:
-            jnp.ndarray: The constraint violation for each point in the batch.
-                Shape (batch_size, 1, 1).
+            The constraint violation for each point in the batch.
         """
         _mask_u, u, _mask_t, t, _a, _b = self.unpack_instance(yraw)
         norm_u = jnp.linalg.norm(u, axis=1, keepdims=True)
@@ -123,18 +144,10 @@ class SocConstraint(Constraint):
 
     @property
     def dim(self) -> int:
-        """Return the dimension of the constraint set.
-
-        Returns:
-            int: The dimension of the constraint set.
-        """
+        """Return the dimension of the constraint set."""
         return self._dim
 
     @property
     def n_constraints(self) -> int:
-        """Return the number of constraints.
-
-        Returns:
-            int: The number of constraints.
-        """
+        """Return the number of constraints."""
         return 1
