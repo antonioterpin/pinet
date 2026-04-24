@@ -4,6 +4,7 @@ import argparse
 import csv
 import pathlib
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +14,7 @@ def generate_bar_plot_data(
     id: str,
     config: str,
     filename: str,
-    opt_obj_test: jnp.ndarray,
+    opt_obj_test: jax.Array,
     plotting: bool = False,
 ) -> None:
     """Generate bar plot data for RS and CV from saved results.
@@ -100,7 +101,7 @@ def generate_learning_curves(
     id: str,
     config: str,
     filename: str,
-    opt_obj_valid: jnp.ndarray,
+    opt_obj_valid: jax.Array,
     plotting: bool = False,
 ) -> None:
     """Parse results and saves learning curves for RS and CV.
@@ -346,7 +347,7 @@ def save_optimal_objectives(id: str, config: str):
     )
 
 
-def load_optimal_objectives(id: str) -> tuple[jnp.ndarray, jnp.ndarray]:
+def load_optimal_objectives(id: str) -> tuple[jax.Array, jax.Array]:
     """Load optimal objectives for the validation and test set.
 
     Args:

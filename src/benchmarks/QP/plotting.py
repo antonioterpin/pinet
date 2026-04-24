@@ -1,14 +1,15 @@
 """Plotting for benchmarks."""
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 
 def plot_rs_vs_cv(
-    obj_fun_test: jnp.ndarray,
-    obj_test: jnp.ndarray,
-    eq_viol_test: jnp.ndarray,
-    ineq_viol_test: jnp.ndarray,
+    obj_fun_test: jax.Array,
+    obj_test: jax.Array,
+    eq_viol_test: jax.Array,
+    ineq_viol_test: jax.Array,
     cvthres: float,
     rsthres: float,
 ):
@@ -25,8 +26,8 @@ def plot_rs_vs_cv(
     Returns:
         tuple:
             fig (matplotlib.figure.Figure): The created figure.
-            rs (jnp.ndarray or float): Computed relative suboptimality.
-            cv (jnp.ndarray or float): Computed constraint violations.
+            rs (jax.Array or float): Computed relative suboptimality.
+            cv (jax.Array or float): Computed constraint violations.
     """
     fig, ax = plt.subplots()
     # Relative suboptimality
@@ -69,7 +70,7 @@ def plot_rs_vs_cv(
 
 
 def plot_inference_boxes(
-    single_inference_times: jnp.ndarray, batch_inference_times: jnp.ndarray
+    single_inference_times: jax.Array, batch_inference_times: jax.Array
 ):
     """Plot box plots for single and batch inference.
 

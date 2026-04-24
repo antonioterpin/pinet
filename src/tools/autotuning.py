@@ -15,6 +15,7 @@ from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Float
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -31,6 +32,13 @@ from pinet import (
     EquilibrationParams,
     Project,
     ProjectionInstance,
+)
+from pinet._typing import (
+    BatchedEqMatrix,
+    BatchedIneqMatrix,
+    BatchedPrimal,
+    BatchedRHS,
+    BatchedScalar,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -61,12 +69,12 @@ class LoadedData:
     """
 
     filename: str
-    q: jnp.ndarray
-    p: jnp.ndarray
-    a_dyn: jnp.ndarray
-    constr_matrix: jnp.ndarray
-    h: jnp.ndarray
-    x_dataset: jnp.ndarray
+    q: jax.Array
+    p: jax.Array
+    a_dyn: BatchedEqMatrix
+    constr_matrix: BatchedIneqMatrix
+    h: jax.Array
+    x_dataset: jax.Array
     train_loader: Any
     valid_loader: Any
     test_loader: Any
@@ -144,7 +152,7 @@ def load_data(
         )
         dataset = cast(
             DC3Dataset,
-            cast(DataLoader[tuple[jnp.ndarray, jnp.ndarray]], train_loader).dataset,
+            cast(DataLoader[tuple[jax.Array, jax.Array]], train_loader).dataset,
         )
         q, p, a_dyn, constr_matrix, h = dataset.const
         p = p[0, :, :]
@@ -194,12 +202,12 @@ x_batch = x_batch[:n_samples]
 
 
 def build_evaluate_params(
-    x: jnp.ndarray,
-    b: jnp.ndarray,
+    x: BatchedPrimal,
+    b: BatchedRHS,
     n_iter: int,
-    project: Callable[..., tuple[ProjectionInstance, jnp.ndarray]],
-    compute_cv: Callable[[ProjectionInstance], jnp.ndarray],
-) -> Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]]:
+    project: Callable[..., tuple[ProjectionInstance, jax.Array]],
+    compute_cv: Callable[[ProjectionInstance], jax.Array],
+) -> Callable[[jax.Array, jax.Array], tuple[jax.Array, jax.Array, jax.Array]]:
     """Build an evaluator for autotuning hyperparameters.
 
     Args:
@@ -210,9 +218,8 @@ def build_evaluate_params(
         compute_cv: Function computing constraint violation for a projection result.
 
     Returns:
-        Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray,
-        jnp.ndarray]]: Function mapping ``(init, sigma)`` to the next warm start,
-        maximum constraint violation, and mean projection distance.
+        Function mapping ``(init, sigma)`` to the next warm start, maximum
+        constraint violation, and mean projection distance.
     """
 
     def evaluate_params(init, sigma):
@@ -251,12 +258,12 @@ omega = 1.7
 
 
 def project(
-    init: jnp.ndarray,
-    x: jnp.ndarray,
-    b: jnp.ndarray,
-    sigma: jnp.ndarray | float,
+    init: jax.Array,
+    x: BatchedPrimal,
+    b: BatchedRHS,
+    sigma: BatchedScalar | float,
     n_iter: int,
-) -> tuple[ProjectionInstance, jnp.ndarray]:
+) -> tuple[ProjectionInstance, jax.Array]:
     """Wrap the projection layer call.
 
     Args:
@@ -267,8 +274,7 @@ def project(
         n_iter: Number of iterations to run.
 
     Returns:
-        tuple[ProjectionInstance, jnp.ndarray]: Projected instance and updated solver
-            state.
+        Projected instance and updated solver state.
     """
     yraw = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
     return projection_layer.call(
@@ -280,14 +286,14 @@ def project(
     )
 
 
-def compute_cv(y: ProjectionInstance) -> jnp.ndarray:
+def compute_cv(y: ProjectionInstance) -> jax.Array:
     """Compute constraint violation.
 
     Args:
         y: Projected instance to evaluate.
 
     Returns:
-        jnp.ndarray: Flattened constraint-violation values.
+        Flattened constraint-violation values.
     """
     # ``projection_layer.cv`` returns ``BatchedScalar`` (ArrayLike) at the
     # public boundary; coerce to ``jax.Array`` for the script's downstream
@@ -335,12 +341,10 @@ eval_fn = jax.jit(build_evaluate_params(x, x_batch, n_iter_step, project, comput
 
 # %%
 def generate_results(
-    sigma_candidates: jnp.ndarray,
+    sigma_candidates: Float[Array, "n_sigma"],
     n_iter_candidates: int,
-    eval_fn: Callable[
-        [jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
-    ],
-) -> jnp.ndarray:
+    eval_fn: Callable[[jax.Array, jax.Array], tuple[jax.Array, jax.Array, jax.Array]],
+) -> Float[Array, "n_sigma n_iter_candidates 2"]:
     """Evaluate candidate hyperparameters on the validation batch.
 
     Args:
@@ -349,8 +353,8 @@ def generate_results(
         eval_fn: Evaluation function returned by ``build_evaluate_params``.
 
     Returns:
-        jnp.ndarray: Array of shape ``(n_sigma, n_iter_candidates, 2)`` containing
-            the maximum constraint violation and mean projection distance.
+        Array of shape ``(n_sigma, n_iter_candidates, 2)`` containing the maximum
+        constraint violation and mean projection distance.
     """
     # Initialize results array
     results = jnp.inf * jnp.ones((len(sigma_candidates), n_iter_candidates, 2))
@@ -376,12 +380,12 @@ def generate_results(
 
 # %%
 def get_best(
-    results: jnp.ndarray,
-    sigma_candidates: jnp.ndarray,
+    results: Float[Array, "n_sigma n_iter_candidates 2"],
+    sigma_candidates: Float[Array, "n_sigma"],
     n_iter_step: int,
     target_cv: float,
     target_rs: float,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Select the best hyperparameter combination satisfying target metrics.
 
     Args:
@@ -392,8 +396,8 @@ def get_best(
         target_rs: Maximum acceptable relative suboptimality.
 
     Returns:
-        tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]: Best sigma, best iteration
-            count, and the corresponding ``[cv, value]`` result pair.
+        Best sigma, best iteration count, and the corresponding ``[cv, value]``
+        result pair.
 
     Raises:
         ValueError: If no candidate pair satisfies the target conditions.

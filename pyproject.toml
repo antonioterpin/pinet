@@ -101,17 +101,23 @@ ignore = [
 # jaxtyping string-shape annotations (``Float[Array, "B m n"]``) trigger F722
 # (syntax error in forward annotation) and F821 (undefined name) because the
 # quoted axis names are not module-level symbols. Scope the ignore to the
-# library files that actually use those annotations so F722/F821 stay active
-# everywhere else (tests, benchmarks, tools).
+# directories that actually use those annotations so F722/F821 stay active
+# in tests.
 "src/pinet/**" = [
     "F722",
     "F821",
 ]
-"src/test/**" = [
-    "PLR2004", # Magic values are fine in tests.
+"src/tools/**" = [
+    "F722",
+    "F821",
 ]
 "src/benchmarks/**" = [
+    "F722",
+    "F821",
     "PLR2004", # Magic values are fine in benchmark scripts.
+]
+"src/test/**" = [
+    "PLR2004", # Magic values are fine in tests.
 ]
 
 [tool.ruff.lint.pep8-naming]

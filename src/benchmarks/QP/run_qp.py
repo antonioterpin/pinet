@@ -40,10 +40,10 @@ class LoggingDict:
 
     def update(
         self,
-        optimal_objective: jnp.ndarray,
-        objective: jnp.ndarray,
-        eqcv: jnp.ndarray,
-        ineqcv: jnp.ndarray,
+        optimal_objective: jax.Array,
+        objective: jax.Array,
+        eqcv: jax.Array,
+        ineqcv: jax.Array,
         train_time: float,
         inf_time: float,
     ) -> None:
@@ -64,7 +64,7 @@ class LoggingDict:
         self.dict["train_time"].append(train_time)
         self.dict["inf_time"].append(inf_time)
 
-    def as_array(self, label: str) -> jnp.ndarray:
+    def as_array(self, label: str) -> jax.Array:
         """Return the logging dictionary label as a jnp array.
 
         Args:
@@ -80,10 +80,10 @@ class LoggingDict:
 def evaluate_hcnn(
     loader: Any,
     state: train_state.TrainState,
-    batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
-    a_dyn: jnp.ndarray,
-    g_mat: jnp.ndarray,
-    h: jnp.ndarray,
+    batched_objective: Callable[[jax.Array], jax.Array],
+    a_dyn: jax.Array,
+    g_mat: jax.Array,
+    h: jax.Array,
     prefix: str,
     time_evals: int = 10,
     tol_cv: float = 1e-3,
@@ -92,11 +92,11 @@ def evaluate_hcnn(
     instances: Sequence[int] | None = None,
     proj_method: str = "pinet",
 ) -> tuple[
-    jnp.ndarray,  # Objective values
-    jnp.ndarray,  # HCNN objective values
-    jnp.ndarray,  # Equality constraint violations
-    jnp.ndarray,  # Inequality constraint violations
-    jnp.ndarray,  # Evaluation times
+    jax.Array,  # Objective values
+    jax.Array,  # HCNN objective values
+    jax.Array,  # Equality constraint violations
+    jax.Array,  # Inequality constraint violations
+    jax.Array,  # Evaluation times
 ]:
     """Evaluate the performance of the HCNN.
 
@@ -226,10 +226,10 @@ def evaluate_instance(
     loader: Any,
     state: train_state.TrainState,
     use_dc3_dataset: bool,
-    batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
-    a_dyn: jnp.ndarray,
-    g_mat: jnp.ndarray,
-    h: jnp.ndarray,
+    batched_objective: Callable[[jax.Array], jax.Array],
+    a_dyn: jax.Array,
+    g_mat: jax.Array,
+    h: jax.Array,
     prefix: str,
     proj_method: str = "pinet",
 ) -> None:
