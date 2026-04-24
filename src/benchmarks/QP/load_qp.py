@@ -175,7 +175,6 @@ class JaxDataLoader:
         self.batch_size = batch_size
         self.shuffle = shuffle
         self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
-        self.rng_key: jax.Array = self._rng_key
         # Batch indices for the current epoch
         self._perm = self._get_perm() if self.shuffle else jnp.arange(len(self.dataset))
 
@@ -201,7 +200,7 @@ class JaxDataLoader:
             self._perm = self._get_perm()
 
     def _get_perm(self) -> jax.Array:
-        self.rng_key, last_key = jax.random.split(self._rng_key)
+        self._rng_key, last_key = jax.random.split(self._rng_key)
         perm = jax.random.permutation(last_key, len(self.dataset))
         return perm
 

@@ -290,8 +290,8 @@ class SocConstraintSpecification:
             NonLinearSpecification: A NonLinearSpecification instance with SOCType
                 and the constraints from this specification.
         """
-        if self.mask_t is None:
-            raise ValueError("mask_t must be set to convert to NonLinearSpecification.")
+        self.validate()
+        assert self.mask_t is not None  # narrowed by validate()
         return NonLinearSpecification(
             nl_type=SOCType,
             A=jnp.empty((0, 0, self.mask_t.size)),
