@@ -56,7 +56,7 @@ def test_simple_2d(method, seed, batch_size):
         "Parser should return a lifted equality constraint for mixed equality and "
         "inequality constraints."
     )
-    assert lifted_box is not None, (
+    assert isinstance(lifted_box, BoxConstraint), (
         "Parser should return a lifted box constraint for mixed equality and "
         "inequality constraints."
     )
@@ -142,11 +142,8 @@ def test_simple_2d(method, seed, batch_size):
     )
 
 
-VALID_METHODS = ["pinv"]
-SEEDS = [24, 42]
 # Note that here batch_size only affects number of projected points
 # The same constraints hold throughout the batch
-BATCH_SIZE = [1, 10]
 
 
 @pytest.mark.parametrize(
@@ -199,7 +196,7 @@ def test_general_eq_ineq(method, seed, batch_size):
         "Parser should return a lifted equality constraint for the general "
         "equality-plus-inequality case."
     )
-    assert lifted_box is not None, (
+    assert isinstance(lifted_box, BoxConstraint), (
         "Parser should return a lifted box constraint for the general "
         "equality-plus-inequality case."
     )
@@ -274,8 +271,7 @@ def test_general_eq_ineq(method, seed, batch_size):
     )
 
 
-VALID_METHODS = ["pinv"]
-SEEDS = [42]
+SEEDS_VAR = [42]
 BATCH_SIZE_VAR = [1, 2]
 
 
@@ -288,7 +284,7 @@ BATCH_SIZE_VAR = [1, 2]
     ),
     product(
         VALID_METHODS,
-        SEEDS,
+        SEEDS_VAR,
         BATCH_SIZE_VAR,
         BATCH_SIZE_VAR,
         BATCH_SIZE_VAR,
@@ -428,7 +424,7 @@ def test_general_eq_ineq_box(
         "Parser should return a lifted equality constraint for mixed equality, "
         "inequality, and box constraints."
     )
-    assert lifted_box is not None, (
+    assert isinstance(lifted_box, BoxConstraint), (
         "Parser should return a lifted box constraint for mixed equality, "
         "inequality, and box constraints."
     )
@@ -565,7 +561,7 @@ def test_general_eq_ineq_box(
         "Parser should return a lifted equality constraint after augmenting box "
         "constraints as affine inequalities."
     )
-    assert lifted_box is not None, (
+    assert isinstance(lifted_box, BoxConstraint), (
         "Parser should return a lifted box constraint after augmenting box "
         "constraints as affine inequalities."
     )
@@ -591,10 +587,6 @@ def test_general_eq_ineq_box(
     )
 
 
-SEEDS = [24, 42]
-BATCH_SIZE = [1, 10]
-
-
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_simple_no_equality(seed, batch_size):
     # We consider a simple 2D polytope:
@@ -617,7 +609,7 @@ def test_simple_no_equality(seed, batch_size):
         "Parser should synthesize a lifted equality constraint even when the "
         "original problem has no equality constraints."
     )
-    assert lifted_box is not None, (
+    assert isinstance(lifted_box, BoxConstraint), (
         "Parser should synthesize a lifted box constraint for pure inequality "
         "constraints."
     )
@@ -637,7 +629,7 @@ def test_simple_no_equality(seed, batch_size):
         "Parser should keep returning a lifted equality constraint on repeated "
         "parses of the pure inequality case."
     )
-    assert lifted_box is not None, (
+    assert isinstance(lifted_box, BoxConstraint), (
         "Parser should keep returning a lifted box constraint on repeated parses "
         "of the pure inequality case."
     )
@@ -774,7 +766,7 @@ def test_constraint_parser_no_ineq_with_box_returns_inputs():
     assert box_out is box, (
         "Parser should return the original box constraint when no lifting is needed."
     )
-    assert box_out is not None, (
+    assert isinstance(box_out, BoxConstraint), (
         "Parser should preserve the box constraint when no lifting is needed."
     )
     assert box_out.mask is not None, (

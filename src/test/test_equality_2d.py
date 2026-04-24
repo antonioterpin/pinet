@@ -28,9 +28,6 @@ class HardConstrainedMLP(nn.Module):
 
     eq_constraint: EqualityConstraint
 
-    def setup(self):
-        self.project = Project(eq_constraint=self.eq_constraint)
-
     @nn.compact
     def __call__(self, x, step):
         x = nn.Dense(64)(x)
@@ -38,7 +35,8 @@ class HardConstrainedMLP(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.softplus(x)
         x = nn.Dense(2)(x)
-        x = self.project.call(yraw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
+        project = Project(eq_constraint=self.eq_constraint)
+        x = project.call(yraw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
         return x
 
 

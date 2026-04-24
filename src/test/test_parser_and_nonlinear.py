@@ -1,4 +1,5 @@
 from itertools import product
+from typing import cast
 
 import cvxpy as cp
 import jax
@@ -6,11 +7,13 @@ import jax.numpy as jnp
 import jax.random as jrnd
 import numpy as np
 import pytest
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 
 from pinet import (
     AffineInequalityConstraint,
     BoxConstraint,
     BoxConstraintSpecification,
+    CartesianConstraint,
     ConstraintParser,
     EqualityConstraint,
     NonLinearConstraint,
@@ -42,7 +45,7 @@ def test_simple_problem(seed, batch_size):
     # Equality constraint
     A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] + [False] * (dim - 1), dtype=jnp.bool_)
@@ -59,7 +62,7 @@ def test_simple_problem(seed, batch_size):
     lb_ineq = C @ x_feas - eps_ineq
     key, subkey = jrnd.split(key)
     ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_C, 1), minval=0, maxval=1)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb_ineq, ub=ub_ineq)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb_ineq, ub=ub_ineq)
 
     # SOC constraint 1
     eps_soc = 1e-2  # Slack to ensure feasibility of x_feas
@@ -119,6 +122,9 @@ def test_simple_problem(seed, batch_size):
         nl_constraints=nl_constraints,
     )
     (eq_lifted, cart_lifted, _) = parser.parse()
+    # The non-linear path returns a lifted equality and a cartesian constraint.
+    assert eq_lifted is not None
+    assert isinstance(cart_lifted, CartesianConstraint)
 
     # Check parsing
     # Dimension of augmented space
@@ -158,62 +164,43 @@ def test_simple_problem(seed, batch_size):
     )
 
     # Assertions
-    assert jnp.allclose(
-        eq_lifted.A, A_lifted_correct
-    ), """Lifted A matrix is incorrect."""
-    assert jnp.allclose(
-        eq_lifted.b, b_lifted_correct
-    ), """
+    assert jnp.allclose(eq_lifted.a_dyn, A_lifted_correct), (
+        """Lifted A matrix is incorrect."""
+    )
+    assert jnp.allclose(eq_lifted.b, b_lifted_correct), """
         Lifted b vector is incorrect.
     """
-    assert isinstance(
-        cart_lifted.constraints[0], BoxConstraint
-    ), """
+    assert isinstance(cart_lifted.constraints[0], BoxConstraint), """
         First constraint should be BoxConstraint.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[0].mask, box_mask_correct
-    ), """
+    box_first = cart_lifted.constraints[0]
+    assert isinstance(box_first, BoxConstraint)
+    assert box_first.lb is not None and box_first.ub is not None
+    assert jnp.allclose(box_first.mask, box_mask_correct), """
         Box mask is incorrect.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[0].ub, box_ub_correct
-    ), """
+    assert jnp.allclose(box_first.ub, box_ub_correct), """
         Box upper bound is incorrect.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[0].lb, box_lb_correct
-    ), """
+    assert jnp.allclose(box_first.lb, box_lb_correct), """
         Box lower bound is incorrect.
     """
-    assert isinstance(
-        cart_lifted.constraints[1], SocConstraint
-    ), """
+    assert isinstance(cart_lifted.constraints[1], SocConstraint), """
         Second constraint should be SocConstraint.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[1].mask_u, soc_1_mask_u_correct
-    ), """
+    assert jnp.allclose(cart_lifted.constraints[1].mask_u, soc_1_mask_u_correct), """
         SOC 1 mask_u is incorrect.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[1].mask_t, soc_1_mask_t_correct
-    ), """
+    assert jnp.allclose(cart_lifted.constraints[1].mask_t, soc_1_mask_t_correct), """
         SOC 1 mask_t is incorrect.
     """
-    assert isinstance(
-        cart_lifted.constraints[2], SocConstraint
-    ), """
+    assert isinstance(cart_lifted.constraints[2], SocConstraint), """
         Third constraint should be SocConstraint.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[2].mask_u, soc_2_mask_u_correct
-    ), """
+    assert jnp.allclose(cart_lifted.constraints[2].mask_u, soc_2_mask_u_correct), """
         SOC 2 mask_u is incorrect.
     """
-    assert jnp.allclose(
-        cart_lifted.constraints[2].mask_t, soc_2_mask_t_correct
-    ), """
+    assert jnp.allclose(cart_lifted.constraints[2].mask_t, soc_2_mask_t_correct), """
         SOC 2 mask_t is incorrect.
     """
 
@@ -233,7 +220,7 @@ def test_simple_problem(seed, batch_size):
     sk = ProjectionInstance(
         x=jnp.zeros((batch_size, dim + n_extra, 1)), nl=[nlspec_1, nlspec_2]
     )
-    for ii in range(n_iter):
+    for _ii in range(n_iter):
         sk = iteration_step(sk=sk, yraw=yraw, sigma=0.1, omega=1.8)
     yk = final_step(sk)
 
@@ -256,20 +243,20 @@ def test_simple_problem(seed, batch_size):
         ),
     ]
     objective = cp.Minimize(cp.sum_squares(y_cvxpy - x_cvxpy))
-    problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    problem_cvxpy = cp.Problem(
+        objective=objective, constraints=cast(list[CvxpyConstraint], constraints)
+    )
     y_opt = jnp.zeros((batch_size, dim, 1))
     for ii in range(batch_size):
         x_cvxpy.value = np.array(yproj[ii].reshape(-1))
         problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-9, eps_rel=1e-9)
         y_opt = y_opt.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
 
-    assert jnp.allclose(
-        yk.x[:, :dim, :], y_opt, atol=1e-5, rtol=1e-5
-    ), """
+    assert jnp.allclose(yk.x[:, :dim, :], y_opt, atol=1e-5, rtol=1e-5), """
         Projected points do not match CVXPY solution.
     """
     assert jnp.allclose(
-        yk.x[:, dim:, :], eq_lifted.A[0, n_A:, :dim] @ y_opt, atol=1e-5, rtol=1e-5
+        yk.x[:, dim:, :], eq_lifted.a_dyn[0, n_A:, :dim] @ y_opt, atol=1e-5, rtol=1e-5
     ), """
         Auxiliary variables do not match CVXPY solution.
     """
@@ -288,7 +275,7 @@ def test_simple_problem(seed, batch_size):
     sk = ProjectionInstance(
         x=jnp.zeros((batch_size, dim + n_extra, 1)), nl=[nlspec_1, nlspec_2_new]
     )
-    for ii in range(n_iter):
+    for _ii in range(n_iter):
         sk = iteration_step(sk=sk, yraw=yraw_new, sigma=0.1, omega=1.8)
     yk_new = final_step(sk)
 
@@ -297,21 +284,21 @@ def test_simple_problem(seed, batch_size):
         f_soc_2[0, :, :] @ y_cvxpy + b_soc_2_new[0, :, 0],
         A_soc_2[0, :, :] @ y_cvxpy + a_soc_2_new[0, :, 0],
     )
-    problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    problem_cvxpy = cp.Problem(
+        objective=objective, constraints=cast(list[CvxpyConstraint], constraints)
+    )
     y_opt_new = jnp.zeros((batch_size, dim, 1))
     for ii in range(batch_size):
         x_cvxpy.value = np.array(yproj[ii].reshape(-1))
         problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-9, eps_rel=1e-9)
         y_opt_new = y_opt_new.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
 
-    assert jnp.allclose(
-        yk_new.x[:, :dim, :], y_opt_new, atol=1e-5, rtol=1e-5
-    ), """
+    assert jnp.allclose(yk_new.x[:, :dim, :], y_opt_new, atol=1e-5, rtol=1e-5), """
         Projected points do not match CVXPY solution.
     """
     assert jnp.allclose(
         yk_new.x[:, dim:, :],
-        eq_lifted.A[0, n_A:, :dim] @ y_opt_new,
+        eq_lifted.a_dyn[0, n_A:, :dim] @ y_opt_new,
         atol=1e-5,
         rtol=1e-5,
     ), """
@@ -330,13 +317,13 @@ def test_parse_non_linear_with_no_box_constraint():
     A = jrnd.uniform(ka, shape=(1, n_eq, dim), minval=-1, maxval=1)
     x_ref = jrnd.uniform(ks, shape=(1, dim, 1), minval=-1, maxval=1)
     b = A @ x_ref
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
 
     C = jrnd.uniform(kc, shape=(1, n_ineq, dim), minval=-1, maxval=1)
     Cx = C @ x_ref
     lb = Cx - 0.1
     ub = Cx + 0.1
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     A_soc = jrnd.uniform(ka_soc, shape=(1, 2, dim), minval=-1, maxval=1)
     a_soc = jnp.zeros((1, 2, 1))
@@ -360,7 +347,7 @@ def test_parse_non_linear_with_no_box_constraint():
     eq_lifted, cart_lifted, lift_fn = parser.parse()
 
     assert eq_lifted is not None
-    assert cart_lifted is not None
+    assert isinstance(cart_lifted, CartesianConstraint)
     assert cart_lifted.box_constraint is not None
 
     yraw = ProjectionInstance(x=x_ref, nl=[nl_spec])
@@ -376,8 +363,8 @@ def test_parse_non_linear_l2_norm_type_raises_not_implemented():
     lb = jnp.array([[[-1.0]]])
     ub = jnp.array([[[1.0]]])
 
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     nl_spec = NonLinearSpecification(
         nl_type=L2NormType,
@@ -395,7 +382,7 @@ def test_parse_non_linear_l2_norm_type_raises_not_implemented():
         nl_constraints=[nl_constraint],
     )
 
-    with pytest.raises(NotImplementedError, match="L2NormType is not implemented"):
+    with pytest.raises(NotImplementedError, match=r"L2NormType is not implemented"):
         parser.parse()
 
 
@@ -407,8 +394,8 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
     lb = jnp.array([[[-1.0]]])
     ub = jnp.array([[[1.0]]])
 
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     nl_spec = NonLinearSpecification(
         nl_type=SOCType,
@@ -418,7 +405,8 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
         b=jnp.ones((1, 1, 1)),
     )
     nl_constraint = NonLinearConstraint(spec=nl_spec)
-    nl_constraint._nl_type = "irrelevant_type"
+    # Deliberately monkey-patch an invalid type to exercise the parser's error path.
+    object.__setattr__(nl_constraint, "_nl_type", "irrelevant_type")
 
     parser = ConstraintParser(
         eq_constraint=eq_constraint,
@@ -427,14 +415,14 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
         nl_constraints=[nl_constraint],
     )
 
-    with pytest.raises(ValueError, match="Unsupported non-linear constraint type"):
+    with pytest.raises(ValueError, match=r"Unsupported non-linear constraint type"):
         parser.parse()
 
 
 def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
     """Test parser raises when inequality C batch size is not 1 in nonlinear mode."""
     eq_constraint = EqualityConstraint(
-        A=jnp.array([[[1.0, 0.0, 0.0]]]),
+        a_dyn=jnp.array([[[1.0, 0.0, 0.0]]]),
         b=jnp.array([[[0.0]]]),
         var_b=False,
     )
@@ -448,7 +436,7 @@ def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
     )
     lb = jnp.zeros((2, 1, 1))
     ub = jnp.ones((2, 1, 1))
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     nl_spec = NonLinearSpecification(
         nl_type=SOCType,
@@ -461,7 +449,7 @@ def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
 
     with pytest.raises(
         AssertionError,
-        match="Batch size of inequality constraint C must be 1 or None",
+        match=r"Batch size of inequality constraint must be 1 or None",
     ):
         ConstraintParser(
             eq_constraint=eq_constraint,
@@ -499,6 +487,9 @@ def test_only_nonlinear_constraints(seed, batch_size):
         nl_constraints=[nl_constraint],
     )
     eq_lifted, cart_lifted, lift_fn = parser.parse(method="pinv")
+    # Narrow parser outputs before using them downstream.
+    assert eq_lifted is not None
+    assert isinstance(cart_lifted, CartesianConstraint)
 
     # Build a random batch and run the ADMM projection loop.
     x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-3, maxval=3)
@@ -571,6 +562,9 @@ def test_box_and_nonlinear_constraints(seed, batch_size):
         nl_constraints=[nl_constraint],
     )
     eq_lifted, cart_lifted, lift_fn = parser.parse(method="pinv")
+    # Narrow parser outputs before using them downstream.
+    assert eq_lifted is not None
+    assert isinstance(cart_lifted, CartesianConstraint)
 
     # Build a random batch
     x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-1.5, maxval=1.5)

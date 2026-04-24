@@ -332,7 +332,7 @@ def test_call_default_n_iter_projects_correctly():
     xinfeas = jax.random.normal(kx, (batch, dim, 1))
     assert jnp.linalg.norm(A @ xinfeas - b) > 1e-3, "Test point must be infeasible"
 
-    eq = EqualityConstraint(A=A, b=b, method="pinv", var_b=False)
+    eq = EqualityConstraint(a_dyn=A, b=b, method="pinv", var_b=False)
     layer = Project(eq_constraint=eq)
 
     # Call without specifying n_iter — uses the default (100 after the fix, 0 before)
@@ -342,9 +342,9 @@ def test_call_default_n_iter_projects_correctly():
     residual = jnp.linalg.norm(A @ result - b)
     assert residual < 1e-4, f"Expected ||Ax - b|| < 1e-4, got {residual:.6f}"
 
-    assert not jnp.allclose(
-        result, xinfeas
-    ), "Projection must differ from the infeasible input (n_iter=0 regression)"
+    assert not jnp.allclose(result, xinfeas), (
+        "Projection must differ from the infeasible input (n_iter=0 regression)"
+    )
 
 
 def test_call_n_iter_zero_raises():
@@ -361,12 +361,12 @@ def test_call_n_iter_zero_raises():
     x0 = jax.random.normal(kx0, (batch, dim, 1))
     b = A @ x0
 
-    eq = EqualityConstraint(A=A, b=b, method="pinv", var_b=False)
+    eq = EqualityConstraint(a_dyn=A, b=b, method="pinv", var_b=False)
     layer = Project(eq_constraint=eq)
 
     xinfeas = jax.random.normal(kx, (batch, dim, 1))
 
-    with pytest.raises(AssertionError, match="Number of iterations must be positive"):
+    with pytest.raises(AssertionError, match=r"Number of iterations must be positive"):
         layer.call(yraw=ProjectionInstance(x=xinfeas), n_iter=0)
 
 
@@ -389,7 +389,7 @@ def test_call_and_check_invalid_reduction_raises(bad_reduction):
         reduction=bad_reduction, check_every=1, max_iter=1
     )
 
-    with pytest.raises(ValueError, match="Invalid reduction method"):
+    with pytest.raises(ValueError, match=r"Invalid reduction method"):
         project_and_check(ProjectionInstance(x=xinfeas))
 
 
@@ -405,13 +405,13 @@ def test_project_cv_linear_constraints(seed):
     A = jrnd.normal(kA, shape=(1, n_eq, dim))
     x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-1.0, maxval=1.0)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
 
     C = jrnd.normal(kC, shape=(1, n_ineq, dim))
     Cx = C @ x_feas
     lb = Cx - 0.1
     ub = Cx + 0.1
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     layer = Project(
         eq_constraint=eq_constraint,
@@ -424,6 +424,9 @@ def test_project_cv_linear_constraints(seed):
 
     cv_layer = layer.cv(yraw)
     y_lifted = layer.lift(yraw)
+    # The non-simple polytope path always populates these lifted attributes.
+    assert layer.lifted_eq_constraint is not None
+    assert layer.lifted_box_constraint is not None
     cv_expected = jnp.maximum(
         layer.lifted_eq_constraint.cv(y_lifted),
         layer.lifted_box_constraint.cv(y_lifted),
@@ -444,13 +447,13 @@ def test_project_cv_nonlinear_constraints(seed):
     A = jrnd.normal(kA, shape=(1, n_eq, dim))
     x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-0.5, maxval=0.5)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
 
     C = jrnd.normal(kC, shape=(1, n_ineq, dim))
     Cx = C @ x_feas
     lb = Cx - 0.2
     ub = Cx + 0.2
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     A_soc = jrnd.normal(knA, shape=(1, 2, dim))
     a_soc = jnp.zeros((1, 2, 1))
@@ -482,6 +485,9 @@ def test_project_cv_nonlinear_constraints(seed):
 
     cv_layer = layer.cv(yraw)
     y_lifted = layer.lift(yraw)
+    # The non-linear path always populates these lifted attributes.
+    assert layer.lifted_eq_constraint is not None
+    assert layer.lifted_box_constraint is not None
     cv_expected = jnp.maximum(
         layer.lifted_eq_constraint.cv(y_lifted),
         layer.lifted_box_constraint.cv(y_lifted),
@@ -505,7 +511,7 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     # Equality constraint
     A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] * dim, dtype=jnp.bool_)
@@ -522,16 +528,14 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     lb_ineq = C @ x_feas - eps_ineq
     key, subkey = jrnd.split(key)
     ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_C, 1), minval=0, maxval=1)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb_ineq, ub=ub_ineq)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb_ineq, ub=ub_ineq)
 
     # SOC constraint 1
     eps_soc = 1e-2  # Slack to ensure feasibility of x_feas
     key, subkey = jrnd.split(key)
     A_soc_1 = jrnd.uniform(subkey, shape=(1, n_A_soc_1, dim), minval=-2, maxval=2)
     key, subkey = jrnd.split(key)
-    a_soc_1 = jrnd.uniform(
-        subkey, shape=(batch_size, n_A_soc_1, 1), minval=0.5, maxval=2
-    )
+    a_soc_1 = jrnd.uniform(subkey, shape=(batch_size, n_A_soc_1, 1), minval=0.5, maxval=2)
     key, subkey = jrnd.split(key)
     f_soc_1 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=0, maxval=1)
     b_soc_1 = (
@@ -555,9 +559,7 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     key, subkey = jrnd.split(key)
     A_soc_2 = jrnd.uniform(subkey, shape=(1, n_A_soc_2, dim), minval=-2, maxval=2)
     key, subkey = jrnd.split(key)
-    a_soc_2 = jrnd.uniform(
-        subkey, shape=(batch_size, n_A_soc_2, 1), minval=0.5, maxval=2
-    )
+    a_soc_2 = jrnd.uniform(subkey, shape=(batch_size, n_A_soc_2, 1), minval=0.5, maxval=2)
     key, subkey = jrnd.split(key)
     f_soc_2 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=-1, maxval=1)
     b_soc_2 = (
@@ -622,7 +624,9 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
         ),
     ]
     objective = cp.Minimize(cp.sum_squares(y_cvxpy - x_cvxpy))
-    problem_cvxpy = cp.Problem(objective=objective, constraints=constraints)
+    problem_cvxpy = cp.Problem(
+        objective=objective, constraints=cast(list[CvxConstraint], constraints)
+    )
     y_opt = jnp.zeros((batch_size, dim, 1))
     for ii in range(batch_size):
         x_cvxpy.value = np.array(yproj[ii].reshape(-1))
@@ -634,14 +638,14 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
         problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-10, eps_rel=1e-10)
         y_opt = y_opt.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
 
-    assert jnp.allclose(
-        yk.x, y_opt, atol=1e-6, rtol=1e-6
-    ), """
+    assert jnp.allclose(yk.x, y_opt, atol=1e-6, rtol=1e-6), """
         Projected points do not match CVXPY solution.
     """
+    # The non-linear path populates the lifted equality constraint.
+    assert projection_layer.lifted_eq_constraint is not None
     assert jnp.allclose(
         projection_layer.step_final(sk).x[:, dim:, :],
-        projection_layer.lifted_eq_constraint.A[0, n_A:, :dim] @ y_opt,
+        projection_layer.lifted_eq_constraint.a_dyn[0, n_A:, :dim] @ y_opt,
         atol=1e-5,
         rtol=1e-5,
     ), """
@@ -698,14 +702,14 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
         problem_cvxpy.solve(solver=cp.SCS, verbose=False, eps_abs=1e-10, eps_rel=1e-10)
         y_opt_new = y_opt_new.at[ii].set(jnp.array(y_cvxpy.value).reshape(-1, 1))
 
-    assert jnp.allclose(
-        yk_new.x, y_opt_new, atol=1e-6, rtol=1e-6
-    ), """
+    assert jnp.allclose(yk_new.x, y_opt_new, atol=1e-6, rtol=1e-6), """
         Projected points do not match CVXPY solution.
     """
+    # The non-linear path populates the lifted equality constraint.
+    assert projection_layer.lifted_eq_constraint is not None
     assert jnp.allclose(
         projection_layer.step_final(sk_new).x[:, dim:, :],
-        projection_layer.lifted_eq_constraint.A[0, n_A:, :dim] @ y_opt_new,
+        projection_layer.lifted_eq_constraint.a_dyn[0, n_A:, :dim] @ y_opt_new,
         atol=1e-5,
         rtol=1e-5,
     ), """

@@ -224,8 +224,9 @@ def test_equality_only_cv():
     expected_cv = eq_constraint.cv(y)
     assert jnp.allclose(cv, expected_cv), f"Expected {expected_cv}, but got {cv}."
 
-    # After projection, cv must be zero
-    x_proj = projection_layer.call(yraw=y, n_iter=0)[0]
+    # After projection, cv must be zero.
+    # Equality-only is a single-shot projection; one iteration is sufficient.
+    x_proj = projection_layer.call(yraw=y, n_iter=1)[0]
     cv_proj = projection_layer.cv(x_proj)
     assert jnp.allclose(cv_proj, 0.0, atol=1e-6), f"Expected 0.0, but got {cv_proj}."
 
