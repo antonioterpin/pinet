@@ -1,7 +1,5 @@
 """Abstract class for non-linear constraints."""
 
-from typing import Optional
-
 import jax.numpy as jnp
 
 from pinet.constraints.base import Constraint
@@ -24,7 +22,7 @@ class NonLinearConstraint(Constraint):
         """Initialize the non-linear constraint.
 
         Args:
-            spec (NonLinearSpecification): Specification of the non-linear constraint.
+            spec: Specification of the non-linear constraint.
         """
         # Check for dimension
         spec.validate()
@@ -38,16 +36,16 @@ class NonLinearConstraint(Constraint):
         self._nl_type = spec.nl_type
 
     @property
-    def A(self) -> Optional[jnp.ndarray]:
+    def A(self) -> jnp.ndarray:
         """Matrix for linear transformation before non-linear function g.
 
         Returns:
-            Optional[jnp.ndarray]: Shape (batch_size, constraint_dim, variable_dim)
+            jnp.ndarray: Shape (batch_size, constraint_dim, variable_dim)
         """
         return self._A
 
     @property
-    def a(self) -> Optional[jnp.ndarray]:
+    def a(self) -> jnp.ndarray | None:
         """Offset vector before non-linear function g.
 
         Returns:
@@ -56,7 +54,7 @@ class NonLinearConstraint(Constraint):
         return self._a
 
     @property
-    def f(self) -> Optional[jnp.ndarray]:
+    def f(self) -> jnp.ndarray | None:
         """Linear coefficients on the right-hand side.
 
         Returns:
@@ -65,7 +63,7 @@ class NonLinearConstraint(Constraint):
         return self._f
 
     @property
-    def b(self) -> Optional[jnp.ndarray]:
+    def b(self) -> jnp.ndarray | None:
         """Constant offset on the right-hand side.
 
         Returns:

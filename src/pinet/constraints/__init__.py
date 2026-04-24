@@ -14,9 +14,10 @@ __all__ = [
     "BoxConstraint",
     "CartesianConstraint",
     "ConstraintParser",
-    "SocConstraint",
+    "EqualityConstraint",
+    "L2NormType",
     "NonLinearConstraint",
     "NonLinearConstraintType",
-    "L2NormType",
     "SOCType",
+    "SocConstraint",
 ]

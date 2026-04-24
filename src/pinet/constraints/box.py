@@ -27,22 +27,30 @@ class BoxConstraint(Constraint):
             box_spec: Specification of the box constraint.
                 For variable bounds, provide an example of the bounds.
         """
-        self.lb = box_spec.lb
-        self.ub = box_spec.ub
-        self.mask = box_spec.mask
-        if self.mask is not None:
-            self._dim = self.mask.size
+        self.lb: jnp.ndarray | None = box_spec.lb
+        self.ub: jnp.ndarray | None = box_spec.ub
+        mask = box_spec.mask
+        if mask is not None:
+            self._dim = int(mask.size)
         elif self.lb is not None:
             self._dim = self.lb.shape[1]
         else:
+            # Either lb or ub must be provided if mask is not set.
+            assert self.ub is not None
             self._dim = self.ub.shape[1]
         self.scale = jnp.ones((1, self._dim, 1))
 
-        self._n_constraints = (
-            self.lb.shape[1] if self.lb is not None else self.ub.shape[1]
+        if self.lb is not None:
+            self._n_constraints = self.lb.shape[1]
+        else:
+            # At least one of lb or ub must be provided.
+            assert self.ub is not None
+            self._n_constraints = self.ub.shape[1]
+        self.mask: jnp.ndarray = (
+            mask
+            if mask is not None
+            else jnp.asarray(np.ones(shape=(self._dim,), dtype=jnp.bool_))
         )
-        if self.mask is None:
-            self.mask = np.ones(shape=(self.dim), dtype=jnp.bool_)
 
     def get_params(
         self, yraw: ProjectionInstance
@@ -95,20 +103,20 @@ class BoxConstraint(Constraint):
             x=yraw.x.at[:, mask, :].set(jnp.clip(yraw.x[:, mask, :], lb, ub))
         )
 
-    def cv(self, y: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            y: ProjectionInstance to evaluate.
+            yraw: ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        lb, ub, mask = self.get_params(y)
+        lb, ub, mask = self.get_params(yraw)
         cvs = jnp.maximum(
-            jnp.max(y.x[:, mask, :] - ub, axis=1, keepdims=True),
-            jnp.max(lb - y.x[:, mask, :], axis=1, keepdims=True),
+            jnp.max(yraw.x[:, mask, :] - ub, axis=1, keepdims=True),
+            jnp.max(lb - yraw.x[:, mask, :], axis=1, keepdims=True),
         )
         return jnp.maximum(cvs, 0)
 
