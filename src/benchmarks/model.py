@@ -21,11 +21,9 @@ from pinet import (
 
 from .other_projections import get_cvxpy_projection, get_jaxopt_projection
 
-ActivationFn = Callable[[jnp.ndarray], jnp.ndarray]
-ProjectionFn = Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
-TrainStepFn = Callable[
-    [TrainState, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, TrainState]
-]
+ActivationFn = Callable[[jax.Array], jax.Array]
+ProjectionFn = Callable[[jax.Array, jax.Array], jax.Array]
+TrainStepFn = Callable[[TrainState, jax.Array, jax.Array], tuple[jax.Array, TrainState]]
 
 
 def setup_pinet(
@@ -106,10 +104,10 @@ def setup_pinet(
 
 
 def setup_jaxopt(
-    a_dyn: jnp.ndarray,
-    b: jnp.ndarray,
-    constr_matrix: jnp.ndarray,
-    ub: jnp.ndarray,
+    a_dyn: jax.Array,
+    b: jax.Array,
+    constr_matrix: jax.Array,
+    ub: jax.Array,
     setup_reps: int,
     hyperparameters: dict[str, Any],
 ) -> tuple[ProjectionFn, ProjectionFn, float]:
@@ -141,10 +139,10 @@ def setup_jaxopt(
 
 
 def setup_cvxpy(
-    a_dyn: jnp.ndarray,
-    b: jnp.ndarray,
-    constr_matrix: jnp.ndarray,
-    ub: jnp.ndarray,
+    a_dyn: jax.Array,
+    b: jax.Array,
+    constr_matrix: jax.Array,
+    ub: jax.Array,
     setup_reps: int,
     hyperparameters: dict[str, Any],
 ) -> tuple[
@@ -206,8 +204,8 @@ class HardConstrainedMLP(nn.Module):
     @nn.compact
     def __call__(
         self,
-        x: jnp.ndarray,
-        b: jnp.ndarray,
+        x: jax.Array,
+        b: jax.Array,
         test: bool,
     ):
         """Forward pass of the MLP with projection.
@@ -218,7 +216,7 @@ class HardConstrainedMLP(nn.Module):
             test: Whether to use the test projection.
 
         Returns:
-            jnp.ndarray: Output of the MLP after projection.
+            jax.Array: Output of the MLP after projection.
         """
         for features in self.features_list:
             x = nn.Dense(features)(x)
@@ -241,9 +239,9 @@ def build_model_and_train_step(
     project_test: ProjectionFn,
     raw_train: bool,
     raw_test: bool,
-    loss_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
-    example_x: jnp.ndarray,
-    example_b: jnp.ndarray,
+    loss_fn: Callable[[jax.Array, jax.Array], jax.Array],
+    example_x: jax.Array,
+    example_b: jax.Array,
     jit: bool = True,
 ) -> tuple[
     nn.Module,
@@ -288,7 +286,7 @@ def build_model_and_train_step(
         test=False,
     )
 
-    def train_step(state, x_batch: jnp.ndarray, b_batch: jnp.ndarray):
+    def train_step(state, x_batch: jax.Array, b_batch: jax.Array):
         def _loss(p):
             preds = state.apply_fn({"params": p}, x=x_batch, b=b_batch, test=False)
             return loss_fn(preds, b_batch).mean()
@@ -306,11 +304,11 @@ def setup_model(
     rng_key: jax.Array,
     hyperparameters: dict[str, Any],
     proj_method: str,
-    a_dyn: jnp.ndarray,
-    x_data: jnp.ndarray,
-    g_mat: jnp.ndarray,
-    h: jnp.ndarray,
-    batched_loss: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+    a_dyn: jax.Array,
+    x_data: jax.Array,
+    g_mat: jax.Array,
+    h: jax.Array,
+    batched_loss: Callable[[jax.Array, jax.Array], jax.Array],
     setup_reps: int = 10,
 ) -> tuple[
     nn.Module,

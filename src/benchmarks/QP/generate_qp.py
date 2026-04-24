@@ -16,14 +16,14 @@ jax.config.update("jax_enable_x64", True)
 
 
 def solve_problems(
-    q_mat: jnp.ndarray,
-    p: jnp.ndarray,
-    a_dyn: jnp.ndarray,
-    x_data: jnp.ndarray,
-    g_mat: jnp.ndarray,
-    h: jnp.ndarray,
+    q_mat: jax.Array,
+    p: jax.Array,
+    a_dyn: jax.Array,
+    x_data: jax.Array,
+    g_mat: jax.Array,
+    h: jax.Array,
     convex: bool = True,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[jax.Array, jax.Array]:
     """Compute the optimal solutions for problem instances.
 
     Args:
@@ -36,7 +36,7 @@ def solve_problems(
         convex: Whether the problem is convex or not.
 
     Returns:
-        tuple[jnp.ndarray, jnp.ndarray]:
+        tuple[jax.Array, jax.Array]:
             A tuple containing the objectives and optimal solutions.
 
     Raises:

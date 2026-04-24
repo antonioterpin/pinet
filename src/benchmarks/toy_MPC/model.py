@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 from flax import linen as nn
 from flax.training.train_state import TrainState
 
@@ -15,16 +14,16 @@ from src.benchmarks.model import build_model_and_train_step, setup_pinet
 def setup_model(
     rng_key: jax.Array,
     hyperparameters: dict[str, Any],
-    a_dyn: jnp.ndarray,
-    x_data: jnp.ndarray,
-    b: jnp.ndarray,
-    lb: jnp.ndarray,
-    ub: jnp.ndarray,
-    batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
+    a_dyn: jax.Array,
+    x_data: jax.Array,
+    b: jax.Array,
+    lb: jax.Array,
+    ub: jax.Array,
+    batched_objective: Callable[[jax.Array], jax.Array],
 ) -> tuple[
     nn.Module,
     dict[str, Any],
-    Callable[[TrainState, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, TrainState]],
+    Callable[[TrainState, jax.Array, jax.Array], tuple[jax.Array, TrainState]],
 ]:
     """Receives problem (hyper)parameters and returns the model and its parameters.
 

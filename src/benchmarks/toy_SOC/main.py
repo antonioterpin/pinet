@@ -50,7 +50,7 @@ else:
 
 
 # %% Projections
-def _project_soc(z: jnp.ndarray) -> jnp.ndarray:
+def _project_soc(z: jax.Array) -> jax.Array:
     """Project onto the second-order cone (SOC) constraint.
 
     Args:
@@ -58,7 +58,7 @@ def _project_soc(z: jnp.ndarray) -> jnp.ndarray:
             Input array of shape (B, m + 1, 1) where the last column is the SOC radius.
 
     Returns:
-        jnp.ndarray:
+        jax.Array:
             Projected array of the same shape as `z`, satisfying the SOC constraint.
     """
     eps = 1e-12
@@ -96,7 +96,7 @@ def rand_sparse_mask(
         dtype: Data type of the tensor. Default is jnp.float64.
 
     Returns:
-        jnp.ndarray:
+        jax.Array:
             A tensor of the specified shape with random values and a mask applied.
     """
     key_val, key_mask = jrnd.split(key)
@@ -122,11 +122,11 @@ def generate_problem(key: jax.Array, batch_size: int):
 
     Returns:
         tuple:
-            - b (jnp.ndarray):
+            - b (jax.Array):
                 Right-hand side of the equality constraints, shape (B, m, 1).
-            - c (jnp.ndarray): Coefficients for the objective function, shape (B, n, 1).
-            - x (jnp.ndarray): Optimal primal solution, shape (B, n, 1).
-            - s (jnp.ndarray):
+            - c (jax.Array): Coefficients for the objective function, shape (B, n, 1).
+            - x (jax.Array): Optimal primal solution, shape (B, n, 1).
+            - s (jax.Array):
                 Optimal dual solution satisfying the SOC constraint, shape (B, m, 1).
     """
     keyz, keyx = jrnd.split(key)
@@ -142,7 +142,7 @@ def generate_problem(key: jax.Array, batch_size: int):
     return b, c, x, s
 
 
-def objective(x: jnp.ndarray, c: jnp.ndarray):
+def objective(x: jax.Array, c: jax.Array):
     """Compute the objective value for the linear problem.
 
     Args:
@@ -150,13 +150,13 @@ def objective(x: jnp.ndarray, c: jnp.ndarray):
         c: Coefficients for the objective function, shape (B, n, 1).
 
     Returns:
-        jnp.ndarray: Objective value, shape (B, 1).
+        jax.Array: Objective value, shape (B, 1).
     """
     return jnp.sum(c * x, axis=(1, 2), keepdims=True)
 
 
 # %% CV and RS
-def constraint_violation_eq(x: jnp.ndarray, s: jnp.ndarray, b: jnp.ndarray):
+def constraint_violation_eq(x: jax.Array, s: jax.Array, b: jax.Array):
     """Compute the constraint violation for Ax = b.
 
     Args:
@@ -165,19 +165,19 @@ def constraint_violation_eq(x: jnp.ndarray, s: jnp.ndarray, b: jnp.ndarray):
         b: Right-hand side of the equality constraints, shape (B, m, 1).
 
     Returns:
-        jnp.ndarray: Constraint violation, shape (B, 1).
+        jax.Array: Constraint violation, shape (B, 1).
     """
     return jnp.linalg.norm(a_dyn @ x + s - b, ord=jnp.inf, axis=-1)
 
 
-def constraint_violation_soc(s: jnp.ndarray):
+def constraint_violation_soc(s: jax.Array):
     """Compute the constraint violation for the SOC constraint.
 
     Args:
         s: Dual solution, shape (B, m + 1, 1).
 
     Returns:
-        jnp.ndarray: Constraint violation, shape (B, 1).
+        jax.Array: Constraint violation, shape (B, 1).
     """
     u = s[:, :-1]
     t = s[:, -1:]
@@ -186,7 +186,7 @@ def constraint_violation_soc(s: jnp.ndarray):
     return jnp.maximum(u_norm - t, 0.0)
 
 
-def relative_suboptimality(x: jnp.ndarray, xstar: jnp.ndarray, c: jnp.ndarray):
+def relative_suboptimality(x: jax.Array, xstar: jax.Array, c: jax.Array):
     """Compute the relative suboptimality of the solution.
 
     Args:
@@ -195,16 +195,14 @@ def relative_suboptimality(x: jnp.ndarray, xstar: jnp.ndarray, c: jnp.ndarray):
         c: Coefficients for the objective function, shape (B, n, 1).
 
     Returns:
-        jnp.ndarray: Relative suboptimality, shape (B, 1).
+        jax.Array: Relative suboptimality, shape (B, 1).
     """
     optimal_val = objective(xstar, c)
     candidate_val = objective(x, c)
     return jnp.abs(candidate_val - optimal_val) / (jnp.abs(optimal_val) + 1e-12)
 
 
-def print_stats(
-    x: jnp.ndarray, s: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray
-):
+def print_stats(x: jax.Array, s: jax.Array, b: jax.Array, c: jax.Array, xstar: jax.Array):
     """Print the statistics of the solution.
 
     Args:
@@ -286,7 +284,7 @@ assert a_dyn_aug.shape == (
 a_dyn_aug_inv = jnp.linalg.pinv(a_dyn_aug)
 
 
-def project_pinv_vb(xs: jnp.ndarray, b: jnp.ndarray):
+def project_pinv_vb(xs: jax.Array, b: jax.Array):
     """Project onto the pseudo-inverse of the augmented matrix a_dyn.
 
     Args:
@@ -298,12 +296,12 @@ def project_pinv_vb(xs: jnp.ndarray, b: jnp.ndarray):
             Right-hand side of the equality constraints, shape (B, m, 1).
 
     Returns:
-        jnp.ndarray: Projected array satisfying the equality constraints.
+        jax.Array: Projected array satisfying the equality constraints.
     """
     return xs - a_dyn_aug_inv @ (a_dyn_aug @ xs - b)
 
 
-def step_iteration(yraw: jnp.ndarray, sk: jnp.ndarray, b: jnp.ndarray):
+def step_iteration(yraw: jax.Array, sk: jax.Array, b: jax.Array):
     """Perform one iteration of the forward step.
 
     Args:
@@ -318,7 +316,7 @@ def step_iteration(yraw: jnp.ndarray, sk: jnp.ndarray, b: jnp.ndarray):
             Right-hand side of the equality constraints, shape (B, m, 1).
 
     Returns:
-        jnp.ndarray: Updated governing sequence, shape (B, m + n, 1).
+        jax.Array: Updated governing sequence, shape (B, m + n, 1).
     """
     zk = project_pinv_vb(sk, b)
     reflect = 2 * zk - sk
@@ -329,7 +327,7 @@ def step_iteration(yraw: jnp.ndarray, sk: jnp.ndarray, b: jnp.ndarray):
     return sk + omega * (tk - zk)
 
 
-def step_final(s: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
+def step_final(s: jax.Array, b: jax.Array) -> jax.Array:
     """Retrieve the final result from the forward step.
 
     Args:
@@ -337,16 +335,16 @@ def step_final(s: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
         b: Right-hand side of the equality constraints, shape (B, m, 1).
 
     Returns:
-        jnp.ndarray: Final projected value, shape (B, m + n, 1).
+        jax.Array: Final projected value, shape (B, m + n, 1).
     """
     return project_pinv_vb(s, b)
 
 
 @custom_vjp
 def project(
-    s0: jnp.ndarray,
-    yraw: jnp.ndarray,
-    b: jnp.ndarray,
+    s0: jax.Array,
+    yraw: jax.Array,
+    b: jax.Array,
 ):
     """Project the raw input onto the feasible set defined by the constraints.
 
@@ -357,8 +355,8 @@ def project(
 
     Returns:
         tuple:
-            - zk1 (jnp.ndarray): Projected value, shape (B, m + n, 1).
-            - sk (jnp.ndarray): Final governing sequence, shape (B, m + n, 1).
+            - zk1 (jax.Array): Projected value, shape (B, m + n, 1).
+            - sk (jax.Array): Final governing sequence, shape (B, m + n, 1).
     """
     sk = s0
     sk, _ = lax.scan(
@@ -378,7 +376,7 @@ def project(
     return zk1, sk
 
 
-def _project_fwd(s0: jnp.ndarray, yraw: jnp.ndarray, b: jnp.ndarray):
+def _project_fwd(s0: jax.Array, yraw: jax.Array, b: jax.Array):
     """Forward pass of the projection function.
 
     Args:
@@ -388,8 +386,8 @@ def _project_fwd(s0: jnp.ndarray, yraw: jnp.ndarray, b: jnp.ndarray):
 
     Returns:
         - tuple:
-            - zk1 (jnp.ndarray): Projected value, shape (B, m + n, 1).
-            - sk (jnp.ndarray): Final governing sequence, shape (B, m + n, 1).
+            - zk1 (jax.Array): Projected value, shape (B, m + n, 1).
+            - sk (jax.Array): Final governing sequence, shape (B, m + n, 1).
         - tuple:
             - (sk, yraw, b): Residuals for the backward pass.
     """
@@ -402,21 +400,21 @@ def _project_bwd(residuals: tuple[Any, ...], cotangent: tuple[Any, ...]):
 
     Args:
         residuals: Residuals from the forward pass, containing:
-            - sk (jnp.ndarray): Governing sequence, shape (B, m + n, 1).
-            - yraw (jnp.ndarray): Raw input array, shape (B, m + n, 1).
-            - b (jnp.ndarray):
+            - sk (jax.Array): Governing sequence, shape (B, m + n, 1).
+            - yraw (jax.Array): Raw input array, shape (B, m + n, 1).
+            - b (jax.Array):
                 Right-hand side of the equality constraints, shape (B, m, 1).
 
         cotangent: Cotangent vector from the backward pass, containing:
-            - cotangent_zk1 (jnp.ndarray):
+            - cotangent_zk1 (jax.Array):
                 Cotangent vector for the projected value, shape (B, m + n, 1).
-            - cotangent_sk (jnp.ndarray):
+            - cotangent_sk (jax.Array):
                 Cotangent vector for the governing sequence, shape (B, m + n, 1).
 
     Returns:
         tuple:
             - None: Placeholder for the vjp wrt to sk (the DRA governing sequence).
-            - thevjp (jnp.ndarray):
+            - thevjp (jax.Array):
                 The vjp wrt to yraw, shape (B, m + n, 1).
             - None: Placeholder for the vjp wrt to b
                 (the right-hand side of the equality constraints).
@@ -454,9 +452,7 @@ if use_custom_vjp:
 # project them, and check if the result has no constraint violation.
 
 
-def test_projection(
-    b: jnp.ndarray, c: jnp.ndarray, xstar: jnp.ndarray, sstar: jnp.ndarray
-):
+def test_projection(b: jax.Array, c: jax.Array, xstar: jax.Array, sstar: jax.Array):
     """Test the projection function on random samples.
 
     Args:
@@ -515,7 +511,7 @@ class HardConstrainedMLP(nn.Module):
     @nn.compact
     def __call__(
         self,
-        input: dict[str, jnp.ndarray],
+        input: dict[str, jax.Array],
     ):
         """Call the NN.
 
@@ -524,7 +520,7 @@ class HardConstrainedMLP(nn.Module):
                 Dictionary containing the input data with keys "b" and "c".
 
         Returns:
-            jnp.ndarray:
+            jax.Array:
                 Output of the MLP, projected onto the feasible set.
         """
         b, c = input["b"].squeeze(-1), input["c"].squeeze(-1)
@@ -555,8 +551,8 @@ def make_batch(key: jax.Array, batch_size: int = BATCH_SIZE):
     Returns:
         tuple:
             - dict: Input data containing "b" and "c".
-            - jnp.ndarray: Optimal primal solution, shape (B, n, 1).
-            - jnp.ndarray: Optimal dual solution, shape (B, m, 1).
+            - jax.Array: Optimal primal solution, shape (B, n, 1).
+            - jax.Array: Optimal dual solution, shape (B, m, 1).
     """
     key_prob, key = jrnd.split(key)
     b, c, xstar, sstar = generate_problem(key_prob, batch_size)
@@ -590,7 +586,7 @@ def loss_fn(params: dict[str, Any], input: dict[str, Any]):
 
     Returns:
         tuple:
-            - loss (jnp.ndarray): Mean objective value.
+            - loss (jax.Array): Mean objective value.
             - aux (tuple): Auxiliary values containing constraint violations.
     """
     c = input["c"]
@@ -612,7 +608,7 @@ def train_step(state: train_state.TrainState, batch: dict[str, Any]):
     Returns:
         tuple:
             - state (TrainState): Updated state of the model.
-            - loss (jnp.ndarray): Loss value after the step.
+            - loss (jax.Array): Loss value after the step.
             - aux (tuple): Auxiliary values containing constraint violations.
     """
     grad_fn = value_and_grad(loss_fn, has_aux=True)

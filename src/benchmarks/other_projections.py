@@ -13,12 +13,12 @@ jax.config.update("jax_enable_x64", True)
 
 
 def get_jaxopt_projection(
-    a_dyn: jnp.ndarray,
-    constr_matrix: jnp.ndarray,
-    d: jnp.ndarray,
+    a_dyn: jax.Array,
+    constr_matrix: jax.Array,
+    d: jax.Array,
     dim: int,
     tol: float = 1e-3,
-) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+) -> Callable[[jax.Array, jax.Array], jax.Array]:
     """Compute a batched projection function for polyhedral constraints using JAXopt.
 
     This function creates a projection operator using the jaxopt.OSQP solver.
@@ -38,7 +38,7 @@ def get_jaxopt_projection(
         tol: Tolerance for the solver. Defaults to 1e-3.
 
     Returns:
-        Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+        Callable[[jax.Array, jax.Array], jax.Array]:
         A JIT-compiled and vectorized function
         that takes a batch of input vectors (shape: (batch_size, dim))
         and returns their corresponding projections.
@@ -62,9 +62,9 @@ def get_jaxopt_projection(
 
 
 def get_cvxpy_projection(
-    a_dyn: jnp.ndarray,
-    constr_matrix: jnp.ndarray,
-    d: jnp.ndarray,
+    a_dyn: jax.Array,
+    constr_matrix: jax.Array,
+    d: jax.Array,
     dim: int,
 ) -> CvxpyLayer:
     """Constructs and returns a CVXPY-based projection layer callable.
@@ -82,11 +82,11 @@ def get_cvxpy_projection(
         dim: Dimension of the variable x.
 
     Returns:
-        Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray]]:
+        Callable[[jax.Array, jax.Array], tuple[jax.Array]]:
         A callable CVXPY layer that takes two parameters:
         an input vector (xproj) to be projected and a corresponding vector b for
         the equality constraints.
-        The callable returns the projected vector as a jnp.ndarray.
+        The callable returns the projected vector as a jax.Array.
     """
     n_eq = a_dyn.shape[0]
     ycvxpy = cp.Variable(dim)

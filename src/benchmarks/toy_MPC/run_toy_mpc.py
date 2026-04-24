@@ -28,26 +28,26 @@ from src.tools.utils import GracefulShutdown, Logger, load_configuration
 
 jax.config.update("jax_enable_x64", True)
 
-BatchLoader = Iterable[tuple[jnp.ndarray, jnp.ndarray]]
+BatchLoader = Iterable[tuple[jax.Array, jax.Array]]
 
 
 def evaluate_hcnn(
     loader: BatchLoader,
     state: train_state.TrainState,
-    batched_objective: Callable[[jnp.ndarray], jnp.ndarray],
-    a_dyn: jnp.ndarray,
-    lb: jnp.ndarray,
-    ub: jnp.ndarray,
+    batched_objective: Callable[[jax.Array], jax.Array],
+    a_dyn: jax.Array,
+    lb: jax.Array,
+    ub: jax.Array,
     prefix: str,
     time_evals: int = 10,
     print_res: bool = True,
     cv_tol: float = 1e-3,
     single_instance: bool = True,
 ) -> tuple[
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
     float,
     float,
     float,
@@ -73,10 +73,10 @@ def evaluate_hcnn(
         constraint violations, average evaluation time, and standard deviation
         of the evaluation time.
     """
-    opt_obj_batches: list[jnp.ndarray] = []
-    hcnn_obj_batches: list[jnp.ndarray] = []
-    eq_cv_batches: list[jnp.ndarray] = []
-    ineq_cv_batches: list[jnp.ndarray] = []
+    opt_obj_batches: list[jax.Array] = []
+    hcnn_obj_batches: list[jax.Array] = []
+    eq_cv_batches: list[jax.Array] = []
+    ineq_cv_batches: list[jax.Array] = []
     # Placeholders, overwritten by the loop; kept so the post-loop usages have
     # valid references even if the loader yielded zero batches.
     x_data = jnp.zeros((0, 0, 1))
@@ -255,10 +255,10 @@ def main(
     n_epochs = hyperparameters["n_epochs"]
     eval_every = 1
     start = time.time()
-    trainig_losses: list[float | jnp.ndarray] = []
-    validation_losses: list[float | jnp.ndarray] = []
-    eqcvs: list[float | jnp.ndarray] = []
-    ineqcvs: list[float | jnp.ndarray] = []
+    trainig_losses: list[float | jax.Array] = []
+    validation_losses: list[float | jax.Array] = []
+    eqcvs: list[float | jax.Array] = []
+    ineqcvs: list[float | jax.Array] = []
 
     with (
         Logger(run_name=run_name, project_name="hcnn_toy_mpc") as data_logger,
@@ -268,7 +268,7 @@ def main(
         for step in (pbar := tqdm(range(n_epochs))):
             if g.stop:
                 break
-            epoch_loss: list[jnp.ndarray] = []
+            epoch_loss: list[jax.Array] = []
             batch_sizes: list[int] = []
             start_epoch_time = time.time()
             for batch in train_loader:
