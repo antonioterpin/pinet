@@ -39,8 +39,18 @@ jobs:
       # pinned in the lock file (4.0.1). A system ``pip install pre-commit``
       # pulls the latest (4.6.0), which parses hook ``entry`` strings
       # differently and silently drops flags like ``--level error``.
+      #
+      # ``GITHUB_ACTIONS`` is cleared so basedpyright does not switch into
+      # its CI annotation mode, which emits every warning as an inline
+      # annotation and ignores ``--level error`` when computing the exit
+      # code. Contributors run ``--level error`` locally (warnings = OK,
+      # errors = fail); CI should do the same.
       - name: Run pre-commit (commit stage)
+        env:
+          GITHUB_ACTIONS: ''
         run: uv run pre-commit run --all-files
 
       - name: Run pre-commit (push stage)
+        env:
+          GITHUB_ACTIONS: ''
         run: uv run pre-commit run --hook-stage push --all-files
