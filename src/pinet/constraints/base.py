@@ -1,7 +1,5 @@
 """Abstract class for constraint sets."""
 
-from abc import abstractmethod
-
 import equinox as eqx
 
 from pinet._typing import BatchedScalar
@@ -11,10 +9,12 @@ from pinet.dataclasses import ProjectionInstance
 class Constraint(eqx.Module):
     """Abstract class for constraint sets.
 
-    Subclasses must implement ``project``, ``cv``, ``dim`` and ``n_constraints``.
+    Subclasses must override ``project``, ``cv``, ``dim`` and ``n_constraints``.
+    The base implementations raise ``NotImplementedError`` — ``@abstractmethod``
+    alone is not runtime-enforced on ``eqx.Module`` because it does not use
+    ``ABCMeta`` as its metaclass.
     """
 
-    @abstractmethod
     def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
@@ -23,9 +23,14 @@ class Constraint(eqx.Module):
 
         Returns:
             The projected input.
-        """
 
-    @abstractmethod
+        Raises:
+            NotImplementedError: Always; subclasses must override.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__}.project must be implemented by a subclass."
+        )
+
     def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
@@ -34,14 +39,32 @@ class Constraint(eqx.Module):
 
         Returns:
             The constraint violation for each point in the batch.
+
+        Raises:
+            NotImplementedError: Always; subclasses must override.
         """
+        raise NotImplementedError(
+            f"{type(self).__name__}.cv must be implemented by a subclass."
+        )
 
     @property
-    @abstractmethod
     def dim(self) -> int:
-        """Return the dimension of the constraint set."""
+        """Return the dimension of the constraint set.
+
+        Raises:
+            NotImplementedError: Always; subclasses must override.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__}.dim must be implemented by a subclass."
+        )
 
     @property
-    @abstractmethod
     def n_constraints(self) -> int:
-        """Return the number of constraints."""
+        """Return the number of constraints.
+
+        Raises:
+            NotImplementedError: Always; subclasses must override.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__}.n_constraints must be implemented by a subclass."
+        )

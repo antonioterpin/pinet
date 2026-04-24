@@ -6,7 +6,7 @@ from functools import partial
 import jax
 from jax import numpy as jnp
 
-from ._typing import BatchedScalar, ScalingVector
+from ._typing import BatchedScalar, ColScaling, RowScaling
 from .constants import Constants
 from .constraints import (
     AffineInequalityConstraint,
@@ -393,8 +393,8 @@ def _project_general(
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
-    d_r: ScalingVector,
-    d_c: ScalingVector,
+    d_r: RowScaling,
+    d_c: ColScaling,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
@@ -458,8 +458,8 @@ def _project_general_custom(
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
-    d_r: ScalingVector,
-    d_c: ScalingVector,
+    d_r: RowScaling,
+    d_c: ColScaling,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
@@ -490,8 +490,8 @@ def _project_general_fwd(
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
-    d_r: ScalingVector,
-    d_c: ScalingVector,
+    d_r: RowScaling,
+    d_c: ColScaling,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: float = PROJECTION_DEFAULT_SIGMA,
@@ -501,9 +501,7 @@ def _project_general_fwd(
     fpi: bool = False,
 ) -> tuple[
     tuple[ProjectionInstance, ProjectionInstance],
-    tuple[
-        ProjectionInstance, ProjectionInstance, ScalingVector, ScalingVector, float, float
-    ],
+    tuple[ProjectionInstance, ProjectionInstance, RowScaling, ColScaling, float, float],
 ]:
     # unpack trailing options that belong only to custom vjp
     # The decorated function returns a (ProjectionInstance, ProjectionInstance) tuple,
@@ -541,8 +539,8 @@ def _project_general_bwd(
     residuals: tuple[
         ProjectionInstance,
         ProjectionInstance,
-        ScalingVector,
-        ScalingVector,
+        RowScaling,
+        ColScaling,
         float,
         float,
     ],
