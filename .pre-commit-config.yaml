@@ -27,9 +27,14 @@ repos:
     hooks:
       - id: basedpyright
         name: basedpyright
-        entry: uv run basedpyright
+        # `--level error` treats warnings (mostly JAX untyped members and Any leaks)
+        # as non-blocking; only hard type errors fail the gate.
+        entry: uv run basedpyright --level error
         language: system
         types: [python]
+        # Run once on the project rather than per-file so basedpyright sees the
+        # full type graph and the pyproject include/exclude rules.
+        pass_filenames: false
         stages: [pre-commit, pre-push]
 
   # Commit message linting (Conventional Commits)

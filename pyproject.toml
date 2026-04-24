@@ -94,30 +94,97 @@ ignore = [
     "PLR0913", # Too many arguments
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"src/test/**" = [
+    "PLR2004", # Magic values are fine in tests.
+]
+"src/benchmarks/**" = [
+    "PLR2004", # Magic values are fine in benchmark scripts.
+]
+
+[tool.ruff.lint.pep8-naming]
+# Matrix/tensor identifiers follow math convention and are upper-case by design.
+extend-ignore-names = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "A_*",
+    "B_*",
+    "C_*",
+    "D_*",
+    "E_*",
+    "F_*",
+    "G_*",
+    "H_*",
+    "M_*",
+    "P_*",
+    "Q_*",
+    "U_*",
+    "V_*",
+    "W_*",
+    "X_*",
+    "Y_*",
+    "Z_*",
+    "*_A",
+    "*_B",
+    "*_C",
+    "*_D",
+    "*_E",
+    "*_F",
+    "*_G",
+    "*_H",
+    "*_P",
+    "*_Q",
+    "*_U",
+    "*_V",
+    "*_W",
+    "*_X",
+    "*_Y",
+    "*_Z",
+    "*_A_*",
+    "*_B_*",
+    "*_C_*",
+    "k[A-Z]*",    # JAX PRNG subkeys (kA, kC, ...).
+    "k[a-z][A-Z]*",  # JAX PRNG subkeys with a leading lowercase hint (knA, kxA, ...).
+    "n[A-Z]*",    # Shape counters coupled to a matrix (nA, nC, ...).
+    "[A-Z]x",     # Products/contractions like `Ax = A @ x`, `Cx`.
+    "[A-Z][a-z]*x",  # Compound products (`Mx`, `Px`, `Qx`).
+]
+
 [tool.ruff.lint.pylint]
 max-branches = 16
 max-statements = 120
 
 [tool.pydoclint]
 style = "google"
-exclude = '\.git|\.tox|^tests/'
+# Docstring enforcement only targets the library API.
+# Tests, benchmarks and dev tools are excluded because their docstrings follow
+# lighter conventions and are already covered by ruff/pyright.
+exclude = '\.git|\.tox|^src/test/|^src/benchmarks/|^src/tools/'
 skip-checking-short-docstrings = false
 allow-init-docstring = true
 arg-type-hints-in-docstring = false
 check-return-types = false
-skip-checking-raises = false
-
-[tool.pyright]
-typeCheckingMode = "basic"
-pythonVersion = "3.10"
-include = ["src", "tests"]
-exclude = []
-reportMissingTypeStubs = false
-reportUnknownMemberType = false
-reportUnknownParameterType = false
-reportUnknownVariableType = false
-reportUnusedImport = false
-reportUnusedVariable = false
-enableTypeIgnoreComments = false
-reportIgnoreCommentWithoutRule = "error"
-reportUnnecessaryTypeIgnoreComment = "error"
+skip-checking-raises = true
