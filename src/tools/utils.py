@@ -4,14 +4,13 @@ import logging
 import signal
 from typing import Any
 
-import yaml
-
 import wandb
+import yaml
 
 logger = logging.getLogger(__name__)
 
 
-def load_configuration(file_path: str) -> dict:
+def load_configuration(file_path: str) -> dict[str, Any]:
     """Load configuration file from yaml.
 
     Args:
