@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+import jax
 import jax.numpy as jnp
 
 from pinet.dataclasses import (
@@ -325,7 +326,7 @@ class ConstraintParser:
         # Precondition: eq_constraint is set by __init__ for non-identity mode.
         assert eq_constraint is not None
 
-        all_matrices: list[jnp.ndarray] = [eq_constraint.a_dyn]
+        all_matrices: list[jax.Array] = [eq_constraint.a_dyn]
         dims: list[int] = [eq_constraint.dim]
         if self.ineq_constraint is not None:
             all_matrices.append(self.ineq_constraint.constr_matrix)

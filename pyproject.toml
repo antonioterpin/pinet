@@ -34,6 +34,8 @@ dependencies = [
     "cvxpylayers>=0.1.9",
     "jaxopt>=0.8.5",
     "wandb>=0.20.1",
+    "jaxtyping>=0.3.7",
+    "equinox>=0.13.7",
 ]
 
 # Optional dependencies
@@ -92,6 +94,8 @@ select = [
 ]
 ignore = [
     "PLR0913", # Too many arguments
+    "F722",    # Allow jaxtyping's string-shape annotations (e.g. Float[Array, "B m n"]).
+    "F821",    # Symbolic axis names inside jaxtyping strings are not module-level names.
 ]
 
 [tool.ruff.lint.per-file-ignores]

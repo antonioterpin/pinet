@@ -1,15 +1,17 @@
 """Modified ruiz equilibration."""
 
 import jax.numpy as jnp
+from jaxtyping import Array, Float
 
+from ._typing import Matrix2D
 from .dataclasses import EquilibrationParams
 
 EXPECTED_MATRIX_NDIM = 2
 
 
 def ruiz_equilibration(
-    a_dyn: jnp.ndarray, params: EquilibrationParams
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    a_dyn: Matrix2D, params: EquilibrationParams
+) -> tuple[Matrix2D, Float[Array, "n_r"], Float[Array, "n_c"]]:
     """Perform modified Ruiz equilibration on matrix a_dyn.
 
     Ruiz equilibration iteratively scales the rows and columns of a_dyn so that
@@ -18,14 +20,12 @@ def ruiz_equilibration(
     TODO: Add equilibration for joint constraints.
 
     Args:
-        a_dyn: Input matrix with shape (n_r, n_c).
+        a_dyn: Input matrix.
         params: Parameters for equilibration.
 
     Returns:
-        scaled_a_dyn: Equilibrated matrix.
-        d_r: Row scaling factors
-            such that scaled_a_dyn = diag(d_r) @ a_dyn @ diag(d_c).
-        d_c: Column scaling factors.
+        A triple ``(scaled_a_dyn, d_r, d_c)`` such that
+        ``scaled_a_dyn = diag(d_r) @ a_dyn @ diag(d_c)``.
     """
     # Ruiz equilibration is defined here only for plain 2D matrices.
     assert a_dyn.ndim == EXPECTED_MATRIX_NDIM, (

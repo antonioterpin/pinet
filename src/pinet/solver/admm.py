@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import jax.numpy as jnp
 
+from pinet._typing import ScalingVector
 from pinet.constants import Constants
 from pinet.constraints import (
     AffineInequalityConstraint,
@@ -24,12 +25,12 @@ def initialize(
     box_constraint: BoxConstraint | None,
     dim: int,
     dim_lifted: int,
-    d_r: jnp.ndarray,
+    d_r: ScalingVector,
 ) -> ProjectionInstance:
     """Initialize the ADMM solver state.
 
     Args:
-        yraw: Point to be projected. Shape (batch_size, dimension, 1).
+        yraw: Point to be projected.
         ineq_constraint: Inequality constraint.
         box_constraint: Box constraint.
         dim: Dimension of the original problem.
@@ -37,7 +38,7 @@ def initialize(
         d_r: Scaling factor for the lifted dimension.
 
     Returns:
-        ProjectionInstance: Initial state for the ADMM solver.
+        Initial state for the ADMM solver.
     """
     # Preprocess
     eq_spec = yraw.eq
@@ -83,7 +84,7 @@ def build_iteration_step(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint | CartesianConstraint,
     dim: int,
-    scale: jnp.ndarray | float = 1.0,
+    scale: ScalingVector | float = 1.0,
 ) -> tuple[
     Callable[[ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance],
     Callable[[ProjectionInstance], ProjectionInstance],
@@ -91,6 +92,7 @@ def build_iteration_step(
     """Build the iteration and result retrieval step for the ADMM solver.
 
     See https://web.stanford.edu/~boyd/papers/pdf/admm_distr_stats.pdf for details.
+
     Args:
         eq_constraint: (Lifted) Equality constraint.
         box_constraint: (Lifted) Box constraint.
@@ -98,12 +100,7 @@ def build_iteration_step(
         scale: Scaling of primal variables.
 
     Returns:
-        tuple[
-            Callable[[ProjectionInstance, jnp.ndarray, float, float], ProjectionInstance],
-            Callable[[ProjectionInstance], ProjectionInstance]
-        ]:
-            The first element is the iteration step,
-            the second element is the result retrieval step.
+        A pair ``(iteration_step, result_retrieval_step)``.
     """
 
     def iteration_step(
@@ -116,13 +113,12 @@ def build_iteration_step(
 
         Args:
             sk: State iterate for the ADMM solver.
-                .x of Shape (batch_size, lifted_dimension, 1).
-            yraw: Point to be projected. .x of Shape (batch_size, dimension, 1).
+            yraw: Point to be projected.
             sigma: ADMM parameter.
             omega: ADMM parameter.
 
         Returns:
-            ProjectionInstance: Next state iterate of the ADMM solver.
+            Next state iterate of the ADMM solver.
         """
         zk = eq_constraint.project(sk)
         # Reflection
