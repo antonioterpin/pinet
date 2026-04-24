@@ -4,7 +4,7 @@ import equinox as eqx
 import numpy as np
 from jax import numpy as jnp
 
-from pinet._typing import BatchedRHS, BatchedScalar, Mask1D, ScalingVector
+from pinet._typing import BatchedRHS, BatchedScalar, ColScaling, Mask1D
 from pinet.dataclasses import BoxConstraintSpecification, ProjectionInstance
 
 from .base import Constraint
@@ -28,14 +28,14 @@ class BoxConstraint(Constraint):
     lb: BatchedRHS | None
     ub: BatchedRHS | None
     mask: Mask1D
-    scale: ScalingVector
+    scale: ColScaling
     _dim: int = eqx.field(static=True)
     _n_constraints: int = eqx.field(static=True)
 
     def __init__(
         self,
         box_spec: BoxConstraintSpecification,
-        scale: ScalingVector | None = None,
+        scale: ColScaling | None = None,
     ) -> None:
         """Initialize the box constraint.
 
@@ -71,7 +71,11 @@ class BoxConstraint(Constraint):
             if mask is not None
             else jnp.asarray(np.ones(shape=(dim,), dtype=jnp.bool_))
         )
-        self.scale = scale if scale is not None else jnp.ones((1, dim, 1))
+        # Default scale is applied to per-instance bounds supplied via
+        # ``yraw.box.lb/ub``, which have shape ``(batch, n_constraints, 1)``.
+        # Using ``dim`` here would broadcast-error whenever ``mask`` is set
+        # (``dim != n_constraints``).
+        self.scale = scale if scale is not None else jnp.ones((1, n_constraints, 1))
         self._dim = dim
         self._n_constraints = n_constraints
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import jax.numpy as jnp
 
-from pinet._typing import ScalingVector
+from pinet._typing import ColScaling, RowScaling
 from pinet.constants import Constants
 from pinet.constraints import (
     AffineInequalityConstraint,
@@ -25,7 +25,7 @@ def initialize(
     box_constraint: BoxConstraint | None,
     dim: int,
     dim_lifted: int,
-    d_r: ScalingVector,
+    d_r: RowScaling,
 ) -> ProjectionInstance:
     """Initialize the ADMM solver state.
 
@@ -84,7 +84,7 @@ def build_iteration_step(
     eq_constraint: EqualityConstraint,
     box_constraint: BoxConstraint | CartesianConstraint,
     dim: int,
-    scale: ScalingVector | float = 1.0,
+    scale: ColScaling | float = 1.0,
 ) -> tuple[
     Callable[[ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance],
     Callable[[ProjectionInstance], ProjectionInstance],
