@@ -1,11 +1,21 @@
 """This file contains dataclasses used to encapsulate inputs for the Pinet layer."""
 
-import functools
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
-import jax
+import equinox as eqx
 import jax.numpy as jnp
 
+from ._typing import (
+    BatchedEqMatrix,
+    BatchedEqPinv,
+    BatchedIneqBound,
+    BatchedPrimal,
+    BatchedRHS,
+    BatchedScalar,
+    Mask1D,
+    NLLinearRHS,
+    NLMatrix,
+)
 from .constants import Constants
 from .constraints.non_linear_types import L2NormType, NonLinearConstraintType, SOCType
 
@@ -21,24 +31,18 @@ EXPECTED_PROJECTION_NDIM = 3
 EXPECTED_SOC_TENSOR_NDIM = 3
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class EqualityConstraintsSpecification:
+class EqualityConstraintsSpecification(eqx.Module):
     """Dataclass representing inputs used in forming equality constraints.
 
     Attributes:
-        b (Optional[jnp.ndarray]): Vector representing the RHS of the equality constraint.
-            Shape (batch_size, n_constraints, 1)
-        a_dyn (Optional[jnp.ndarray]): Matrix representing the LHS of the equality
-            constraint.
-            Shape (batch_size, n_constraints, dimension).
-        a_dyn_pinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix a_dyn.
-            Shape (batch_size, dimension, n_constraints).
+        b: Vector representing the RHS of the equality constraint.
+        a_dyn: Matrix representing the LHS of the equality constraint.
+        a_dyn_pinv: The pseudoinverse of ``a_dyn``.
     """
 
-    b: jnp.ndarray | None = None
-    a_dyn: jnp.ndarray | None = None
-    a_dyn_pinv: jnp.ndarray | None = None
+    b: BatchedRHS | None = None
+    a_dyn: BatchedEqMatrix | None = None
+    a_dyn_pinv: BatchedEqPinv | None = None
 
     def validate(self) -> None:
         """Validate the equality constraints specification.
@@ -59,26 +63,23 @@ class EqualityConstraintsSpecification:
             **kwargs: Keyword arguments matching field names to update.
 
         Returns:
-            EqualityConstraintsSpecification: Updated instance.
+            Updated instance.
         """
         return replace(self, **kwargs)
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class BoxConstraintSpecification:
+class BoxConstraintSpecification(eqx.Module):
     """Dataclass representing inputs used in forming box constraints.
 
     Attributes:
-        lb (jnp.ndarray): Lower bound of the box. Shape (batch_size, n_constraints, 1).
-        ub (jnp.ndarray): Upper bound of the box. Shape (batch_size, n_constraints, 1).
-        mask (jnp.ndarray | None):
-            Mask to apply the constraint only to some dimensions.
+        lb: Lower bound of the box.
+        ub: Upper bound of the box.
+        mask: Mask to apply the constraint only to some dimensions.
     """
 
-    lb: jnp.ndarray | None = None
-    ub: jnp.ndarray | None = None
-    mask: jnp.ndarray | None = None
+    lb: BatchedRHS | None = None
+    ub: BatchedRHS | None = None
+    mask: Mask1D | None = None
 
     def update(self, **kwargs: object) -> "BoxConstraintSpecification":
         """Update some attribute by keyword.
@@ -87,7 +88,7 @@ class BoxConstraintSpecification:
             **kwargs: Keyword arguments matching field names to update.
 
         Returns:
-            BoxConstraintSpecification: Updated instance.
+            Updated instance.
         """
         return replace(self, **kwargs)
 
@@ -167,29 +168,21 @@ class BoxConstraintSpecification:
         self._validate_mask()
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class SocConstraintSpecification:
+class SocConstraintSpecification(eqx.Module):
     """Dataclass representing inputs used in forming second-order cone constraints.
 
     Attributes:
-        mask_u (Optional[jnp.ndarray]): Boolean mask indicating which variables
-            are part of the cone constraint vector u. Shape (dimension,).
-        mask_t (Optional[jnp.ndarray]): Boolean mask selecting a single
-            scalar variable t that serves as the cone constraint parameter.
-            Must have exactly one True value.
-            Shape (dimension,).
-        a (Optional[jnp.ndarray]): Coefficient matrix for the cone constraint vector u.
-            Shape (batch_size, n_u_variables, 1) where n_u_variables is the number of True
-            values in mask_u.
-        b (Optional[jnp.ndarray]): Coefficient vector for the cone constraint parameter t.
-            Shape (batch_size, 1, 1).
+        mask_u: Boolean mask selecting the variables that form the cone vector ``u``.
+        mask_t: Boolean mask selecting the scalar variable ``t``; must have exactly
+            one ``True`` entry.
+        a: Offset vector added to ``u``.
+        b: Scalar offset added to ``t``.
     """
 
-    mask_u: jnp.ndarray | None = None
-    mask_t: jnp.ndarray | None = None
-    a: jnp.ndarray | None = None
-    b: jnp.ndarray | None = None
+    mask_u: Mask1D | None = None
+    mask_t: Mask1D | None = None
+    a: BatchedIneqBound | None = None
+    b: BatchedScalar | None = None
 
     def update(self, **kwargs: object) -> "SocConstraintSpecification":
         """Update some attribute by keyword.
@@ -198,7 +191,7 @@ class SocConstraintSpecification:
             **kwargs: Field values to override.
 
         Returns:
-            SocConstraintSpecification: Updated instance.
+            Updated instance.
         """
         return replace(self, **kwargs)
 
@@ -287,8 +280,8 @@ class SocConstraintSpecification:
         """Convert SocConstraintSpecification to NonLinearSpecification.
 
         Returns:
-            NonLinearSpecification: A NonLinearSpecification instance with SOCType
-                and the constraints from this specification.
+            A ``NonLinearSpecification`` with ``SOCType`` and the constraints from
+            this specification.
         """
         self.validate()
         assert self.mask_t is not None  # narrowed by validate()
@@ -301,34 +294,22 @@ class SocConstraintSpecification:
         )
 
 
-@functools.partial(
-    jax.tree_util.register_dataclass,
-    data_fields=["A", "a", "f", "b"],
-    meta_fields=["nl_type"],
-)
-@dataclass(frozen=True)
-class NonLinearSpecification:
+class NonLinearSpecification(eqx.Module):
     """Dataclass representing inputs used in forming non-linear constraints.
 
     Attributes:
-        nl_type (NonLinearConstraintType): The type of non-linear constraint
-            (e.g., SOCType, L2NormType).
-        A (jnp.ndarray): Matrix for the constraint. Shape (1, m, n)
-            where m is the number of constraints and n is the number of variables.
-        a (Optional[jnp.ndarray]): Coefficient array for the constraint.
-            Shape (batch_size, m, 1) where m is the number of constraints.
-        f (Optional[jnp.ndarray]): Optional RHS vector for the constraint.
-            Shape (1, m, n) where m is the number of constraints
-            and n is the number of variables.
-        b (Optional[jnp.ndarray]): Optional scalar parameter for the constraint.
-            Shape (batch_size, 1, 1).
+        nl_type: The type of non-linear constraint (e.g., ``SOCType``, ``L2NormType``).
+        A: Matrix for the constraint (single shared matrix across the batch).
+        a: Per-instance coefficient vector for the constraint.
+        f: Optional RHS vector for the constraint (single shared vector).
+        b: Optional per-instance scalar parameter for the constraint.
     """
 
-    nl_type: NonLinearConstraintType
-    A: jnp.ndarray
-    a: jnp.ndarray | None = None
-    f: jnp.ndarray | None = None
-    b: jnp.ndarray | None = None
+    nl_type: NonLinearConstraintType = eqx.field(static=True)
+    A: NLMatrix
+    a: BatchedRHS | None = None
+    f: NLLinearRHS | None = None
+    b: BatchedScalar | None = None
 
     def update(self, **kwargs: object) -> "NonLinearSpecification":
         """Update some attribute by keyword.
@@ -337,7 +318,7 @@ class NonLinearSpecification:
             **kwargs: Field values to override.
 
         Returns:
-            NonLinearSpecification: Updated instance.
+            Updated instance.
         """
         return replace(self, **kwargs)
 
@@ -403,7 +384,7 @@ class NonLinearSpecification:
         """Convert NonLinearSpecification to primitive constraint specification.
 
         Returns:
-            SocConstraintSpecification: Equivalent primitive constraint spec.
+            Equivalent primitive constraint spec.
 
         Raises:
             NotImplementedError: If the non-linear type is not supported.
@@ -418,25 +399,18 @@ class NonLinearSpecification:
         )
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class ProjectionInstance:
+class ProjectionInstance(eqx.Module):
     """A dataclass for encapsulating model input parameters.
 
     Attributes:
-        x (jnp.ndarray): The point to be projected.
-            Shape (batch_size, dimension, 1)
-        eq (Optional[EqualityConstraintsSpecification]):
-            Specification of the equality constraints, if any.
-        box (Optional[BoxConstraintSpecification]):
-            Specification of the box constraints, if any.
-        soc (Optional[SocConstraintSpecification]):
-            Specification of the second-order cone constraints, if any.
-        nl (Optional[list[NonLinearSpecification]]):
-            Specification of the non-linear constraints, if any.
+        x: The point to be projected.
+        eq: Specification of the equality constraints, if any.
+        box: Specification of the box constraints, if any.
+        soc: Specification of the second-order cone constraints, if any.
+        nl: Specification of the non-linear constraints, if any.
     """
 
-    x: jnp.ndarray
+    x: BatchedPrimal
     eq: EqualityConstraintsSpecification | None = None
     box: BoxConstraintSpecification | None = None
     soc: SocConstraintSpecification | None = None
@@ -464,34 +438,33 @@ class ProjectionInstance:
             **kwargs: Keyword arguments matching field names to update.
 
         Returns:
-            ProjectionInstance: Updated instance.
+            Updated instance.
         """
         return replace(self, **kwargs)
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class EquilibrationParams:
+class EquilibrationParams(eqx.Module):
     """A dataclass for encapsulating the equilibration parameters.
 
     Attributes:
-        max_iter (int): Maximum number of iterations for the equilibration.
-        tol (float): Tolerance for convergence of the equilibration.
-        ord (float): Order of the norm used for convergence check.
-        col_scaling (bool): Whether to apply column scaling.
-        update_mode (str): Update mode for the equilibration.
-            Available options are:
-                - "Jacobi" means compute both row and column norms and update.
-                - "Gauss" means compute row, update, compute column, update.
-        safeguard (bool): Check if the condition number of a_dyn has decreased.
+        max_iter: Maximum number of iterations for the equilibration.
+        tol: Tolerance for convergence of the equilibration.
+        ord: Order of the norm used for convergence check.
+        col_scaling: Whether to apply column scaling.
+        update_mode: Update mode for the equilibration. Available options are:
+
+            * ``"Jacobi"``: compute both row and column norms and update.
+            * ``"Gauss"``: compute row, update, compute column, update.
+
+        safeguard: Check if the condition number of ``a_dyn`` has decreased.
     """
 
-    max_iter: int = EQUILIBRATION_DEFAULT_MAX_ITER
-    tol: float = EQUILIBRATION_DEFAULT_TOL
-    ord: float = EQUILIBRATION_DEFAULT_ORD
-    col_scaling: bool = EQUILIBRATION_DEFAULT_COL_SCALING
-    update_mode: str = EQUILIBRATION_DEFAULT_UPDATE_MODE
-    safeguard: bool = EQUILIBRATION_DEFAULT_SAFEGUARD
+    max_iter: int = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_MAX_ITER)
+    tol: float = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_TOL)
+    ord: float = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_ORD)
+    col_scaling: bool = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_COL_SCALING)
+    update_mode: str = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_UPDATE_MODE)
+    safeguard: bool = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_SAFEGUARD)
 
     def validate(self) -> None:
         """Validate the equilibration parameters.
@@ -515,6 +488,6 @@ class EquilibrationParams:
             **kwargs: Keyword arguments matching field names to update.
 
         Returns:
-            EquilibrationParams: Updated instance.
+            Updated instance.
         """
         return replace(self, **kwargs)

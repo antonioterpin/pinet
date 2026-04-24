@@ -1,10 +1,11 @@
 """Abstract class for non-linear constraints."""
 
-import jax.numpy as jnp
+import equinox as eqx
 
+from pinet._typing import BatchedRHS, BatchedScalar, NLLinearRHS, NLMatrix
 from pinet.constraints.base import Constraint
 from pinet.constraints.non_linear_types import NonLinearConstraintType
-from pinet.dataclasses import NonLinearSpecification
+from pinet.dataclasses import NonLinearSpecification, ProjectionInstance
 
 
 class NonLinearConstraint(Constraint):
@@ -12,8 +13,21 @@ class NonLinearConstraint(Constraint):
 
     This class describes constraints of the form:
     g(A @ y + a) <= f @ y + b,
-    where g is a convex function.
+    where g is a convex function. Concrete non-linear constraints (e.g.
+    ``SocConstraint``) provide ``project`` and ``cv``; calling these on the base
+    class raises ``NotImplementedError``.
+
+    Attributes:
+        spec: Non-linear constraint specification.
     """
+
+    spec: NonLinearSpecification
+    _A: NLMatrix
+    _a: BatchedRHS | None
+    _f: NLLinearRHS | None
+    _b: BatchedScalar | None
+    _nl_type: NonLinearConstraintType = eqx.field(static=True)
+    _dim: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -36,39 +50,23 @@ class NonLinearConstraint(Constraint):
         self._nl_type = spec.nl_type
 
     @property
-    def A(self) -> jnp.ndarray:
-        """Matrix for linear transformation before non-linear function g.
-
-        Returns:
-            jnp.ndarray: Shape (batch_size, constraint_dim, variable_dim)
-        """
+    def A(self) -> NLMatrix:
+        """Matrix for linear transformation before non-linear function g."""
         return self._A
 
     @property
-    def a(self) -> jnp.ndarray | None:
-        """Offset vector before non-linear function g.
-
-        Returns:
-            Optional[jnp.ndarray]: Shape (batch_size, constraint_dim, 1)
-        """
+    def a(self) -> BatchedRHS | None:
+        """Offset vector before non-linear function g."""
         return self._a
 
     @property
-    def f(self) -> jnp.ndarray | None:
-        """Linear coefficients on the right-hand side.
-
-        Returns:
-            Optional[jnp.ndarray]: Shape (batch_size, 1, variable_dim)
-        """
+    def f(self) -> NLLinearRHS | None:
+        """Linear coefficients on the right-hand side."""
         return self._f
 
     @property
-    def b(self) -> jnp.ndarray | None:
-        """Constant offset on the right-hand side.
-
-        Returns:
-            Optional[jnp.ndarray]: Shape (batch_size, 1, 1)
-        """
+    def b(self) -> BatchedScalar | None:
+        """Constant offset on the right-hand side."""
         return self._b
 
     @property
@@ -83,9 +81,39 @@ class NonLinearConstraint(Constraint):
 
     @property
     def nl_type(self) -> NonLinearConstraintType:
-        """Return the type of non-linear constraint.
+        """Return the type of non-linear constraint."""
+        return self._nl_type
+
+    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+        """Project the input to the feasible region.
+
+        Args:
+            yraw: ProjectionInstance to project.
 
         Returns:
-            NonLinearConstraintType: The type of non-linear constraint.
+            The projected input.
+
+        Raises:
+            NotImplementedError: Always; the base class provides only the shared
+                parameter carrier. Use a concrete subclass (``SocConstraint``).
         """
-        return self._nl_type
+        raise NotImplementedError(
+            "NonLinearConstraint is a parameter carrier; use a concrete subclass."
+        )
+
+    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+        """Compute the constraint violation.
+
+        Args:
+            yraw: ProjectionInstance to evaluate.
+
+        Returns:
+            The constraint violation for each point in the batch.
+
+        Raises:
+            NotImplementedError: Always; the base class provides only the shared
+                parameter carrier. Use a concrete subclass (``SocConstraint``).
+        """
+        raise NotImplementedError(
+            "NonLinearConstraint is a parameter carrier; use a concrete subclass."
+        )

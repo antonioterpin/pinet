@@ -2,13 +2,17 @@
 
 from abc import abstractmethod
 
-import jax.numpy as jnp
+import equinox as eqx
 
+from pinet._typing import BatchedScalar
 from pinet.dataclasses import ProjectionInstance
 
 
-class Constraint:
-    """Abstract class for constraint sets."""
+class Constraint(eqx.Module):
+    """Abstract class for constraint sets.
+
+    Subclasses must implement ``project``, ``cv``, ``dim`` and ``n_constraints``.
+    """
 
     @abstractmethod
     def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
@@ -18,35 +22,26 @@ class Constraint:
             yraw: ProjectionInstance to project.
 
         Returns:
-            ProjectionInstance: The projected input.
+            The projected input.
         """
 
     @abstractmethod
-    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
             yraw: ProjectionInstance to evaluate.
 
         Returns:
-            jnp.ndarray: The constraint violation for each point in the batch.
-                Shape (batch_size, 1, 1).
+            The constraint violation for each point in the batch.
         """
 
     @property
     @abstractmethod
     def dim(self) -> int:
-        """Return the dimension of the constraint set.
-
-        Returns:
-            int: The dimension of the constraint set.
-        """
+        """Return the dimension of the constraint set."""
 
     @property
     @abstractmethod
     def n_constraints(self) -> int:
-        """Return the number of constraints.
-
-        Returns:
-            int: The number of constraints.
-        """
+        """Return the number of constraints."""

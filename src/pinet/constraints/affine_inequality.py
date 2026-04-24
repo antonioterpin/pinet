@@ -2,6 +2,7 @@
 
 from jax import numpy as jnp
 
+from pinet._typing import BatchedIneqBound, BatchedIneqMatrix, BatchedScalar
 from pinet.dataclasses import ProjectionInstance
 
 from .base import Constraint
@@ -13,57 +14,61 @@ class AffineInequalityConstraint(Constraint):
     The (affine) inequality constraint set is defined as:
     lb <= constr_matrix @ x <= ub
     where the constraint matrix and the vectors lb and ub are the parameters.
+
+    Attributes:
+        constr_matrix: Matrix in the inequality.
+        lb: Lower bound.
+        ub: Upper bound.
     """
 
+    constr_matrix: BatchedIneqMatrix
+    lb: BatchedIneqBound
+    ub: BatchedIneqBound
+
     def __init__(
-        self, constr_matrix: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray
+        self,
+        constr_matrix: BatchedIneqMatrix,
+        lb: BatchedIneqBound,
+        ub: BatchedIneqBound,
     ) -> None:
         """Initialize the affine inequality constraint.
 
         Args:
             constr_matrix: The matrix in the inequality.
-                Shape (batch_size, n_constraints, dimension).
             lb: The lower bound in the inequality.
-                Shape (batch_size, n_constraints, 1).
             ub: The upper bound in the inequality.
-                Shape (batch_size, n_constraints, 1).
         """
-        self.constr_matrix = constr_matrix
-        self.lb = lb
-        self.ub = ub
-
-        # Check if batch sizes for constr_matrix and l are consistent.
-        # They should either be the same, or one of them should be 1.
-        # constr_matrix and lb must be batch-compatible, allowing singleton broadcasting.
+        # Batch sizes must be the same, or one of them must be 1.
         assert (
-            self.constr_matrix.shape[0] == self.lb.shape[0]
-            or self.constr_matrix.shape[0] == 1
-            or self.lb.shape[0] == 1
+            constr_matrix.shape[0] == lb.shape[0]
+            or constr_matrix.shape[0] == 1
+            or lb.shape[0] == 1
         ), (
             "Batch sizes are inconsistent: "
-            f"constr_matrix{self.constr_matrix.shape}, l{self.lb.shape}"
+            f"constr_matrix{constr_matrix.shape}, l{lb.shape}"
         )
 
-        # Check if batch sizes for constr_matrix and u are consistent.
-        # They should either be the same, or one of them should be 1.
-        # constr_matrix and ub must be batch-compatible, allowing singleton broadcasting.
         assert (
-            self.constr_matrix.shape[0] == self.ub.shape[0]
-            or self.constr_matrix.shape[0] == 1
-            or self.ub.shape[0] == 1
+            constr_matrix.shape[0] == ub.shape[0]
+            or constr_matrix.shape[0] == 1
+            or ub.shape[0] == 1
         ), (
             "Batch sizes are inconsistent: "
-            f"constr_matrix{self.constr_matrix.shape}, ub{self.ub.shape}"
+            f"constr_matrix{constr_matrix.shape}, ub{ub.shape}"
         )
 
         # Each inequality row needs one lower bound entry.
-        assert self.constr_matrix.shape[1] == self.lb.shape[1], (
+        assert constr_matrix.shape[1] == lb.shape[1], (
             "Number of rows in constr_matrix must equal size of l."
         )
         # Each inequality row needs one upper bound entry.
-        assert self.constr_matrix.shape[1] == self.ub.shape[1], (
+        assert constr_matrix.shape[1] == ub.shape[1], (
             "Number of rows in constr_matrix must equal size of u."
         )
+
+        self.constr_matrix = constr_matrix
+        self.lb = lb
+        self.ub = ub
 
     def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project x onto the affine inequality constraint set.
@@ -73,8 +78,7 @@ class AffineInequalityConstraint(Constraint):
                 The .x attribute is the point to project.
 
         Returns:
-            ProjectionInstance: The projected point for each point in the batch.
-                Shape (batch_size, dimension, 1).
+            The projected point for each point in the batch.
 
         Raises:
             NotImplementedError: Always. This method must not be called directly.
@@ -93,15 +97,14 @@ class AffineInequalityConstraint(Constraint):
         """Return the number of constraints."""
         return self.constr_matrix.shape[1]
 
-    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
             yraw: ProjectionInstance to evaluate.
 
         Returns:
-            jnp.ndarray: The constraint violation for each point in the batch.
-                Shape (batch_size, 1, 1).
+            The constraint violation for each point in the batch.
         """
         constr_matrix_x = self.constr_matrix @ yraw.x
         cv_ub = jnp.maximum(constr_matrix_x - self.ub, 0)
