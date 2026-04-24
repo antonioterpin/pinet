@@ -40,17 +40,17 @@ jobs:
       # pulls the latest (4.6.0), which parses hook ``entry`` strings
       # differently and silently drops flags like ``--level error``.
       #
-      # ``GITHUB_ACTIONS`` is cleared so basedpyright does not switch into
-      # its CI annotation mode, which emits every warning as an inline
-      # annotation and ignores ``--level error`` when computing the exit
-      # code. Contributors run ``--level error`` locally (warnings = OK,
-      # errors = fail); CI should do the same.
+      # ``env -u GITHUB_ACTIONS`` unsets the runner-injected variable for
+      # the duration of the command. basedpyright otherwise detects CI and
+      # switches into workflow-annotation mode, which emits every warning
+      # as an inline annotation and ignores ``--level error`` when
+      # computing the exit code. Contributors run ``--level error`` locally
+      # (warnings = OK, errors = fail); CI should do the same. A
+      # step-level ``env:`` block does NOT override ``GITHUB_ACTIONS``
+      # because the runner re-injects the reserved ``GITHUB_*`` vars after
+      # the block is applied.
       - name: Run pre-commit (commit stage)
-        env:
-          GITHUB_ACTIONS: ''
-        run: uv run pre-commit run --all-files
+        run: env -u GITHUB_ACTIONS uv run pre-commit run --all-files
 
       - name: Run pre-commit (push stage)
-        env:
-          GITHUB_ACTIONS: ''
-        run: uv run pre-commit run --hook-stage push --all-files
+        run: env -u GITHUB_ACTIONS uv run pre-commit run --hook-stage push --all-files
