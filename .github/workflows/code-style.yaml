@@ -15,10 +15,15 @@ jobs:
         uses: actions/checkout@v3
 
       # Step 2: Set up Python
+      #
+      # The style check is pinned to 3.13 (the version contributors run
+      # locally) so basedpyright resolves cvxpy/cvxpylayers stubs the same
+      # way on CI. The test workflow still runs 3.10 to verify the library's
+      # declared minimum Python.
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.13'
 
       # Step 3: Install uv so pre-commit hooks that shell out to
       # ``uv run <tool>`` (pydoclint, basedpyright) can find the executable.
