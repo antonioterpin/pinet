@@ -7,6 +7,7 @@ import cvxpy as cp
 import jax
 import numpy as np
 import optax
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 from flax import linen as nn
 from flax.training import train_state
 from jax import config as jconf
@@ -82,7 +83,7 @@ project_soc = jit(_project_soc)
 # %% Generate random data
 def rand_sparse_mask(
     key: jax.Array,
-    shape: tuple,
+    shape: tuple[int, ...],
     sparsity: float = 0.01,
     dtype: jnp.dtype = jnp.float64,
 ):
@@ -247,7 +248,7 @@ c_par = cp.Parameter(n)
 
 constraints = [A_np @ x_var + s_var == b_par, cp.SOC(s_var[-1], s_var[:-1])]
 
-problem = cp.Problem(cp.Minimize(c_par @ x_var), constraints)
+problem = cp.Problem(cp.Minimize(c_par @ x_var), cast(list[CvxpyConstraint], constraints))
 x_sol = []
 s_sol = []
 for i in range(batch_size):
@@ -396,7 +397,7 @@ def _project_fwd(s0: jnp.ndarray, yraw: jnp.ndarray, b: jnp.ndarray):
     return (zk1, sk), (sk, yraw.reshape((yraw.shape[0], yraw.shape[1], 1)), b)
 
 
-def _project_bwd(residuals: tuple, cotangent: tuple):
+def _project_bwd(residuals: tuple[Any, ...], cotangent: tuple[Any, ...]):
     """Backward pass of the projection function.
 
     Args:
@@ -580,7 +581,7 @@ state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx
 
 # %% Training
 @jit
-def loss_fn(params: dict, input: dict):
+def loss_fn(params: dict[str, Any], input: dict[str, Any]):
     """Compute the loss function and auxiliary values.
 
     Args:
@@ -601,7 +602,7 @@ def loss_fn(params: dict, input: dict):
 
 
 @jit
-def train_step(state: train_state.TrainState, batch: dict):
+def train_step(state: train_state.TrainState, batch: dict[str, Any]):
     """Perform a single training step.
 
     Args:
@@ -628,7 +629,7 @@ for epoch in range(1, n_epochs + 1):
     state, loss_value, (x, s) = train_step(state, batch)
     cv_eq = constraint_violation_eq(x, s, batch["input"]["b"])
     cv_soc = constraint_violation_soc(s)
-    rs = relative_suboptimality(x, batch["xstar"], batch["input"]["c"])
+    rs = relative_suboptimality(x, cast(jax.Array, batch["xstar"]), batch["input"]["c"])
     if epoch % 10 == 0 or epoch == 1:
         print(
             f"""[{epoch:03d}/{n_epochs}]
@@ -649,7 +650,11 @@ x_pred = pred_val[:, :n]
 s_pred = pred_val[:, n:]
 
 print_stats(
-    x_pred, s_pred, val_batch["input"]["b"], val_batch["input"]["c"], val_batch["xstar"]
+    x_pred,
+    s_pred,
+    val_batch["input"]["b"],
+    val_batch["input"]["c"],
+    cast(jax.Array, val_batch["xstar"]),
 )
 
 # %%

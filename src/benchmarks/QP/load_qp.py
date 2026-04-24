@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 
 # Load Instance Dataset
-class SimpleQPDataset(Dataset):
+class SimpleQPDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
     """Dataset for simple QP benchmark."""
 
     def __init__(self, filepath: str) -> None:
@@ -54,7 +54,11 @@ def create_dataloaders(
     val_split: float = 0.0,
     test_split: float = 0.1,
     shuffle: bool = True,
-) -> tuple[DataLoader, DataLoader, DataLoader]:
+) -> tuple[
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+]:
     """Dataset loaders for training, validation and test.
 
     Args:
@@ -95,7 +99,7 @@ def create_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-class DC3Dataset(Dataset):
+class DC3Dataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
     """Dataset for importing DC3 problems."""
 
     def __init__(self, filepath: str, use_convex: bool):
@@ -171,6 +175,7 @@ class JaxDataLoader:
         self.batch_size = batch_size
         self.shuffle = shuffle
         self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        self.rng_key: jax.Array = self._rng_key
         # Batch indices for the current epoch
         self._perm = self._get_perm() if self.shuffle else jnp.arange(len(self.dataset))
 
@@ -206,7 +211,7 @@ def dc3_dataloader(
     use_convex: bool,
     batch_size: int = 512,
     shuffle: bool = True,
-) -> DataLoader:
+) -> DataLoader[tuple[jnp.ndarray, jnp.ndarray]]:
     """Dataset loader for training, validation, or test.
 
     Args:
@@ -248,9 +253,9 @@ def non_dc3_dataset_setup(
     jnp.ndarray,
     jnp.ndarray,
     jnp.ndarray,
-    DataLoader,
-    DataLoader,
-    DataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
 ]:
     """Setup function for datasets generated with our script.
 
@@ -311,9 +316,9 @@ def dc3_dataset_setup(
     jnp.ndarray,
     jnp.ndarray,
     jnp.ndarray,
-    DataLoader | JaxDataLoader,
-    DataLoader | JaxDataLoader,
-    DataLoader | JaxDataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
 ]:
     """Setup function for datasets generated with the DC3 script.
 
@@ -410,9 +415,9 @@ def load_data(
     jnp.ndarray,
     jnp.ndarray,
     Callable[[jnp.ndarray], jnp.ndarray],
-    DataLoader | JaxDataLoader,
-    DataLoader | JaxDataLoader,
-    DataLoader | JaxDataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
     Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
 ]:
     """Load problem data.

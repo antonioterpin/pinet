@@ -66,7 +66,7 @@ def get_cvxpy_projection(
     constr_matrix: jnp.ndarray,
     d: jnp.ndarray,
     dim: int,
-) -> Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray]]:
+) -> CvxpyLayer:
     """Constructs and returns a CVXPY-based projection layer callable.
 
     The projection is formulated as a quadratic minimization problem that minimizes

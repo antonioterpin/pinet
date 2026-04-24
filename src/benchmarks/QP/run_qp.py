@@ -11,11 +11,11 @@ import jax
 import jax.numpy as jnp
 import optax
 import torch
+import wandb
 from flax.serialization import to_bytes
 from flax.training import train_state
 from tqdm import tqdm
 
-import wandb
 from benchmarks.model import setup_model
 from benchmarks.QP.load_qp import load_data
 from benchmarks.QP.plotting import plot_inference_boxes, plot_rs_vs_cv
@@ -134,9 +134,9 @@ def evaluate_hcnn(
         )
 
     # This assumes the loader handles all the data in one batch.
-    for x_data, objective_reference in loader:
-        predictions = predict(x_data)
-        opt_obj = objective_reference.mean()
+    x_data, objective_reference = next(iter(loader))
+    predictions = predict(x_data)
+    opt_obj = objective_reference.mean()
     # HCNN objective
     hcnn_obj = batched_objective(predictions)
     rs = jnp.mean((hcnn_obj - objective_reference) / jnp.abs(objective_reference))
@@ -249,8 +249,7 @@ def evaluate_instance(
     """
     # Evaluate HCNN solution
     # This assumes the loader handles all the data in one batch.
-    for x_data, _obj in loader:
-        problem_batch = x_data
+    problem_batch, _obj = next(iter(loader))
 
     predictions = state.apply_fn(
         {"params": state.params},
@@ -387,16 +386,21 @@ def main(
         apply_fn=model.apply, params=params["params"], tx=tx
     )
 
+    compilation_time = 0.0
     if proj_method == "pinet":
         # Measure compilation time
-        for batch in train_loader:
-            x_batch, _ = batch
+        x_batch, _ = next(iter(train_loader))
         start_compilation_time = time.time()
-        _ = train_step.lower(
-            state,
-            x_batch[:, :, 0],
-            x_batch,
-        ).compile()
+        # train_step is a jitted function; jax.jit exposes `.lower()` on the wrapper.
+        _ = (
+            jax.jit(train_step)
+            .lower(
+                state,
+                x_batch[:, :, 0],
+                x_batch,
+            )
+            .compile()
+        )
         # Note this also includes the time for one iteration
         compilation_time = time.time() - start_compilation_time
 

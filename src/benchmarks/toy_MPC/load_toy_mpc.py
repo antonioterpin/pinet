@@ -8,14 +8,12 @@ import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from benchmarks.QP.load_qp import JaxDataLoader
-
 
 # Load Instance Dataset
-class ToyMPCDataset(Dataset):
+class ToyMPCDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
     """Dataset for toy MPC benchmark."""
 
-    def __init__(self, data: dict, const: dict):
+    def __init__(self, data: dict[str, jnp.ndarray], const: dict[str, jnp.ndarray]):
         """Initialize dataset.
 
         Args:
@@ -48,7 +46,7 @@ class ToyMPCDataset(Dataset):
         """
         return self.x0sets.shape[0]
 
-    def __getitem__(self, idx: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def __getitem__(self, idx: int | jax.Array) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Get item from dataset.
 
         Args:
@@ -67,7 +65,11 @@ def create_dataloaders(
     val_split: float = 0.1,
     test_split: float = 0.1,
     shuffle: bool = True,
-) -> tuple[DataLoader, DataLoader, DataLoader]:
+) -> tuple[
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+]:
     """Dataset loaders for training, validation and test.
 
     Args:
@@ -78,8 +80,7 @@ def create_dataloaders(
         shuffle: Whether to shuffle the training dataloader.
 
     Returns:
-        tuple[DataLoader, DataLoader, DataLoader]:
-            A tuple containing the training, validation, and test DataLoaders.
+        A tuple containing the training, validation, and test DataLoaders.
     """
     size = len(dataset)
 
@@ -108,8 +109,12 @@ def create_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-class JaxDataLoaderMPC(JaxDataLoader):
-    """Dataloader for toy MPC dataset in JAX."""
+class JaxDataLoaderMPC:
+    """Dataloader for toy MPC dataset in JAX.
+
+    Standalone loader (does not inherit from ``JaxDataLoader``) because the MPC
+    loader takes a prebuilt dataset instead of a filepath.
+    """
 
     def __init__(
         self,
@@ -130,8 +135,33 @@ class JaxDataLoaderMPC(JaxDataLoader):
         self.batch_size = batch_size
         self.shuffle = shuffle
         self._rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
+        self.rng_key: jax.Array = self._rng_key
         # Batch indices for the current epoch
         self._perm = self._get_perm() if self.shuffle else jnp.arange(len(self.dataset))
+
+    def __len__(self) -> int:
+        """Number of batches per epoch.
+
+        Returns:
+            Number of batches.
+        """
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+
+    def __iter__(self):
+        """Iterate over batches of the dataset.
+
+        Yields:
+            Tuple ``(x, y)`` for each batch.
+        """
+        for start in range(0, len(self.dataset), self.batch_size):
+            batch_idx = self._perm[start : start + self.batch_size]
+            yield self.dataset[batch_idx]
+        if self.shuffle:
+            self._perm = self._get_perm()
+
+    def _get_perm(self) -> jax.Array:
+        self.rng_key, last_key = jax.random.split(self._rng_key)
+        return jax.random.permutation(last_key, len(self.dataset))
 
 
 def load_data(
@@ -152,9 +182,9 @@ def load_data(
     int,
     int,
     jnp.ndarray,
-    DataLoader | JaxDataLoaderMPC,
-    DataLoader | JaxDataLoaderMPC,
-    DataLoader | JaxDataLoaderMPC,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoaderMPC,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoaderMPC,
+    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoaderMPC,
     Callable[[jnp.ndarray], jnp.ndarray],
 ]:
     """Load problem data.
@@ -185,7 +215,7 @@ def load_data(
             - batched_objective: Function to compute the quadratic objective in batches.
     """
     dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filepath)
-    all_data = cast(dict[str, jnp.ndarray], jnp.load(dataset_path))
+    all_data = cast(dict[str, jnp.ndarray], cast(object, jnp.load(dataset_path)))
     toy_dataset = ToyMPCDataset(all_data, all_data)
     if not use_jax_loader:
         train_loader, valid_loader, test_loader = create_dataloaders(
@@ -245,7 +275,13 @@ def load_data(
             rng_key=loader_keys[2],
         )
 
-    a_dyn, lbxs, ubxs, lbus, ubus, xhat, alpha, horizon, base_dim = toy_dataset.const
+    a_dyn, lbxs, ubxs, lbus, ubus, xhat, alpha_raw, horizon_raw, base_dim_raw = (
+        toy_dataset.const
+    )
+    # Scalar metadata was stored as 0-d arrays; unwrap to Python scalars.
+    alpha = float(alpha_raw)
+    horizon = int(horizon_raw)
+    base_dim = int(base_dim_raw)
     x_data = toy_dataset.x0sets
     dimx = lbxs.shape[1]
 

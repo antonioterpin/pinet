@@ -1,11 +1,13 @@
 """Plotting functionalities for toy MPC."""
 
 from collections.abc import Iterable, Sequence
+from typing import cast
 
 import cvxpy as cp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 from flax.training.train_state import TrainState
 from matplotlib.patches import Rectangle
 
@@ -150,7 +152,7 @@ def generate_trajectories(
             cp.sum_squares(xcp[:dimx] - jnp.tile(xhat[:, 0], horizon + 1))
             + alpha * cp.sum_squares(xcp[dimx:])
         )
-        problem = cp.Problem(objective, constraints)
+        problem = cp.Problem(objective, cast(list[CvxpyConstraint], constraints))
         # Setup problem parameter
         xinitcp.value = np.array(xinit[i, :, 0])
         problem.solve(verbose=False)
