@@ -42,31 +42,25 @@ def initialize(
     """
     # Preprocess
     eq_spec = yraw.eq
-    if eq_spec is not None:
-        # Pre-compute the lifted ``b`` (zero-pads to the lifted dimension and
-        # applies the row scaling) so the spec update always lands in a
-        # self-consistent state — the per-spec invariant ``a_dyn`` and ``b``
-        # share the row count (``m``) is preserved across the entire
-        # function. Splitting this into two updates would briefly leave the
-        # spec with mismatched shapes, which beartype's runtime check
+    # ``a_dyn`` is only valid alongside ``b`` (enforced by the spec
+    # validators), so checking ``b`` covers both per-instance overrides.
+    if eq_spec is not None and eq_spec.b is not None:
+        # Lift ``b`` (zero-pad to the lifted dimension and apply the row
+        # scaling) and ``a_dyn`` together so the spec is updated atomically:
+        # splitting this into two ``update`` calls would briefly leave the
+        # spec with mismatched ``m`` axes, which beartype's runtime check
         # rejects.
-        b_lifted = None
-        if eq_spec.b is not None:
-            b_lifted = (
-                jnp.concatenate(
-                    [
-                        eq_spec.b,
-                        jnp.zeros(shape=(eq_spec.b.shape[0], dim_lifted - dim, 1)),
-                    ],
-                    axis=1,
-                )
-                * d_r
+        updates: dict[str, object] = {
+            "b": jnp.concatenate(
+                [
+                    eq_spec.b,
+                    jnp.zeros(shape=(eq_spec.b.shape[0], dim_lifted - dim, 1)),
+                ],
+                axis=1,
             )
-
+            * d_r,
+        }
         if eq_spec.a_dyn is not None:
-            # Lift the equality constraint
-            # The dynamic equality matrix is only valid together with its offset term.
-            assert eq_spec.b is not None
             parser = ConstraintParser(
                 eq_constraint=EqualityConstraint(
                     a_dyn=eq_spec.a_dyn, b=eq_spec.b, method="pinv"
@@ -77,16 +71,9 @@ def initialize(
             lifted_eq_constraint, _, _ = parser.parse(method="pinv")
             # Parsing must return the lifted equality constraint in this branch.
             assert lifted_eq_constraint is not None
-            updates = {
-                "a_dyn": lifted_eq_constraint.a_dyn,
-                "a_dyn_pinv": lifted_eq_constraint.a_dyn_pinv,
-            }
-            if b_lifted is not None:
-                updates["b"] = b_lifted
-            eq_spec = eq_spec.update(**updates)
-            yraw = yraw.update(eq=eq_spec)
-        elif b_lifted is not None:
-            yraw = yraw.update(eq=eq_spec.update(b=b_lifted))
+            updates["a_dyn"] = lifted_eq_constraint.a_dyn
+            updates["a_dyn_pinv"] = lifted_eq_constraint.a_dyn_pinv
+        yraw = yraw.update(eq=eq_spec.update(**updates))
 
     # Return updated value
     return yraw.update(x=jnp.zeros((yraw.x.shape[0], dim_lifted, 1)))
