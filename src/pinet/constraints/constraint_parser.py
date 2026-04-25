@@ -2,9 +2,9 @@
 
 from collections.abc import Callable
 
-import jax
 import jax.numpy as jnp
 
+from pinet._typing import ArrayLike
 from pinet.dataclasses import (
     BoxConstraintSpecification,
     ProjectionInstance,
@@ -326,7 +326,10 @@ class ConstraintParser:
         # Precondition: eq_constraint is set by __init__ for non-identity mode.
         assert eq_constraint is not None
 
-        all_matrices: list[jax.Array] = [eq_constraint.a_dyn]
+        # ``ArrayLike`` here matches the public spec annotations (jax + numpy)
+        # so all the ``.append`` calls below typecheck regardless of which
+        # backend the caller passed in.
+        all_matrices: list[ArrayLike] = [eq_constraint.a_dyn]
         dims: list[int] = [eq_constraint.dim]
         if self.ineq_constraint is not None:
             all_matrices.append(self.ineq_constraint.constr_matrix)

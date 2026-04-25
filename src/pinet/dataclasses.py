@@ -285,11 +285,16 @@ class SocConstraintSpecification(eqx.Module):
         """
         self.validate()
         assert self.mask_t is not None  # narrowed by validate()
+        # ``A`` and ``f`` are placeholders for SOC (which uses masks instead of
+        # the full A/f machinery). Use batch size 1 to satisfy the documented
+        # ``NLMatrix`` / ``NLLinearRHS`` shape contracts (``"1 m n"`` and
+        # ``"1 1 n"``); the constraint dimensions ``m=0``/``1`` and the
+        # variable dimension ``n=mask_t.size`` keep the placeholders empty.
         return NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.empty((0, 0, self.mask_t.size)),
+            A=jnp.empty((1, 0, self.mask_t.size)),
             a=self.a,
-            f=jnp.empty((0, 1, self.mask_t.size)),
+            f=jnp.empty((1, 1, self.mask_t.size)),
             b=self.b,
         )
 
