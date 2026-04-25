@@ -12,6 +12,7 @@ from pinet.constraints import (
     CartesianConstraint,
     ConstraintParser,
     EqualityConstraint,
+    NonLinearConstraint,
 )
 from pinet.dataclasses import ProjectionInstance
 
@@ -26,6 +27,7 @@ def initialize(
     dim: int,
     dim_lifted: int,
     d_r: RowScaling,
+    nl_constraints: list[NonLinearConstraint] | None = None,
 ) -> ProjectionInstance:
     """Initialize the ADMM solver state.
 
@@ -36,6 +38,9 @@ def initialize(
         dim: Dimension of the original problem.
         dim_lifted: Dimension of the lifted problem.
         d_r: Scaling factor for the lifted dimension.
+        nl_constraints: Non-linear constraints, when present. Required for the
+            ``var_a_dyn=True`` re-lift to route through ``parse_non_linear``
+            instead of ``parse_polytope``.
 
     Returns:
         Initial state for the ADMM solver.
@@ -67,6 +72,7 @@ def initialize(
                 ),
                 ineq_constraint=ineq_constraint,
                 box_constraint=box_constraint,
+                nl_constraints=nl_constraints,
             )
             lifted_eq_constraint, _, _ = parser.parse(method="pinv")
             # Parsing must return the lifted equality constraint in this branch.

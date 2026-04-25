@@ -356,35 +356,66 @@ def test_parse_non_linear_with_no_box_constraint():
     assert lifted.x.shape[1] > dim
 
 
-def test_parse_non_linear_l2_norm_type_raises_not_implemented():
-    """Test parser raises for L2 norm nonlinear constraints."""
-    A = jnp.array([[[1.0, 0.0]]])
-    b = jnp.array([[[0.0]]])
-    C = jnp.array([[[1.0, 0.0]]])
-    lb = jnp.array([[[-1.0]]])
-    ub = jnp.array([[[1.0]]])
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
+def test_parse_non_linear_l2_norm_projection(seed: int, batch_size: int):
+    """L2NormType lifts to SOC and the projected point satisfies the L2 ball."""
+    dim = 4
+    m = 3
+    key = jrnd.PRNGKey(seed)
 
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
-    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
+    key, kA, ka, kx = jrnd.split(key, 4)
+    A_l2 = jrnd.uniform(kA, shape=(1, m, dim), minval=-1.0, maxval=1.0)
+    a_l2 = jrnd.uniform(ka, shape=(1, m, 1), minval=-0.5, maxval=0.5)
+    b_l2 = jnp.full((1, 1, 1), 1.5)  # constant scalar bound
 
     nl_spec = NonLinearSpecification(
         nl_type=L2NormType,
-        A=jnp.array([[[1.0, 0.0], [0.0, 1.0]]]),
-        a=jnp.zeros((1, 2, 1)),
+        A=A_l2,
+        a=a_l2,
         f=None,
-        b=jnp.ones((1, 1, 1)),
+        b=b_l2,
     )
     nl_constraint = NonLinearConstraint(spec=nl_spec)
 
     parser = ConstraintParser(
-        eq_constraint=eq_constraint,
-        ineq_constraint=ineq_constraint,
+        eq_constraint=None,
+        ineq_constraint=None,
         box_constraint=None,
         nl_constraints=[nl_constraint],
     )
+    eq_lifted, cart_lifted, lift_fn = parser.parse(method="pinv")
+    # Narrow parser outputs before using them downstream.
+    assert eq_lifted is not None
+    assert isinstance(cart_lifted, CartesianConstraint)
 
-    with pytest.raises(NotImplementedError, match=r"L2NormType is not implemented"):
-        parser.parse()
+    # Project a random batch and confirm the L2 ball constraint is satisfied.
+    x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-3.0, maxval=3.0)
+    yraw = ProjectionInstance(x=x, nl=[nl_spec])
+    y_lifted = lift_fn(yraw)
+
+    iteration_step, final_step = build_iteration_step(
+        eq_constraint=eq_lifted,
+        box_constraint=cart_lifted,
+        dim=dim,
+    )
+    iteration_step = jax.jit(iteration_step)
+
+    sk = ProjectionInstance(
+        x=jnp.zeros((batch_size, y_lifted.x.shape[1], 1)),
+        nl=[nl_spec],
+    )
+    for _ in range(300):
+        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.5, omega=1.7)
+
+    yk = final_step(sk)
+
+    # ``||A x + a||_2 <= b`` should hold on the projected primal x.
+    primal = yk.x[:, :dim, :]
+    norms = jnp.linalg.norm(A_l2 @ primal + a_l2, axis=1, keepdims=True)
+    assert jnp.all(norms <= b_l2 + 1e-3), (
+        f"L2 norm bound violated after projection: max={float(jnp.max(norms))}, "
+        f"bound={float(b_l2[0, 0, 0])}"
+    )
 
 
 def test_parse_non_linear_irrelevant_type_raises_value_error():
@@ -595,3 +626,80 @@ def test_box_and_nonlinear_constraints(seed, batch_size):
     # Verify projection feasibility
     cv_after = cart_lifted.cv(yk)
     assert jnp.all(cv_after < 1e-4)
+
+
+@pytest.mark.parametrize("seed, batch_size", product(SEEDS, [1, 5]))
+def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
+    """``var_a_dyn=True`` works on the non-linear path.
+
+    The lifted ``a_dyn`` propagates the user-supplied per-instance
+    equality matrix through ``parse_non_linear`` (re-run inside
+    ``solver.admm.initialize``), and the projection still satisfies
+    both the equality and SOC constraints.
+    """
+    from pinet import (  # noqa: PLC0415  -- isolate the heavy import to this test
+        EqualityConstraintsSpecification,
+        Project,
+    )
+
+    dim = 4
+    n_eq = 2
+    m_soc = 3
+    key = jrnd.PRNGKey(seed)
+
+    key, kA, kx_feas, kxinfeas, ka, kf = jrnd.split(key, 6)
+
+    # Per-instance equality matrix and a feasible point that satisfies it.
+    a_dyn = jrnd.uniform(kA, shape=(batch_size, n_eq, dim), minval=-1.0, maxval=1.0)
+    x_feas = jrnd.uniform(kx_feas, shape=(batch_size, dim, 1), minval=-1.0, maxval=1.0)
+    b_eq = a_dyn @ x_feas
+
+    # Build the SOC: ``||A_soc x + a_soc||_2 <= f_soc x + b_soc``.
+    A_soc = jrnd.uniform(kA, shape=(1, m_soc, dim), minval=-1.0, maxval=1.0)
+    a_soc = jrnd.uniform(ka, shape=(1, m_soc, 1), minval=-0.5, maxval=0.5)
+    f_soc = jrnd.uniform(kf, shape=(1, 1, dim), minval=-0.5, maxval=0.5)
+    soc_norm_at_feas = jnp.linalg.norm(A_soc @ x_feas + a_soc, axis=1, keepdims=True)
+    f_at_feas = f_soc @ x_feas
+    # Pick ``b_soc`` per-instance so the feasible point is on the SOC's interior.
+    b_soc = soc_norm_at_feas - f_at_feas + 0.5
+
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        A=A_soc,
+        a=a_soc,
+        f=f_soc,
+        b=b_soc,
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    # Construct ``Project`` with ``var_a_dyn=True`` so the per-instance
+    # ``a_dyn`` is supplied at projection time via ``yraw.eq``.
+    eq_constraint = EqualityConstraint(
+        a_dyn=a_dyn, b=b_eq, method="pinv", var_a_dyn=True, var_b=True
+    )
+    project_layer = Project(
+        eq_constraint=eq_constraint,
+        nl_constraints=[nl_constraint],
+    )
+
+    # Project an infeasible point.
+    x_infeas = jrnd.uniform(kxinfeas, shape=(batch_size, dim, 1), minval=-3.0, maxval=3.0)
+    yraw = ProjectionInstance(
+        x=x_infeas,
+        eq=EqualityConstraintsSpecification(a_dyn=a_dyn, b=b_eq),
+        nl=[nl_spec],
+    )
+    yk, _ = project_layer.call(yraw=yraw, n_iter=500)
+    primal = yk.x[:, :dim, :]
+
+    # Equality holds.
+    assert jnp.allclose(a_dyn @ primal, b_eq, atol=1e-4), (
+        "Per-instance equality constraint violated under var_a_dyn=True."
+    )
+    # SOC holds.
+    soc_lhs = jnp.linalg.norm(A_soc @ primal + a_soc, axis=1, keepdims=True)
+    soc_rhs = f_soc @ primal + b_soc
+    assert jnp.all(soc_lhs <= soc_rhs + 1e-3), (
+        f"SOC constraint violated under var_a_dyn=True: "
+        f"max LHS-RHS={float(jnp.max(soc_lhs - soc_rhs))}"
+    )
