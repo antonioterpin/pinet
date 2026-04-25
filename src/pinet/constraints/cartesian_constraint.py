@@ -2,6 +2,7 @@
 
 import equinox as eqx
 import jax.numpy as jnp
+import numpy as np
 
 from pinet._typing import BatchedScalar
 from pinet.dataclasses import ProjectionInstance
@@ -107,23 +108,29 @@ class CartesianConstraint(Constraint):
                     f"Expected {dim}, got {constraint.dim}."
                 )
 
-        # Create a mask to track which dimensions are already used
-        used_mask = jnp.zeros(dim, dtype=bool)
+        # Track which dimensions are already used. Masks depend only on
+        # static shape information, so use ``numpy`` for the bookkeeping —
+        # ``jnp.any`` would return a tracer when ``CartesianConstraint`` is
+        # rebuilt inside the jitted ``solver.admm.initialize`` re-lift
+        # (``var_a_dyn=True`` path) and the ``if`` below would fail.
+        used_mask = np.zeros(dim, dtype=bool)
 
         for constraint in constraints:
             if isinstance(constraint, BoxConstraint):
                 # BoxConstraint.__init__ ensures mask is set.
                 assert constraint.mask is not None
-                new_mask = jnp.asarray(constraint.mask)
+                new_mask = np.asarray(constraint.mask)
             else:
                 # Narrow to SocConstraint so mask_u/mask_t are visible.
                 assert isinstance(constraint, SocConstraint)
-                new_mask = jnp.logical_or(constraint.mask_u, constraint.mask_t)
-            if jnp.any(jnp.logical_and(used_mask, new_mask)):
+                new_mask = np.logical_or(
+                    np.asarray(constraint.mask_u), np.asarray(constraint.mask_t)
+                )
+            if bool(np.any(np.logical_and(used_mask, new_mask))):
                 raise ValueError(
                     "Constraint masks overlap with previously defined constraints."
                 )
-            used_mask = jnp.logical_or(used_mask, new_mask)
+            used_mask = np.logical_or(used_mask, new_mask)
 
         return dim
 
