@@ -123,9 +123,11 @@ class BoxConstraint(Constraint):
             The projected point for each point in the batch.
         """
         lb, ub, mask = self.get_params(yraw)
-        return yraw.update(
-            x=yraw.x.at[:, mask, :].set(jnp.clip(yraw.x[:, mask, :], lb, ub))
-        )
+        # ``yraw.x`` is annotated ``ArrayLike`` (jax.Array | np.ndarray) at the
+        # public API boundary; ``.at`` is a JAX-only construct, so coerce
+        # before slicing.
+        x = jnp.asarray(yraw.x)
+        return yraw.update(x=x.at[:, mask, :].set(jnp.clip(x[:, mask, :], lb, ub)))
 
     def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
