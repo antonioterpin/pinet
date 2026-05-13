@@ -403,7 +403,7 @@ class NonLinearSpecification(eqx.Module):
                 a=self.a,
                 b=self.b,
             )
-        raise NotImplementedError(
+        raise NotImplementedError(  # pragma: no cover -- defended by _validate_type
             f"Conversion to primitive spec not implemented for nl_type {self.nl_type}"
         )
 

@@ -355,7 +355,7 @@ class ConstraintParser:
                 )
                 all_matrices.append(f_row)
                 dims[-1] += 1
-            else:
+            else:  # pragma: no cover -- defended by NonLinearSpecification._validate_type
                 raise ValueError(
                     f"Unsupported non-linear constraint type: {type(non_linear.nl_type)}"
                 )
@@ -481,7 +481,7 @@ class ConstraintParser:
                 )
                 prim_constraints.append(SocConstraint(socspec=socspec))
                 n_curr += nl.A.shape[1] + 1
-            else:
+            else:  # pragma: no cover -- defended by NonLinearSpecification._validate_type
                 raise ValueError(
                     f"Unsupported non-linear constraint type: {type(nl.nl_type)}"
                 )
