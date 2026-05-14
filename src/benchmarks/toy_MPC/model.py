@@ -15,7 +15,7 @@ from src.benchmarks.model import build_model_and_train_step, setup_pinet
 def setup_model(
     rng_key: jax.Array,
     hyperparameters: dict[str, Any],
-    a_dyn: jnp.ndarray,
+    a: jnp.ndarray,
     x_data: jnp.ndarray,
     b: jnp.ndarray,
     lb: jnp.ndarray,
@@ -31,7 +31,7 @@ def setup_model(
     Args:
         rng_key: Random key for initialization.
         hyperparameters: Hyperparameters for the model.
-        a_dyn: Coefficient matrix for the equality constraint.
+        a: Coefficient matrix for the equality constraint.
         x_data: Input data for the model.
         b: Right-hand side vector for the equality constraint.
         lb: Lower bounds for the box constraint.
@@ -52,7 +52,7 @@ def setup_model(
         raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
     # Constraints + projection layer
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=None, var_b=True)
+    eq_constraint = EqualityConstraint(a=a, b=b, method=None, var_b=True)
     box_constraint = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
     project, project_test, _ = setup_pinet(
         eq_constraint=eq_constraint,
@@ -63,7 +63,7 @@ def setup_model(
     # Reuse the shared builder; adapt the loss to ignore b
     model, params, train_step = build_model_and_train_step(
         rng_key=rng_key,
-        dim=a_dyn.shape[2],
+        dim=a.shape[2],
         features_list=hyperparameters["features_list"],
         activation=activation,
         project=project,

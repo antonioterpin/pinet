@@ -24,7 +24,7 @@ class ToyMPCDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         self.x0sets = data["x0sets"]
         # Constant problem ingredients
         self.const = (
-            const["a_dyn"],
+            const["a"],
             const["lbxs"],
             const["ubxs"],
             const["lbus"],
@@ -274,7 +274,7 @@ def load_data(
             rng_key=loader_keys[2],
         )
 
-    a_dyn, lbxs, ubxs, lbus, ubus, xhat, alpha_raw, horizon_raw, base_dim_raw = (
+    a, lbxs, ubxs, lbus, ubus, xhat, alpha_raw, horizon_raw, base_dim_raw = (
         toy_dataset.const
     )
     # Scalar metadata was stored as 0-d arrays; unwrap to Python scalars.
@@ -300,7 +300,7 @@ def load_data(
     batched_objective = jax.vmap(quadratic_form, in_axes=[0])
 
     return (
-        a_dyn,
+        a,
         lbxs,
         ubxs,
         lbus,

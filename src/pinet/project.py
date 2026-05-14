@@ -123,24 +123,24 @@ class Project:
                 assert self.lifted_box_constraint is not None
                 # Setup always stores equilibration parameters before this branch runs.
                 assert self.equilibration_params is not None
-                # Only equilibrate when we have a single a_dyn.
+                # Only equilibrate when we have a single a.
                 if (
-                    not self.lifted_eq_constraint.var_a_dyn
-                    and self.lifted_eq_constraint.a_dyn.shape[0] == 1
+                    not self.lifted_eq_constraint.var_a
+                    and self.lifted_eq_constraint.a.shape[0] == 1
                 ):
-                    scaled_a_dyn, self.d_r, self.d_c = ruiz_equilibration(
-                        self.lifted_eq_constraint.a_dyn[0], self.equilibration_params
+                    scaled_a, self.d_r, self.d_c = ruiz_equilibration(
+                        self.lifted_eq_constraint.a[0], self.equilibration_params
                     )
-                    # Update a_dyn in lifted equality and setup projection
-                    self.lifted_eq_constraint.a_dyn = scaled_a_dyn.reshape(
+                    # Update a in lifted equality and setup projection
+                    self.lifted_eq_constraint.a = scaled_a.reshape(
                         1,
-                        self.lifted_eq_constraint.a_dyn.shape[1],
-                        self.lifted_eq_constraint.a_dyn.shape[2],
+                        self.lifted_eq_constraint.a.shape[1],
+                        self.lifted_eq_constraint.a.shape[2],
                     )
                     self.d_r = self.d_r.reshape(1, -1, 1)
                     self.d_c = self.d_c.reshape(1, -1, 1)
                 else:
-                    # No equilibration for variable a_dyn
+                    # No equilibration for variable a
                     n_ineq = (
                         self.ineq_constraint.n_constraints
                         if self.ineq_constraint is not None
@@ -208,7 +208,7 @@ class Project:
                 assert self.lifted_eq_constraint is not None
                 assert self.lifted_box_constraint is not None
                 # Impose no rescaling
-                self.d_r = jnp.ones((1, self.lifted_eq_constraint.a_dyn.shape[1], 1))
+                self.d_r = jnp.ones((1, self.lifted_eq_constraint.a.shape[1], 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
                 self.step_iteration, self.step_final = build_iteration_step(
@@ -375,9 +375,9 @@ class Project:
         Returns:
             ProjectionInstance: The projected point for each point in the batch.
         """
-        if yraw.eq and yraw.eq.a_dyn is not None:
-            a_dyn_pinv = jnp.linalg.pinv(yraw.eq.a_dyn)
-            yraw = yraw.update(eq=yraw.eq.update(a_dyn_pinv=a_dyn_pinv))
+        if yraw.eq and yraw.eq.a is not None:
+            a_pinv = jnp.linalg.pinv(yraw.eq.a)
+            yraw = yraw.update(eq=yraw.eq.update(a_pinv=a_pinv))
 
         return self.single_constraint.project(yraw)
 

@@ -73,11 +73,11 @@ class ConstraintParser:
 
         if eq_constraint is None:
             eq_constraint = EqualityConstraint(
-                a_dyn=jnp.empty((1, 0, self.dim)),
+                a=jnp.empty((1, 0, self.dim)),
                 b=jnp.empty((1, 0, 1)),
                 method=None,
                 var_b=False,
-                var_a_dyn=False,
+                var_a=False,
             )
 
         self.eq_constraint = eq_constraint
@@ -89,11 +89,10 @@ class ConstraintParser:
             # Batch consistency checks
             # Equality and inequality matrices must have compatible batch dimensions.
             assert (
-                self.eq_constraint.a_dyn.shape[0]
-                == ineq_constraint.constr_matrix.shape[0]
-                or self.eq_constraint.a_dyn.shape[0] == 1
+                self.eq_constraint.a.shape[0] == ineq_constraint.constr_matrix.shape[0]
+                or self.eq_constraint.a.shape[0] == 1
                 or ineq_constraint.constr_matrix.shape[0] == 1
-            ), "Batch sizes of a_dyn and constr_matrix must be consistent."
+            ), "Batch sizes of a and constr_matrix must be consistent."
             if box_constraint is not None:
                 # An explicit box constraint must provide its lower bounds.
                 assert box_constraint.lb is not None
@@ -163,20 +162,18 @@ class ConstraintParser:
         # Precondition: eq_constraint is set by __init__ for non-identity mode.
         assert eq_constraint is not None
 
-        # Build lifted a_dyn matrix.
-        # Maximum batch size between a_dyn and constr_matrix.
-        mb_ac = max(eq_constraint.a_dyn.shape[0], ineq_constraint.constr_matrix.shape[0])
+        # Build lifted a matrix.
+        # Maximum batch size between a and constr_matrix.
+        mb_ac = max(eq_constraint.a.shape[0], ineq_constraint.constr_matrix.shape[0])
         first_row_batched = jnp.tile(
             jnp.concatenate(
                 [
-                    eq_constraint.a_dyn,
-                    jnp.zeros(
-                        shape=(eq_constraint.a_dyn.shape[0], self.n_eq, self.n_ineq)
-                    ),
+                    eq_constraint.a,
+                    jnp.zeros(shape=(eq_constraint.a.shape[0], self.n_eq, self.n_ineq)),
                 ],
                 axis=2,
             ),
-            (mb_ac // eq_constraint.a_dyn.shape[0], 1, 1),
+            (mb_ac // eq_constraint.a.shape[0], 1, 1),
         )
         second_row_batched = jnp.tile(
             jnp.concatenate(
@@ -191,7 +188,7 @@ class ConstraintParser:
             ),
             (mb_ac // ineq_constraint.constr_matrix.shape[0], 1, 1),
         )
-        a_dyn_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
+        a_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
         b_lifted = jnp.concatenate(
             [
                 eq_constraint.b,
@@ -200,11 +197,11 @@ class ConstraintParser:
             axis=1,
         )
         eq_lifted = EqualityConstraint(
-            a_dyn=a_dyn_lifted,
+            a=a_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
-            var_a_dyn=eq_constraint.var_a_dyn,
+            var_a=eq_constraint.var_a,
         )
 
         if self.box_constraint is None:
@@ -325,7 +322,7 @@ class ConstraintParser:
         # Precondition: eq_constraint is set by __init__ for non-identity mode.
         assert eq_constraint is not None
 
-        all_matrices: list[jnp.ndarray] = [eq_constraint.a_dyn]
+        all_matrices: list[jnp.ndarray] = [eq_constraint.a]
         dims: list[int] = [eq_constraint.dim]
         if self.ineq_constraint is not None:
             all_matrices.append(self.ineq_constraint.constr_matrix)
@@ -360,12 +357,12 @@ class ConstraintParser:
         )
         # Define lifted equality constraints
         eq_lifted = EqualityConstraint(
-            a_dyn=a_lifted,
+            a=a_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
-            # For now variable a_dyn is not supported on the non-linear path.
-            var_a_dyn=False,
+            # For now variable a is not supported on the non-linear path.
+            var_a=False,
         )
         # Setup primitive constraints -> Box, SOC, ...
         prim_constraints: list[SocConstraint] = []

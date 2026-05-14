@@ -29,16 +29,16 @@ class EqualityConstraintsSpecification:
     Attributes:
         b (Optional[jnp.ndarray]): Vector representing the RHS of the equality constraint.
             Shape (batch_size, n_constraints, 1)
-        a_dyn (Optional[jnp.ndarray]): Matrix representing the LHS of the equality
+        a (Optional[jnp.ndarray]): Matrix representing the LHS of the equality
             constraint.
             Shape (batch_size, n_constraints, dimension).
-        a_dyn_pinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix a_dyn.
+        a_pinv (Optional[jnp.ndarray]): The pseudoinverse of the matrix a.
             Shape (batch_size, dimension, n_constraints).
     """
 
     b: jnp.ndarray | None = None
-    a_dyn: jnp.ndarray | None = None
-    a_dyn_pinv: jnp.ndarray | None = None
+    a: jnp.ndarray | None = None
+    a_pinv: jnp.ndarray | None = None
 
     def validate(self) -> None:
         """Validate the equality constraints specification.
@@ -47,10 +47,10 @@ class EqualityConstraintsSpecification:
         can be used to validate the inputs before tracing.
 
         Raises:
-            ValueError: If a_dyn is provided but b is not.
+            ValueError: If a is provided but b is not.
         """
-        if self.a_dyn is not None and self.b is None:
-            raise ValueError("If a_dyn is provided, b must also be provided.")
+        if self.a is not None and self.b is None:
+            raise ValueError("If a is provided, b must also be provided.")
 
     def update(self, **kwargs: object) -> "EqualityConstraintsSpecification":
         """Update some attribute by keyword.
@@ -483,7 +483,7 @@ class EquilibrationParams:
             Available options are:
                 - "Jacobi" means compute both row and column norms and update.
                 - "Gauss" means compute row, update, compute column, update.
-        safeguard (bool): Check if the condition number of a_dyn has decreased.
+        safeguard (bool): Check if the condition number of a has decreased.
     """
 
     max_iter: int = EQUILIBRATION_DEFAULT_MAX_ITER

@@ -36,7 +36,7 @@ a_x = jnp.diag(jnp.ones(horizon + 1)) - jnp.diag(jnp.ones(horizon), k=-1)
 a_x = jnp.kron(a_x, jnp.eye(base_dim))
 a_u = jnp.diag(jnp.ones(horizon), k=-1)[:, :-1]
 a_u = jnp.kron(a_u, jnp.eye(base_dim))
-a_dyn = jnp.concatenate((a_x, a_u), axis=1)
+a = jnp.concatenate((a_x, a_u), axis=1)
 # Setup Inequality constraints
 # -boundx <= x <= boundx
 # -boundu <= u <= boundu
@@ -50,7 +50,7 @@ ubu = boundu * jnp.ones((dimu, 1))
 z = cp.Variable(dimx + dimu)
 xinit = cp.Parameter(base_dim)
 constraints = [
-    a_dyn @ z == cp.hstack([xinit, jnp.zeros(dimx - base_dim)]),
+    a @ z == cp.hstack([xinit, jnp.zeros(dimx - base_dim)]),
     z[:dimx] >= lbx,
     z[:dimx] <= ubx,
     z[dimx:] >= lbu,
@@ -82,7 +82,7 @@ for idx in tqdm(range(NUM_EXAMPLES)):
     objectives = objectives.at[idx].set(problem.value)
     y_star = y_star.at[idx, :].set(jnp.array(z.value))
 # Generate matrices with appropriate shape
-a_dyn = a_dyn.reshape((1, a_dyn.shape[0], a_dyn.shape[1]))
+a = a.reshape((1, a.shape[0], a.shape[1]))
 lbxs = lbx.reshape(1, -1, 1)
 ubxs = ubx.reshape(1, -1, 1)
 lbus = lbu.reshape(1, -1, 1)
@@ -95,7 +95,7 @@ if save_results:
     path = datasets_path / filename
     jnp.savez(
         path,
-        a_dyn=a_dyn,
+        a=a,
         lbxs=lbxs,
         ubxs=ubxs,
         lbus=lbus,

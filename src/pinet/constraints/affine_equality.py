@@ -11,24 +11,24 @@ class EqualityConstraint(Constraint):
     """Equality constraint set.
 
     The (affine) equality constraint set is defined as:
-    a_dyn @ x == b
-    where the matrix a_dyn and the vector b are the parameters.
+    a @ x == b
+    where the matrix a and the vector b are the parameters.
     It might be worth to consider masking, so that the
     constraint acts only on a subset of dimensions.
     """
 
     def __init__(
         self,
-        a_dyn: jnp.ndarray,
+        a: jnp.ndarray,
         b: jnp.ndarray,
         method: str | None = "pinv",
         var_b: bool | None = False,
-        var_a_dyn: bool | None = False,
+        var_a: bool | None = False,
     ) -> None:
         """Initialize the equality constraint.
 
         Args:
-            a_dyn: Left hand side matrix.
+            a: Left hand side matrix.
                 Shape (batch_size, n_constraints, dimension).
             b: Right hand side vector.
                 Shape (batch_size, n_constraints, 1).
@@ -36,19 +36,19 @@ class EqualityConstraint(Constraint):
                 linear systems. Valid methods are "pinv", and None.
             var_b: Boolean that indicates whether the b vector
                 changes or is constant.
-            var_a_dyn: Boolean that indicates whether the a_dyn matrix
+            var_a: Boolean that indicates whether the a matrix
                 changes or is constant.
         """
         # The equality constraint always needs its left-hand side matrix.
-        assert a_dyn is not None, "Matrix a_dyn must be provided."
+        assert a is not None, "Matrix a must be provided."
         # The equality constraint always needs its right-hand side vector.
         assert b is not None, "Vector b must be provided."
 
-        self.a_dyn = a_dyn
+        self.a = a
         self.b = b
         self.method = method
         self.var_b = var_b
-        self.var_a_dyn = var_a_dyn
+        self.var_a = var_a
 
         self.EXPECTED_NDIM = 3
         self.LAST_AXIS_SIZE_B = 1
@@ -63,10 +63,10 @@ class EqualityConstraint(Constraint):
         """
 
         # The equality matrix is batched as (batch_size, n_constraints, dimension).
-        assert self.a_dyn.ndim == self.EXPECTED_NDIM, (
-            "a_dyn is a matrix with shape (batch_size, n_constraints, dimension)."
+        assert self.a.ndim == self.EXPECTED_NDIM, (
+            "a is a matrix with shape (batch_size, n_constraints, dimension)."
         )
-        # The right-hand side is batched with the same rank as a_dyn.
+        # The right-hand side is batched with the same rank as a.
         assert self.b.ndim == self.EXPECTED_NDIM, (
             "b is a matrix with shape (batch_size, n_constraints, 1)."
         )
@@ -77,24 +77,24 @@ class EqualityConstraint(Constraint):
 
         # Check if batch sizes are consistent.
         # They should either be the same, or one of them should be 1.
-        # a_dyn and b must be batch-compatible, allowing singleton broadcasting.
+        # a and b must be batch-compatible, allowing singleton broadcasting.
         assert (
-            self.a_dyn.shape[0] == self.b.shape[0]
-            or self.a_dyn.shape[0] == 1
+            self.a.shape[0] == self.b.shape[0]
+            or self.a.shape[0] == 1
             or self.b.shape[0] == 1
-        ), f"Batch sizes are inconsistent: a_dyn{self.a_dyn.shape}, b{self.b.shape}"
+        ), f"Batch sizes are inconsistent: a{self.a.shape}, b{self.b.shape}"
 
-        # Each equality row in a_dyn needs one matching entry in b.
-        assert self.a_dyn.shape[1] == self.b.shape[1], (
-            "Number of rows in a_dyn must equal size of b."
+        # Each equality row in a needs one matching entry in b.
+        assert self.a.shape[1] == self.b.shape[1], (
+            "Number of rows in a must equal size of b."
         )
 
         # List of valid methods
         valid_methods = ["pinv", None]
 
         if self.method == "pinv":
-            if not self.var_a_dyn:
-                self.a_dyn_pinv = jnp.linalg.pinv(self.a_dyn)
+            if not self.var_a:
+                self.a_pinv = jnp.linalg.pinv(self.a)
 
             self.project = self.project_pinv
         elif self.method is None:
@@ -128,10 +128,10 @@ class EqualityConstraint(Constraint):
                     Shape (batch_size, n_constraints, dimension).
         """
         b = inp.eq.b if inp.eq and inp.eq.b is not None else self.b
-        a_dyn = inp.eq.a_dyn if inp.eq and self.var_a_dyn else self.a_dyn
-        a_dyn_pinv = inp.eq.a_dyn_pinv if inp.eq and self.var_a_dyn else self.a_dyn_pinv
+        a = inp.eq.a if inp.eq and self.var_a else self.a
+        a_pinv = inp.eq.a_pinv if inp.eq and self.var_a else self.a_pinv
 
-        return b, a_dyn, a_dyn_pinv
+        return b, a, a_pinv
 
     def project_pinv(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project onto equality constraints using pseudo-inverse.
@@ -143,26 +143,26 @@ class EqualityConstraint(Constraint):
         Returns:
             ProjectionInstance: The projected point for each point in the batch.
         """
-        b, a_dyn, a_dyn_pinv = self.get_params(yraw)
-        # a_dyn must be available to apply the projection.
-        assert a_dyn is not None, (
-            "a_dyn must be provided in EqualityConstraintsSpecification "
-            "when var_a_dyn=True and a_dyn_pinv is not supplied."
+        b, a, a_pinv = self.get_params(yraw)
+        # a must be available to apply the projection.
+        assert a is not None, (
+            "a must be provided in EqualityConstraintsSpecification "
+            "when var_a=True and a_pinv is not supplied."
         )
-        if a_dyn_pinv is None:
-            a_dyn_pinv = jnp.linalg.pinv(a_dyn)
+        if a_pinv is None:
+            a_pinv = jnp.linalg.pinv(a)
 
-        return yraw.update(x=yraw.x - a_dyn_pinv @ (a_dyn @ yraw.x - b))
+        return yraw.update(x=yraw.x - a_pinv @ (a @ yraw.x - b))
 
     @property
     def dim(self) -> int:
         """Return the dimension of the constraint set."""
-        return self.a_dyn.shape[-1]
+        return self.a.shape[-1]
 
     @property
     def n_constraints(self) -> int:
         """Return the number of constraints."""
-        return self.a_dyn.shape[1]
+        return self.a.shape[1]
 
     def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
@@ -174,8 +174,8 @@ class EqualityConstraint(Constraint):
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape    (batch_size, 1, 1).
         """
-        b, a_dyn, _ = self.get_params(yraw)
-        # a_dyn must be available to compute the violation.
-        assert a_dyn is not None
+        b, a, _ = self.get_params(yraw)
+        # a must be available to compute the violation.
+        assert a is not None
 
-        return jnp.linalg.norm(a_dyn @ yraw.x - b, ord=jnp.inf, axis=1, keepdims=True)
+        return jnp.linalg.norm(a @ yraw.x - b, ord=jnp.inf, axis=1, keepdims=True)

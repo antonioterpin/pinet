@@ -42,14 +42,12 @@ def initialize(
     # Preprocess
     eq_spec = yraw.eq
     if eq_spec is not None:
-        if eq_spec.a_dyn is not None:
+        if eq_spec.a is not None:
             # Lift the equality constraint
             # The dynamic equality matrix is only valid together with its offset term.
             assert eq_spec.b is not None
             parser = ConstraintParser(
-                eq_constraint=EqualityConstraint(
-                    a_dyn=eq_spec.a_dyn, b=eq_spec.b, method="pinv"
-                ),
+                eq_constraint=EqualityConstraint(a=eq_spec.a, b=eq_spec.b, method="pinv"),
                 ineq_constraint=ineq_constraint,
                 box_constraint=box_constraint,
             )
@@ -57,8 +55,8 @@ def initialize(
             # Parsing must return the lifted equality constraint in this branch.
             assert lifted_eq_constraint is not None
             eq_spec = eq_spec.update(
-                a_dyn=lifted_eq_constraint.a_dyn,
-                a_dyn_pinv=lifted_eq_constraint.a_dyn_pinv,
+                a=lifted_eq_constraint.a,
+                a_pinv=lifted_eq_constraint.a_pinv,
             )
             yraw = yraw.update(eq=eq_spec)
 

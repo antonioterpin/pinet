@@ -97,7 +97,7 @@ def test_general_eq_ineq(seed, batch_size):
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=5)
     # Generate equality constraints LHS
-    a_dyn = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    a = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
     constr_matrix = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Randomly generate mask for box constraints
@@ -122,7 +122,7 @@ def test_general_eq_ineq(seed, batch_size):
     ]
     for ii in range(batch_size):
         constraints += [
-            a_dyn[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
+            a[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
             == bfeas[ii * n_eq : (ii + 1) * n_eq],
             lfeas <= constr_matrix[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
             constr_matrix[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
@@ -142,7 +142,7 @@ def test_general_eq_ineq(seed, batch_size):
     ubox = jnp.tile(jnp.array(uboxfeas.value).reshape((1, n_box, 1)), (1, 1, 1))
     # Define projection layer ingredients
     for var_b in [False, True]:
-        eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method, var_b=var_b)
+        eq_constraint = EqualityConstraint(a=a, b=b, method=method, var_b=var_b)
         ineq_constraint = AffineInequalityConstraint(
             constr_matrix=constr_matrix, lb=lb, ub=ub
         )
@@ -198,7 +198,7 @@ def test_general_eq_ineq(seed, batch_size):
             constraints = cast(
                 list[CvxpyConstraint],
                 [
-                    a_dyn[0, :, :] @ yproj == b[ii, :, 0],
+                    a[0, :, :] @ yproj == b[ii, :, 0],
                     lb[0, :, 0] <= constr_matrix[0, :, :] @ yproj,
                     constr_matrix[0, :, :] @ yproj <= ub[0, :, 0],
                     lbox[0, :, 0] <= yproj[mask],
@@ -316,7 +316,7 @@ def test_general_eq_ineq(seed, batch_size):
 @pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
 def test_row_scaling_balances_rows(update_mode):
     max_balanced_row_ratio = 1.16
-    a_dyn = jnp.array(
+    a = jnp.array(
         [
             [100.0, 0.0, 0.0],
             [0.1, 1.0, 0.0],
@@ -337,8 +337,8 @@ def test_row_scaling_balances_rows(update_mode):
         rn = jnp.linalg.norm(matrix, axis=1, ord=ord_val)
         return (rn.max() / rn.min()).item()
 
-    ratio_before = _row_ratio(a_dyn, 2.0)
-    scaled, d_r, d_c = ruiz_equilibration(a_dyn, params)
+    ratio_before = _row_ratio(a, 2.0)
+    scaled, d_r, d_c = ruiz_equilibration(a, params)
     ratio_after = _row_ratio(scaled, 2.0)
 
     assert ratio_after < ratio_before, (
@@ -349,10 +349,10 @@ def test_row_scaling_balances_rows(update_mode):
         "Ruiz equilibration should keep the balanced row ratio below the target "
         f"threshold. Expected < {max_balanced_row_ratio}, got {ratio_after}."
     )
-    # scaled = diag(d_r) a_dyn diag(d_c)
-    recon = (a_dyn * d_r[:, None]) * d_c[None, :]
+    # scaled = diag(d_r) a diag(d_c)
+    recon = (a * d_r[:, None]) * d_c[None, :]
     assert jnp.allclose(scaled, recon, atol=1e-12), (
-        "Scaled matrix should equal diag(d_r) @ a_dyn @ diag(d_c). "
+        "Scaled matrix should equal diag(d_r) @ a @ diag(d_c). "
         f"Expected {recon}, got {scaled}."
     )
 
@@ -360,7 +360,7 @@ def test_row_scaling_balances_rows(update_mode):
 @pytest.mark.parametrize("update_mode", ["Gauss", "Jacobi"])
 @pytest.mark.parametrize("col_scaling", [False, True])
 def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
-    a_dyn = jnp.array([[1.0, 2.0, -1.0], [0.0, -4.0, 5.0]])
+    a = jnp.array([[1.0, 2.0, -1.0], [0.0, -4.0, 5.0]])
     # Force exactly one step in two different ways
     p_one = EquilibrationParams(
         max_iter=1,
@@ -378,8 +378,8 @@ def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
         update_mode=update_mode,
         safeguard=False,
     )
-    s1, dr1, dc1 = ruiz_equilibration(a_dyn, p_one)
-    s2, dr2, dc2 = ruiz_equilibration(a_dyn, p_tol)
+    s1, dr1, dc1 = ruiz_equilibration(a, p_one)
+    s2, dr2, dc2 = ruiz_equilibration(a, p_tol)
 
     assert jnp.allclose(s1, s2, atol=1e-12, rtol=0.0), (
         "One-step equilibration via max_iter should match the high-tolerance path. "
@@ -397,7 +397,7 @@ def test_one_step_via_max_iter_equals_high_tol(update_mode, col_scaling):
 
 def test_safeguard_when_condition_worsens_triggers_identity_scalings():
     # This matrix yields a worse condition number after one step
-    a_dyn = jnp.array(
+    a = jnp.array(
         [
             [-1.47236611, -0.33950648, -0.81108737],
             [0.93786103, 0.49052747, 1.40301434],
@@ -420,8 +420,8 @@ def test_safeguard_when_condition_worsens_triggers_identity_scalings():
         safeguard=True,
     )
 
-    cond_before = jnp.linalg.cond(a_dyn).item()
-    s_no, _dr_no, _dc_no = ruiz_equilibration(a_dyn, p1)
+    cond_before = jnp.linalg.cond(a).item()
+    s_no, _dr_no, _dc_no = ruiz_equilibration(a, p1)
     cond_after_no = jnp.linalg.cond(s_no).item()
 
     # Sanity: this is the branch where safeguard should matter
@@ -430,7 +430,7 @@ def test_safeguard_when_condition_worsens_triggers_identity_scalings():
         f"safeguard. Expected cond_after_no > {cond_before}, got {cond_after_no}."
     )
 
-    s_yes, dr_yes, dc_yes = ruiz_equilibration(a_dyn, p2)
+    s_yes, dr_yes, dc_yes = ruiz_equilibration(a, p2)
     cond_after_yes = jnp.linalg.cond(s_yes).item()
 
     # Guard must not return something worse than original
@@ -439,11 +439,11 @@ def test_safeguard_when_condition_worsens_triggers_identity_scalings():
         f"number. Expected <= {cond_before + 1e-12}, got {cond_after_yes}."
     )
     # Guarded scalings should be identity
-    assert jnp.allclose(dr_yes, jnp.ones(a_dyn.shape[0])), (
+    assert jnp.allclose(dr_yes, jnp.ones(a.shape[0])), (
         "Safeguard should return identity row scalings when equilibration "
         f"worsens conditioning. Got {dr_yes}."
     )
-    assert jnp.allclose(dc_yes, jnp.ones(a_dyn.shape[1])), (
+    assert jnp.allclose(dc_yes, jnp.ones(a.shape[1])), (
         "Safeguard should return identity column scalings when equilibration "
         f"worsens conditioning. Got {dc_yes}."
     )

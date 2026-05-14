@@ -51,7 +51,7 @@ class LoadedData:
         filename: Dataset filename or filename prefix used to load the problem.
         q: Linear cost term of the quadratic program.
         p: Quadratic cost matrix of the quadratic program.
-        a_dyn: Equality-constraint matrix.
+        a: Equality-constraint matrix.
         constr_matrix: Inequality-constraint matrix.
         h: Constraint right-hand side tensor.
         x_dataset: Input dataset associated with the loaded problem instance.
@@ -63,7 +63,7 @@ class LoadedData:
     filename: str
     q: jnp.ndarray
     p: jnp.ndarray
-    a_dyn: jnp.ndarray
+    a: jnp.ndarray
     constr_matrix: jnp.ndarray
     h: jnp.ndarray
     x_dataset: jnp.ndarray
@@ -114,7 +114,7 @@ def load_data(
         train_loader, valid_loader, test_loader = create_dataloaders(
             dataset_path, batch_size=2048, val_split=0.1, test_split=0.1
         )
-        q, p, a_dyn, constr_matrix, h = qp_dataset.const
+        q, p, a, constr_matrix, h = qp_dataset.const
         p = p[0, :, :]
         x_dataset = qp_dataset.x_data
     else:
@@ -146,7 +146,7 @@ def load_data(
             DC3Dataset,
             cast(DataLoader[tuple[jnp.ndarray, jnp.ndarray]], train_loader).dataset,
         )
-        q, p, a_dyn, constr_matrix, h = dataset.const
+        q, p, a, constr_matrix, h = dataset.const
         p = p[0, :, :]
         x_dataset = dataset.x_data
 
@@ -154,7 +154,7 @@ def load_data(
         filename=filename,
         q=q,
         p=p,
-        a_dyn=a_dyn,
+        a=a,
         constr_matrix=constr_matrix,
         h=h,
         x_dataset=x_dataset,
@@ -178,7 +178,7 @@ data = load_data(
 filename = data.filename
 q = data.q
 p = data.p
-a_dyn = data.a_dyn
+a = data.a
 constr_matrix = data.constr_matrix
 h = data.h
 x_dataset = data.x_dataset
@@ -226,7 +226,7 @@ def build_evaluate_params(
 
 # %%
 # Setup the projection layer
-eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=x_batch, method=None, var_b=True)
+eq_constraint = EqualityConstraint(a=a, b=x_batch, method=None, var_b=True)
 ineq_constraint = AffineInequalityConstraint(
     constr_matrix=constr_matrix,
     ub=h,

@@ -23,7 +23,7 @@ class SimpleQPDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         # Parameter values for each instance
         self.x_data = data["x_data"]
         # Constant problem ingredients
-        self.const = (data["q_mat"], data["p"], data["a_dyn"], data["g_mat"], data["h"])
+        self.const = (data["q_mat"], data["p"], data["a"], data["g_mat"], data["h"])
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
         self.y_star = data["y_star"]
@@ -291,11 +291,11 @@ def non_dc3_dataset_setup(
     train_loader, valid_loader, test_loader = create_dataloaders(
         dataset_path, batch_size=batch_size, val_split=0.1, test_split=0.1
     )
-    q_mat, p, a_dyn, g_mat, h = qp_dataset.const
+    q_mat, p, a, g_mat, h = qp_dataset.const
     p = p[0, :, :]
     x_data = qp_dataset.x_data
 
-    return q_mat, p, a_dyn, g_mat, h, x_data, train_loader, valid_loader, test_loader
+    return q_mat, p, a, g_mat, h, x_data, train_loader, valid_loader, test_loader
 
 
 def dc3_dataset_setup(
@@ -389,11 +389,11 @@ def dc3_dataset_setup(
             rng_key=loader_keys[2],
         )
     dataset = cast(DC3Dataset, train_loader.dataset)
-    q_mat, p, a_dyn, g_mat, h = dataset.const
+    q_mat, p, a, g_mat, h = dataset.const
     p = p[0, :, :]
     x_data = dataset.x_data
 
-    return q_mat, p, a_dyn, g_mat, h, x_data, train_loader, valid_loader, test_loader
+    return q_mat, p, a, g_mat, h, x_data, train_loader, valid_loader, test_loader
 
 
 def load_data(
@@ -443,7 +443,7 @@ def load_data(
     else:
         setup = dc3_dataset_setup
 
-    q_mat, p, a_dyn, g_mat, h, x_data, train_loader, valid_loader, test_loader = setup(
+    q_mat, p, a, g_mat, h, x_data, train_loader, valid_loader, test_loader = setup(
         use_convex=use_convex,
         problem_seed=problem_seed,
         problem_var=problem_var,
@@ -490,8 +490,8 @@ def load_data(
     def penalty_form(predictions, x_data):
         eq_cv = jnp.max(
             jnp.abs(
-                a_dyn[0].reshape(1, a_dyn.shape[1], a_dyn.shape[2])
-                @ predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1)
+                a[0].reshape(1, a.shape[1], a.shape[2])
+                @ predictions.reshape(x_data.shape[0], a.shape[2], 1)
                 - x_data
             ),
             axis=1,
@@ -517,7 +517,7 @@ def load_data(
             return batched_objective(predictions)
 
     return (
-        a_dyn,
+        a,
         g_mat,
         h,
         x_data,

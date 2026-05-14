@@ -62,7 +62,7 @@ def test_clipped_sine(seed: int, c_value: float, lb: float, ub: float):
 
     The training objective is to fit the sine function with a MLP, but the
     hard constraint is that the predictions must satisfy the inequality
-    lb <= a_dyn sin(x) <= ub.
+    lb <= a sin(x) <= ub.
 
     Args:
         seed: Random seed for reproducibility.
@@ -122,7 +122,7 @@ def test_clipped_sine(seed: int, c_value: float, lb: float, ub: float):
         # Formulate the objective: minimize (z - y)^2.
         objective = cp.Minimize((z - _y) ** 2)
 
-        # Define the constraints: z must lie in [a_dyn*x + lb, a_dyn*x + ub].
+        # Define the constraints: z must lie in [a*x + lb, a*x + ub].
         constraints = [z >= c_value * _x + lb, z <= c_value * _x + ub]
 
         # Solve the problem.

@@ -431,7 +431,7 @@ def test_general_eq_ineq(seed, batch_size):
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=5)
     # Generate equality constraints LHS
-    a_dyn = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    a = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
     constr_matrix = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Compute RHS by solving feasibility problem
@@ -439,10 +439,10 @@ def test_general_eq_ineq(seed, batch_size):
     bfeas = cp.Variable(n_eq)
     lfeas = cp.Variable(n_ineq)
     ufeas = cp.Variable(n_ineq)
-    a_dyn_cvx = cp.Constant(np.asarray(a_dyn[0, :, :]))
+    a_cvx = cp.Constant(np.asarray(a[0, :, :]))
     constr_matrix_cvx = cp.Constant(np.asarray(constr_matrix[0, :, :]))
     feasibility_constraints: list[CvxpyConstraint] = [
-        a_dyn_cvx @ xfeas == bfeas,
+        a_cvx @ xfeas == bfeas,
         lfeas <= constr_matrix_cvx @ xfeas,
         constr_matrix_cvx @ xfeas <= ufeas,
         -1 <= xfeas,
@@ -457,7 +457,7 @@ def test_general_eq_ineq(seed, batch_size):
     ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
 
     # Define projection layer ingredients
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
+    eq_constraint = EqualityConstraint(a=a, b=b, method=method)
     ineq_constraint = AffineInequalityConstraint(
         constr_matrix=constr_matrix, lb=lb, ub=ub
     )
@@ -486,7 +486,7 @@ def test_general_eq_ineq(seed, batch_size):
         qp_constraints = cast(
             list[CvxpyConstraint],
             [
-                a_dyn_cvx @ yproj == np.asarray(b[0, :, 0]),
+                a_cvx @ yproj == np.asarray(b[0, :, 0]),
                 np.asarray(lb[0, :, 0]) <= constr_matrix_cvx @ yproj,
                 constr_matrix_cvx @ yproj <= np.asarray(ub[0, :, 0]),
             ],
@@ -558,7 +558,7 @@ def test_box_eq_ineq_soc(seed, batch_size):
     key, subkey = jrnd.split(key)
     A = jrnd.uniform(subkey, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] * dim, dtype=jnp.bool_)

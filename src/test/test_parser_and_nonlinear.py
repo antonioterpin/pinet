@@ -45,7 +45,7 @@ def test_simple_problem(seed, batch_size):
     # Equality constraint
     A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] + [False] * (dim - 1), dtype=jnp.bool_)
@@ -164,7 +164,7 @@ def test_simple_problem(seed, batch_size):
     )
 
     # Assertions
-    assert jnp.allclose(eq_lifted.a_dyn, A_lifted_correct), (
+    assert jnp.allclose(eq_lifted.a, A_lifted_correct), (
         """Lifted A matrix is incorrect."""
     )
     assert jnp.allclose(eq_lifted.b, b_lifted_correct), """
@@ -256,7 +256,7 @@ def test_simple_problem(seed, batch_size):
         Projected points do not match CVXPY solution.
     """
     assert jnp.allclose(
-        yk.x[:, dim:, :], eq_lifted.a_dyn[0, n_A:, :dim] @ y_opt, atol=1e-5, rtol=1e-5
+        yk.x[:, dim:, :], eq_lifted.a[0, n_A:, :dim] @ y_opt, atol=1e-5, rtol=1e-5
     ), """
         Auxiliary variables do not match CVXPY solution.
     """
@@ -298,7 +298,7 @@ def test_simple_problem(seed, batch_size):
     """
     assert jnp.allclose(
         yk_new.x[:, dim:, :],
-        eq_lifted.a_dyn[0, n_A:, :dim] @ y_opt_new,
+        eq_lifted.a[0, n_A:, :dim] @ y_opt_new,
         atol=1e-5,
         rtol=1e-5,
     ), """
@@ -317,7 +317,7 @@ def test_parse_non_linear_with_no_box_constraint():
     A = jrnd.uniform(ka, shape=(1, n_eq, dim), minval=-1, maxval=1)
     x_ref = jrnd.uniform(ks, shape=(1, dim, 1), minval=-1, maxval=1)
     b = A @ x_ref
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
 
     C = jrnd.uniform(kc, shape=(1, n_ineq, dim), minval=-1, maxval=1)
     Cx = C @ x_ref
@@ -363,7 +363,7 @@ def test_parse_non_linear_l2_norm_type_raises_not_implemented():
     lb = jnp.array([[[-1.0]]])
     ub = jnp.array([[[1.0]]])
 
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
     ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     nl_spec = NonLinearSpecification(
@@ -394,7 +394,7 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
     lb = jnp.array([[[-1.0]]])
     ub = jnp.array([[[1.0]]])
 
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
     ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     nl_spec = NonLinearSpecification(
@@ -422,7 +422,7 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
 def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
     """Test parser raises when inequality C batch size is not 1 in nonlinear mode."""
     eq_constraint = EqualityConstraint(
-        a_dyn=jnp.array([[[1.0, 0.0, 0.0]]]),
+        a=jnp.array([[[1.0, 0.0, 0.0]]]),
         b=jnp.array([[[0.0]]]),
         var_b=False,
     )
