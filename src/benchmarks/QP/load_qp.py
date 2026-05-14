@@ -2,11 +2,29 @@
 
 import os
 from collections.abc import Callable, Iterator
-from typing import cast
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
+
+
+# TEMP: pre-PR-#96 SimpleQP datasets shipped with mixed key names — earlier
+# revisions wrote `a_dyn` for the equality matrix, even-earlier ones wrote
+# uppercase `A`/`Q`/`G`/`X`/`Ystar`. PR #96 standardised on lowercase
+# (`a`/`q_mat`/`g_mat`/`x_data`/`y_star`). Accept all three so the in-repo
+# datasets keep working without a regenerate step. Track removal in
+# https://github.com/antonioterpin/pinet/issues/112.
+def _pick(data: Any, *keys: str) -> jnp.ndarray:
+    """Return ``data[k]`` for the first ``k`` in ``keys`` that exists.
+
+    ``data`` is typed as ``Any`` because callers pass either a plain dict or a
+    ``numpy.lib.npyio.NpzFile``; both support ``in`` and indexing.
+    """
+    for k in keys:
+        if k in data:
+            return data[k]
+    raise KeyError(f"None of {keys} present in dataset (have: {sorted(data)})")
 
 
 # Load Instance Dataset
@@ -21,12 +39,18 @@ class SimpleQPDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         """
         data = jnp.load(filepath)
         # Parameter values for each instance
-        self.x_data = data["x_data"]
+        self.x_data = _pick(data, "x_data", "X")
         # Constant problem ingredients
-        self.const = (data["q_mat"], data["p"], data["a_dyn"], data["g_mat"], data["h"])
+        self.const = (
+            _pick(data, "q_mat", "Q"),
+            data["p"],
+            _pick(data, "a", "a_dyn", "A"),
+            _pick(data, "g_mat", "G"),
+            data["h"],
+        )
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.y_star = data["y_star"]
+        self.y_star = _pick(data, "y_star", "Ystar")
 
     def __len__(self) -> int:
         """Length of dataset.
@@ -291,11 +315,11 @@ def non_dc3_dataset_setup(
     train_loader, valid_loader, test_loader = create_dataloaders(
         dataset_path, batch_size=batch_size, val_split=0.1, test_split=0.1
     )
-    q_mat, p, a_dyn, g_mat, h = qp_dataset.const
+    q_mat, p, a, g_mat, h = qp_dataset.const
     p = p[0, :, :]
     x_data = qp_dataset.x_data
 
-    return q_mat, p, a_dyn, g_mat, h, x_data, train_loader, valid_loader, test_loader
+    return q_mat, p, a, g_mat, h, x_data, train_loader, valid_loader, test_loader
 
 
 def dc3_dataset_setup(
@@ -389,11 +413,11 @@ def dc3_dataset_setup(
             rng_key=loader_keys[2],
         )
     dataset = cast(DC3Dataset, train_loader.dataset)
-    q_mat, p, a_dyn, g_mat, h = dataset.const
+    q_mat, p, a, g_mat, h = dataset.const
     p = p[0, :, :]
     x_data = dataset.x_data
 
-    return q_mat, p, a_dyn, g_mat, h, x_data, train_loader, valid_loader, test_loader
+    return q_mat, p, a, g_mat, h, x_data, train_loader, valid_loader, test_loader
 
 
 def load_data(
@@ -443,7 +467,7 @@ def load_data(
     else:
         setup = dc3_dataset_setup
 
-    q_mat, p, a_dyn, g_mat, h, x_data, train_loader, valid_loader, test_loader = setup(
+    q_mat, p, a, g_mat, h, x_data, train_loader, valid_loader, test_loader = setup(
         use_convex=use_convex,
         problem_seed=problem_seed,
         problem_var=problem_var,
@@ -490,8 +514,8 @@ def load_data(
     def penalty_form(predictions, x_data):
         eq_cv = jnp.max(
             jnp.abs(
-                a_dyn[0].reshape(1, a_dyn.shape[1], a_dyn.shape[2])
-                @ predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1)
+                a[0].reshape(1, a.shape[1], a.shape[2])
+                @ predictions.reshape(x_data.shape[0], a.shape[2], 1)
                 - x_data
             ),
             axis=1,
@@ -517,7 +541,7 @@ def load_data(
             return batched_objective(predictions)
 
     return (
-        a_dyn,
+        a,
         g_mat,
         h,
         x_data,

@@ -2,11 +2,28 @@
 
 import os
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
+
+
+# TEMP: pre-PR-#96 datasets shipped with assorted key names — earliest
+# revisions used `As`/`Ystar`/`T`, later ones `a_dyn`, and the post-PR-96
+# generators write `a`/`y_star`/`horizon`. Accept all of them so the in-repo
+# datasets keep working without a regenerate step. Track removal in
+# https://github.com/antonioterpin/pinet/issues/112.
+def _pick(data: Any, *keys: str) -> jnp.ndarray:
+    """Return ``data[k]`` for the first ``k`` in ``keys`` that exists.
+
+    ``data`` is typed as ``Any`` because callers pass either a plain dict or a
+    ``numpy.lib.npyio.NpzFile``; both support ``in`` and indexing.
+    """
+    for k in keys:
+        if k in data:
+            return data[k]
+    raise KeyError(f"None of {keys} present in dataset (have: {sorted(data)})")
 
 
 # Load Instance Dataset
@@ -24,19 +41,19 @@ class ToyMPCDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         self.x0sets = data["x0sets"]
         # Constant problem ingredients
         self.const = (
-            const["a_dyn"],
+            _pick(const, "a", "a_dyn", "As"),
             const["lbxs"],
             const["ubxs"],
             const["lbus"],
             const["ubus"],
             const["xhat"],
             const["alpha"],
-            const["horizon"],
+            _pick(const, "horizon", "T"),
             const["base_dim"],
         )
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.y_star = data["y_star"]
+        self.y_star = _pick(data, "y_star", "Ystar")
 
     def __len__(self) -> int:
         """Length of dataset.
@@ -235,22 +252,23 @@ def load_data(
         val_idx = permutation[train_size : train_size + val_size]
         test_idx = permutation[train_size + val_size :]
 
+        y_star_full = _pick(all_data, "y_star", "Ystar")
         train_dataset = {
             "x0sets": all_data["x0sets"][train_idx],
             "objectives": all_data["objectives"][train_idx],
-            "Ystar": all_data["Ystar"][train_idx],
+            "y_star": y_star_full[train_idx],
         }
         train_dataset = ToyMPCDataset(train_dataset, all_data)
         val_dataset = {
             "x0sets": all_data["x0sets"][val_idx],
             "objectives": all_data["objectives"][val_idx],
-            "Ystar": all_data["Ystar"][val_idx],
+            "y_star": y_star_full[val_idx],
         }
         val_dataset = ToyMPCDataset(val_dataset, all_data)
         test_dataset = {
             "x0sets": all_data["x0sets"][test_idx],
             "objectives": all_data["objectives"][test_idx],
-            "Ystar": all_data["Ystar"][test_idx],
+            "y_star": y_star_full[test_idx],
         }
         test_dataset = ToyMPCDataset(test_dataset, all_data)
 
@@ -274,7 +292,7 @@ def load_data(
             rng_key=loader_keys[2],
         )
 
-    a_dyn, lbxs, ubxs, lbus, ubus, xhat, alpha_raw, horizon_raw, base_dim_raw = (
+    a, lbxs, ubxs, lbus, ubus, xhat, alpha_raw, horizon_raw, base_dim_raw = (
         toy_dataset.const
     )
     # Scalar metadata was stored as 0-d arrays; unwrap to Python scalars.
@@ -300,7 +318,7 @@ def load_data(
     batched_objective = jax.vmap(quadratic_form, in_axes=[0])
 
     return (
-        a_dyn,
+        a,
         lbxs,
         ubxs,
         lbus,
