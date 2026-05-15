@@ -20,10 +20,6 @@ from .non_linear import NonLinearConstraint
 from .non_linear_types import L2NormType, SOCType
 from .soc_constraint import SocConstraint
 
-# TODO: If we only have 2 constraints where one is equality and the
-# other is primitive, then we directly use these.
-
-
 ParseLifter = Callable[[ProjectionInstance], ProjectionInstance]
 ParseResult = tuple[
     EqualityConstraint | None,
@@ -340,7 +336,8 @@ class ConstraintParser:
             # Normalise the linear RHS row so SOCType (with or without ``f``)
             # and L2NormType all flow through the same lifted-auxiliary
             # plumbing: every NL constraint contributes ``m`` aux rows for
-            # the ``u_aux = A x`` equality plus one row for the bound. For
+            # the ``u_aux = A x`` equality (A is ``non_linear.a_mat``) plus
+            # one row for the bound. For
             # L2NormType (constant bound) and SOCType-without-f, the row is
             # synthesised as zeros so the ``t_aux`` ends up identically zero
             # and the SOC's own ``b`` offset carries the original scalar.

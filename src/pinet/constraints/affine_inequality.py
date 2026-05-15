@@ -96,7 +96,7 @@ class AffineInequalityConstraint(Constraint):
         Returns:
             The constraint violation for each point in the batch.
         """
-        constr_matrix_x = self.c_mat @ yraw.x
-        cv_ub = jnp.maximum(constr_matrix_x - self.ub, 0)
-        cv_lb = jnp.maximum(self.lb - constr_matrix_x, 0)
+        c_mat_x = self.c_mat @ yraw.x
+        cv_ub = jnp.maximum(c_mat_x - self.ub, 0)
+        cv_lb = jnp.maximum(self.lb - c_mat_x, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)

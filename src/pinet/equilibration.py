@@ -17,7 +17,8 @@ def ruiz_equilibration(
     Ruiz equilibration iteratively scales the rows and columns of a_mat so that
     all rows have equal norms and all columns have equals norms.
 
-    TODO: Add equilibration for joint constraints.
+    Support for jointly-constrained problems is tracked in
+    https://github.com/antonioterpin/pinet/issues/54.
 
     Args:
         a_mat: Input matrix.

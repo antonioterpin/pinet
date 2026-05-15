@@ -397,8 +397,9 @@ class NonLinearSpecification(eqx.Module):
         """
         # SOCType (with or without ``f``) and L2NormType both project via
         # the SOC primitive: the parser already lifts ``A x + a`` and
-        # ``f x + b`` (or ``b`` alone for L2) into auxiliary variables, so
-        # the downstream SOC sees the original ``a`` / ``b`` offsets.
+        # ``f x + b`` (or ``b`` alone for L2) into auxiliary variables —
+        # here A is ``a_mat``, a is ``a``, f is ``f``, b is ``b`` — so the
+        # downstream SOC sees the original ``a`` / ``b`` offsets.
         if self.nl_type in (SOCType, L2NormType):
             return SocConstraintSpecification(
                 a=self.a,

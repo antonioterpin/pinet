@@ -201,8 +201,6 @@ class Project:
                     box_constraint=self.box_constraint,
                     nl_constraints=self.nl_constraints,
                 )
-                # TODO: Change the "lifted_box_constraint" name?
-                # This is cartesian constraint now.
                 (
                     self.lifted_eq_constraint,
                     self.lifted_box_constraint,
@@ -224,7 +222,8 @@ class Project:
 
         if is_single_simple_constraint:
             # For a single simple constraint the projection is a closed-form
-            # one-step operation: proj(x) = x - A^+ (Ax - b).
+            # one-step operation: proj(x) = x - A^+ (A x - b),
+            # where A is ``a_mat``, A^+ is ``a_mat_pinv``, and b is ``b``.
             # The ADMM initializer zeros out yraw.x, causing _project_single
             # to project the origin rather than the actual input point.
             # Override initialize so yraw.x is preserved end-to-end.
