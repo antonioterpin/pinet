@@ -130,7 +130,7 @@ def test_triangle():
         )
     )
     affine_constraint = AffineInequalityConstraint(
-        constr_matrix=jnp.array([-1, 1]).reshape(1, 1, 2),
+        c_mat=jnp.array([-1, 1]).reshape(1, 1, 2),
         lb=jnp.array([-jnp.inf]).reshape(1, 1, 1),
         ub=jnp.zeros((1, 1, 1)),
     )
@@ -431,16 +431,16 @@ def test_general_eq_ineq(seed, batch_size):
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=5)
     # Generate equality constraints LHS
-    a_dyn = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    a_mat = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
-    constr_matrix = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    c_mat = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Compute RHS by solving feasibility problem
     xfeas = cp.Variable(dim)
     bfeas = cp.Variable(n_eq)
     lfeas = cp.Variable(n_ineq)
     ufeas = cp.Variable(n_ineq)
-    a_dyn_cvx = cp.Constant(np.asarray(a_dyn[0, :, :]))
-    constr_matrix_cvx = cp.Constant(np.asarray(constr_matrix[0, :, :]))
+    a_dyn_cvx = cp.Constant(np.asarray(a_mat[0, :, :]))
+    constr_matrix_cvx = cp.Constant(np.asarray(c_mat[0, :, :]))
     feasibility_constraints: list[CvxpyConstraint] = [
         a_dyn_cvx @ xfeas == bfeas,
         lfeas <= constr_matrix_cvx @ xfeas,
@@ -457,10 +457,8 @@ def test_general_eq_ineq(seed, batch_size):
     ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
 
     # Define projection layer ingredients
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     # Projection layer with unrolling differentiation
     projection_layer_unroll = Project(
@@ -545,10 +543,10 @@ def test_general_eq_ineq(seed, batch_size):
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_box_eq_ineq_soc(seed, batch_size):
     dim = 50
-    n_A = 10
-    n_C = 10
-    n_A_soc_1 = 10
-    n_A_soc_2 = 10
+    n_a = 10
+    n_c = 10
+    n_a_soc_1 = 10
+    n_a_soc_2 = 10
     key = jrnd.PRNGKey(seed)
     # Generate a random point which will be feasible by construction
     key, subkey = jrnd.split(key)
@@ -556,9 +554,9 @@ def test_box_eq_ineq_soc(seed, batch_size):
 
     # Equality constraint
     key, subkey = jrnd.split(key)
-    A = jrnd.uniform(subkey, shape=(1, n_A, dim), minval=-2, maxval=2)
-    b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    a_mat = jrnd.uniform(subkey, shape=(1, n_a, dim), minval=-2, maxval=2)
+    b = a_mat @ x_feas
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] * dim, dtype=jnp.bool_)
@@ -571,28 +569,28 @@ def test_box_eq_ineq_soc(seed, batch_size):
     # Inequality constraint
     eps_ineq = 1e-2  # slack for inequality constraints
     key, subkey = jrnd.split(key)
-    C = jrnd.uniform(subkey, shape=(1, n_C, dim), minval=-2, maxval=2)
-    lb_ineq = C @ x_feas - eps_ineq
+    c_mat = jrnd.uniform(subkey, shape=(1, n_c, dim), minval=-2, maxval=2)
+    lb_ineq = c_mat @ x_feas - eps_ineq
     key, subkey = jrnd.split(key)
-    ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_C, 1), minval=0, maxval=1)
-    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb_ineq, ub=ub_ineq)
+    ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_c, 1), minval=0, maxval=1)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb_ineq, ub=ub_ineq)
 
     # SOC constraint 1
     eps_soc = 1e-2  # Slack to ensure feasibility of x_feas
     key, subkey = jrnd.split(key)
-    A_soc_1 = jrnd.uniform(subkey, shape=(1, n_A_soc_1, dim), minval=-2, maxval=2)
+    a_soc_1_mat = jrnd.uniform(subkey, shape=(1, n_a_soc_1, dim), minval=-2, maxval=2)
     key, subkey = jrnd.split(key)
-    a_soc_1 = jrnd.uniform(subkey, shape=(1, n_A_soc_1, 1), minval=0.5, maxval=2)
+    a_soc_1 = jrnd.uniform(subkey, shape=(1, n_a_soc_1, 1), minval=0.5, maxval=2)
     key, subkey = jrnd.split(key)
     f_soc_1 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=0, maxval=1)
     b_soc_1 = (
         eps_soc
-        + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1, ord=2, axis=1, keepdims=True)
+        + jnp.linalg.norm(a_soc_1_mat @ x_feas + a_soc_1, ord=2, axis=1, keepdims=True)
         - f_soc_1 @ x_feas
     )
     nl_spec_1 = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc_1,
+        a_mat=a_soc_1_mat,
         a=a_soc_1,
         f=f_soc_1,
         b=b_soc_1,
@@ -603,19 +601,19 @@ def test_box_eq_ineq_soc(seed, batch_size):
 
     # SOC constraint 2
     key, subkey = jrnd.split(key)
-    A_soc_2 = jrnd.uniform(subkey, shape=(1, n_A_soc_2, dim), minval=-2, maxval=2)
+    a_soc_2_mat = jrnd.uniform(subkey, shape=(1, n_a_soc_2, dim), minval=-2, maxval=2)
     key, subkey = jrnd.split(key)
-    a_soc_2 = jrnd.uniform(subkey, shape=(1, n_A_soc_2, 1), minval=0.5, maxval=2)
+    a_soc_2 = jrnd.uniform(subkey, shape=(1, n_a_soc_2, 1), minval=0.5, maxval=2)
     key, subkey = jrnd.split(key)
     f_soc_2 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=-1, maxval=1)
     b_soc_2 = (
         eps_soc
-        + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2, ord=2, axis=1, keepdims=True)
+        + jnp.linalg.norm(a_soc_2_mat @ x_feas + a_soc_2, ord=2, axis=1, keepdims=True)
         - f_soc_2 @ x_feas
     )
     nl_spec_2 = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc_2,
+        a_mat=a_soc_2_mat,
         a=a_soc_2,
         f=f_soc_2,
         b=b_soc_2,

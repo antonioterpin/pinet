@@ -81,7 +81,7 @@ def evaluate_hcnn(
     loader: Any,
     state: train_state.TrainState,
     batched_objective: Callable[[jax.Array], jax.Array],
-    a_dyn: jax.Array,
+    a_mat: jax.Array,
     g_mat: jax.Array,
     h: jax.Array,
     prefix: str,
@@ -104,7 +104,7 @@ def evaluate_hcnn(
         loader: Data loader for the problem instances.
         state: The trained model state.
         batched_objective: Function to compute the objective.
-        a_dyn: Coefficient matrix for equality constraints.
+        a_mat: Coefficient matrix for equality constraints.
         g_mat: Coefficient matrix for inequality constraints.
         h: Right-hand side vector for inequality constraints.
         prefix: Prefix for logging.
@@ -143,8 +143,8 @@ def evaluate_hcnn(
     # Equality constraint violation
     eq_cv = jnp.max(
         jnp.abs(
-            a_dyn[0].reshape(1, a_dyn.shape[1], a_dyn.shape[2])
-            @ predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1)
+            a_mat[0].reshape(1, a_mat.shape[1], a_mat.shape[2])
+            @ predictions.reshape(x_data.shape[0], a_mat.shape[2], 1)
             - x_data
         ),
         axis=1,
@@ -227,7 +227,7 @@ def evaluate_instance(
     state: train_state.TrainState,
     use_dc3_dataset: bool,
     batched_objective: Callable[[jax.Array], jax.Array],
-    a_dyn: jax.Array,
+    a_mat: jax.Array,
     g_mat: jax.Array,
     h: jax.Array,
     prefix: str,
@@ -241,7 +241,7 @@ def evaluate_instance(
         state: The trained model state.
         use_dc3_dataset: Whether to use the DC3 dataset.
         batched_objective: Function to compute the objective.
-        a_dyn: Coefficient matrix for equality constraints.
+        a_mat: Coefficient matrix for equality constraints.
         g_mat: Coefficient matrix for inequality constraints.
         h: Right-hand side vector for inequality constraints.
         prefix: Prefix for logging.
@@ -260,7 +260,7 @@ def evaluate_instance(
 
     objective_val_hcnn = batched_objective(predictions).item()
     eqcv_val_hcnn = jnp.abs(
-        a_dyn[0] @ predictions.reshape(a_dyn.shape[2]) - problem_batch[problem_idx, :, 0]
+        a_mat[0] @ predictions.reshape(a_mat.shape[2]) - problem_batch[problem_idx, :, 0]
     ).max()
     ineqcv_val_hcnn = jnp.maximum(
         g_mat[0] @ predictions.reshape(g_mat.shape[2]) - h[0, :, 0], 0
@@ -277,7 +277,7 @@ def evaluate_instance(
             loader.dataset.indices[problem_idx]
         ]
         eqcv_val = jnp.abs(
-            a_dyn[0] @ loader.dataset.dataset.y_star[loader.dataset.indices[problem_idx]]
+            a_mat[0] @ loader.dataset.dataset.y_star[loader.dataset.indices[problem_idx]]
             - loader.dataset.dataset.x_data[loader.dataset.indices[problem_idx], :, :]
         ).max()
         ineqcv_val = jnp.maximum(
@@ -289,7 +289,7 @@ def evaluate_instance(
     else:
         objective_val = loader.dataset.objectives[problem_idx].item()
         eqcv_val = jnp.abs(
-            a_dyn[0] @ loader.dataset.y_star[problem_idx]
+            a_mat[0] @ loader.dataset.y_star[problem_idx]
             - loader.dataset.x_data[problem_idx, :, :]
         ).max()
         ineqcv_val = jnp.maximum(
@@ -346,7 +346,7 @@ def main(
     loader_key, key = jax.random.split(key, 2)
     # Load problem data
     (
-        a_dyn,
+        a_mat,
         g_mat,
         h,
         x_data,
@@ -373,7 +373,7 @@ def main(
         rng_key=key,
         hyperparameters=hyperparameters,
         proj_method=proj_method,
-        a_dyn=a_dyn,
+        a_mat=a_mat,
         x_data=x_data,
         g_mat=g_mat,
         h=h,
@@ -448,7 +448,7 @@ def main(
                     loader=valid_loader,
                     state=state,
                     batched_objective=batched_objective,
-                    a_dyn=a_dyn,
+                    a_mat=a_mat,
                     g_mat=g_mat,
                     h=h,
                     prefix="Validation",
@@ -497,7 +497,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Validation",
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             g_mat=g_mat,
             h=h,
             proj_method=proj_method,
@@ -510,7 +510,7 @@ def main(
             state=state,
             use_dc3_dataset=use_dc3_dataset,
             batched_objective=batched_objective,
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             g_mat=g_mat,
             h=h,
             prefix="Validation",
@@ -528,7 +528,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Testing",
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             g_mat=g_mat,
             h=h,
             proj_method=proj_method,
@@ -539,7 +539,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Testing",
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             g_mat=g_mat,
             h=h,
             single_instance=True,
@@ -554,7 +554,7 @@ def main(
             state=state,
             use_dc3_dataset=use_dc3_dataset,
             batched_objective=batched_objective,
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             g_mat=g_mat,
             h=h,
             prefix="Testing",

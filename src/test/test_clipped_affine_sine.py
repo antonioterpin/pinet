@@ -62,7 +62,7 @@ def test_clipped_sine(seed: int, c_value: float, lb: float, ub: float):
 
     The training objective is to fit the sine function with a MLP, but the
     hard constraint is that the predictions must satisfy the inequality
-    lb <= a_dyn sin(x) <= ub.
+    lb <= a_mat sin(x) <= ub.
 
     Args:
         seed: Random seed for reproducibility.
@@ -84,7 +84,7 @@ def test_clipped_sine(seed: int, c_value: float, lb: float, ub: float):
 
     # Define the affine inequality constraint
     ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=jnp.array([1]).reshape((1, 1, 1)),
+        c_mat=jnp.array([1]).reshape((1, 1, 1)),
         lb=lower_bound.reshape((n_samples, x.shape[1], 1)),
         ub=upper_bound.reshape((n_samples, x.shape[1], 1)),
     )
@@ -122,7 +122,7 @@ def test_clipped_sine(seed: int, c_value: float, lb: float, ub: float):
         # Formulate the objective: minimize (z - y)^2.
         objective = cp.Minimize((z - _y) ** 2)
 
-        # Define the constraints: z must lie in [a_dyn*x + lb, a_dyn*x + ub].
+        # Define the constraints: z must lie in [a_mat*x + lb, a_mat*x + ub].
         constraints = [z >= c_value * _x + lb, z <= c_value * _x + ub]
 
         # Solve the problem.

@@ -126,18 +126,18 @@ class Project:
                 assert parsed_box is not None
                 # Setup always stores equilibration parameters before this branch runs.
                 assert self.equilibration_params is not None
-                # Only equilibrate when we have a single a_dyn.
-                if not parsed_eq.var_a_dyn and parsed_eq.a_dyn.shape[0] == 1:
-                    scaled_a_dyn_flat, d_r_flat, d_c_flat = ruiz_equilibration(
-                        parsed_eq.a_dyn[0], self.equilibration_params
+                # Only equilibrate when we have a single a_mat.
+                if not parsed_eq.var_a_mat and parsed_eq.a_mat.shape[0] == 1:
+                    scaled_a_mat_flat, d_r_flat, d_c_flat = ruiz_equilibration(
+                        parsed_eq.a_mat[0], self.equilibration_params
                     )
-                    scaled_a_dyn = scaled_a_dyn_flat.reshape(
-                        1, parsed_eq.a_dyn.shape[1], parsed_eq.a_dyn.shape[2]
+                    scaled_a_mat = scaled_a_mat_flat.reshape(
+                        1, parsed_eq.a_mat.shape[1], parsed_eq.a_mat.shape[2]
                     )
                     self.d_r = d_r_flat.reshape(1, -1, 1)
                     self.d_c = d_c_flat.reshape(1, -1, 1)
                 else:
-                    # No equilibration for variable a_dyn
+                    # No equilibration for variable a_mat
                     n_ineq = (
                         self.ineq_constraint.n_constraints
                         if self.ineq_constraint is not None
@@ -148,17 +148,17 @@ class Project:
                         if self.eq_constraint is not None
                         else 0
                     )
-                    scaled_a_dyn = parsed_eq.a_dyn
+                    scaled_a_mat = parsed_eq.a_mat
                     self.d_r = jnp.ones((1, n_eq + n_ineq, 1))
                     self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
                 # Build the scaled lifted equality constraint with method="pinv".
                 self.lifted_eq_constraint = EqualityConstraint(
-                    a_dyn=scaled_a_dyn,
+                    a_mat=scaled_a_mat,
                     b=parsed_eq.b * self.d_r,
                     method="pinv",
                     var_b=parsed_eq.var_b,
-                    var_a_dyn=parsed_eq.var_a_dyn,
+                    var_a_mat=parsed_eq.var_a_mat,
                 )
 
                 # Scale the lifted box constraints.
@@ -191,7 +191,7 @@ class Project:
                 if self.ineq_constraint is not None:
                     self.dim_lifted += self.ineq_constraint.n_constraints
                 for nl in self.nl_constraints:
-                    self.dim_lifted += nl.A.shape[1]
+                    self.dim_lifted += nl.a_mat.shape[1]
                     if nl.f is not None:
                         self.dim_lifted += 1
 
@@ -212,7 +212,7 @@ class Project:
                 assert self.lifted_eq_constraint is not None
                 assert self.lifted_box_constraint is not None
                 # Impose no rescaling
-                self.d_r = jnp.ones((1, self.lifted_eq_constraint.a_dyn.shape[1], 1))
+                self.d_r = jnp.ones((1, self.lifted_eq_constraint.a_mat.shape[1], 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
                 self.step_iteration, self.step_final = build_iteration_step(
@@ -379,9 +379,9 @@ class Project:
         Returns:
             ProjectionInstance: The projected point for each point in the batch.
         """
-        if yraw.eq and yraw.eq.a_dyn is not None:
-            a_dyn_pinv = jnp.linalg.pinv(yraw.eq.a_dyn)
-            yraw = yraw.update(eq=yraw.eq.update(a_dyn_pinv=a_dyn_pinv))
+        if yraw.eq and yraw.eq.a_mat is not None:
+            a_mat_pinv = jnp.linalg.pinv(yraw.eq.a_mat)
+            yraw = yraw.update(eq=yraw.eq.update(a_mat_pinv=a_mat_pinv))
 
         return self.single_constraint.project(yraw)
 

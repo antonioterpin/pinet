@@ -63,10 +63,10 @@ def test_equality_constraint_2d(method: str, seed: int) -> None:
 
     # Define and initialize the hard-constrained MLP
     # Define equality constraint LHS and RHS
-    a_dyn = jnp.expand_dims(jnp.array([[1.0, -1.0]]), axis=0)
+    a_mat = jnp.expand_dims(jnp.array([[1.0, -1.0]]), axis=0)
     b = jnp.zeros(shape=(1, 1, 1))
     # Instantiate equality constraint
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method)
     model = HardConstrainedMLP(eq_constraint)
     params = model.init(jax.random.PRNGKey(seed=seed), jnp.ones((1, 1)), 0)
     tx = optax.adam(learning_rate)

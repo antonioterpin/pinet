@@ -110,7 +110,7 @@ def rand_sparse_mask(
 
 
 key_a, key = jrnd.split(key)
-a_dyn = rand_sparse_mask(key_a, (m, n))
+a_mat = rand_sparse_mask(key_a, (m, n))
 
 
 def generate_problem(key: jax.Array, batch_size: int):
@@ -136,8 +136,8 @@ def generate_problem(key: jax.Array, batch_size: int):
 
     # Generate the primal solution x
     x = jrnd.uniform(keyx, (batch_size, n, 1), minval=-1, maxval=1)
-    b = a_dyn @ x + s
-    c = -a_dyn.T @ y
+    b = a_mat @ x + s
+    c = -a_mat.T @ y
 
     return b, c, x, s
 
@@ -167,7 +167,7 @@ def constraint_violation_eq(x: jax.Array, s: jax.Array, b: jax.Array):
     Returns:
         jax.Array: Constraint violation, shape (B, 1).
     """
-    return jnp.linalg.norm(a_dyn @ x + s - b, ord=jnp.inf, axis=-1)
+    return jnp.linalg.norm(a_mat @ x + s - b, ord=jnp.inf, axis=-1)
 
 
 def constraint_violation_soc(s: jax.Array):
@@ -238,7 +238,7 @@ batch_size = 1024
 b, c, xstar, sstar = generate_problem(key, batch_size)
 
 # %% CVXPY
-A_np = np.asarray(a_dyn)
+A_np = np.asarray(a_mat)
 x_var = cp.Variable(n)
 s_var = cp.Variable(m)
 b_par = cp.Parameter(m)
@@ -274,18 +274,18 @@ n_iter_backward = 200
 sigma = 0.1
 omega = 1.8
 
-a_dyn_aug = jnp.concatenate((a_dyn, jnp.eye(m)), axis=1)
+a_dyn_aug = jnp.concatenate((a_mat, jnp.eye(m)), axis=1)
 # The augmented equality matrix must match the primal-plus-slack dimension.
 assert a_dyn_aug.shape == (
     m,
     m + n,
-), f"Augmented matrix a_dyn should have shape ({m}, {m + n}), instead: {a_dyn_aug.shape}"
+), f"Augmented matrix a_mat should have shape ({m}, {m + n}), instead: {a_dyn_aug.shape}"
 
 a_dyn_aug_inv = jnp.linalg.pinv(a_dyn_aug)
 
 
 def project_pinv_vb(xs: jax.Array, b: jax.Array):
-    """Project onto the pseudo-inverse of the augmented matrix a_dyn.
+    """Project onto the pseudo-inverse of the augmented matrix a_mat.
 
     Args:
         xs:

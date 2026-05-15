@@ -30,7 +30,7 @@ SEEDS = [24, 42]
 BATCH_SIZE = [1, 5]
 
 
-# TODO: Add another test where var_a_dyn, var_b are false.
+# TODO: Add another test where var_a_mat, var_b are false.
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     dim = 100
@@ -40,9 +40,9 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, 10)
     # Generate equality constraint LHS
-    a_dyn = jax.random.normal(key[0], (batch_size, n_eq, dim))
+    a_mat = jax.random.normal(key[0], (batch_size, n_eq, dim))
     # Generate equality constraint RHS
-    b = a_dyn @ jax.random.normal(key[1], (batch_size, dim, 1))
+    b = a_mat @ jax.random.normal(key[1], (batch_size, dim, 1))
     # Generate random point
     xinfeas = jax.random.normal(key[2], (batch_size, dim))
     # Compute projection with cvxpy
@@ -50,7 +50,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     for ii in range(batch_size):
         yprojcv = cp.Variable(dim)
         constraints = cast(
-            list[CvxConstraint], [a_dyn[ii, :, :] @ yprojcv == b[ii, :, 0]]
+            list[CvxConstraint], [a_mat[ii, :, :] @ yprojcv == b[ii, :, 0]]
         )
         objective = cp.Minimize(cp.sum_squares(yprojcv - xinfeas[ii, :]))
         problem = cp.Problem(objective, constraints)
@@ -58,7 +58,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         yqp = yqp.at[ii, :].set(jnp.array(yprojcv.value).reshape(dim))
 
     # Compute projection with Project
-    eq_constraint = EqualityConstraint(a_dyn, b, method="pinv", var_b=True)
+    eq_constraint = EqualityConstraint(a_mat, b, method="pinv", var_b=True)
     projection_layer = Project(eq_constraint=eq_constraint)
     yprojiter = projection_layer.call(
         yraw=ProjectionInstance(
@@ -71,7 +71,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     )
 
     # Generate new RHS
-    b_new = a_dyn @ jax.random.normal(key[3], (batch_size, dim, 1))
+    b_new = a_mat @ jax.random.normal(key[3], (batch_size, dim, 1))
     yprojiter = projection_layer.call(
         yraw=ProjectionInstance(
             x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b_new)
@@ -82,7 +82,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     for ii in range(batch_size):
         yprojcv = cp.Variable(dim)
         constraints_b_new = cast(
-            list[CvxConstraint], [a_dyn[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
+            list[CvxConstraint], [a_mat[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
         )
         objective_b_new = cp.Minimize(cp.sum_squares(yprojcv - xinfeas[ii, :]))
         problem_b_new = cp.Problem(objective_b_new, constraints_b_new)
@@ -95,7 +95,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     )
     # %%
     # Generate inequality constraints LHS
-    constr_matrix = jax.random.normal(key[4], shape=(batch_size, n_ineq, dim))
+    c_mat = jax.random.normal(key[4], shape=(batch_size, n_ineq, dim))
     b = jnp.zeros(shape=(batch_size, n_eq, 1))
     lb = jnp.zeros(shape=(batch_size, n_ineq, 1))
     ub = jnp.zeros(shape=(batch_size, n_ineq, 1))
@@ -108,9 +108,9 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         constraints = cast(
             list[CvxConstraint],
             [
-                a_dyn[ii, :, :] @ xfeas == bfeas,
-                lfeas <= constr_matrix[ii, :, :] @ xfeas,
-                constr_matrix[ii, :, :] @ xfeas <= ufeas,
+                a_mat[ii, :, :] @ xfeas == bfeas,
+                lfeas <= c_mat[ii, :, :] @ xfeas,
+                c_mat[ii, :, :] @ xfeas <= ufeas,
                 -1 <= xfeas,
                 xfeas <= 1,
             ],
@@ -125,10 +125,8 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         ub = ub.at[ii, :, :].set(jnp.array(ufeas.value).reshape((n_ineq, 1)))
 
     # Check projection layer without var_b
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method, var_b=False)
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method, var_b=False)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     projection_layer_novarb = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
@@ -139,10 +137,8 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         n_iter=500,
     )[0].x
     # Check projection layer with var_b
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method, var_b=True)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
@@ -159,9 +155,9 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         constraints = cast(
             list[CvxConstraint],
             [
-                a_dyn[ii, :, :] @ yproj == b[ii, :, 0],
-                lb[ii, :, 0] <= constr_matrix[ii, :, :] @ yproj,
-                constr_matrix[ii, :, :] @ yproj <= ub[ii, :, 0],
+                a_mat[ii, :, :] @ yproj == b[ii, :, 0],
+                lb[ii, :, 0] <= c_mat[ii, :, :] @ yproj,
+                c_mat[ii, :, :] @ yproj <= ub[ii, :, 0],
             ],
         )
         objective = cp.Minimize(cp.sum_squares(yproj - xinfeas[ii, :]))
@@ -225,9 +221,9 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         constraints = cast(
             list[CvxConstraint],
             [
-                a_dyn[ii, :, :] @ yproj == b_new[ii, :, 0],
-                lb[ii, :, 0] <= constr_matrix[ii, :, :] @ yproj,
-                constr_matrix[ii, :, :] @ yproj <= ub[ii, :, 0],
+                a_mat[ii, :, :] @ yproj == b_new[ii, :, 0],
+                lb[ii, :, 0] <= c_mat[ii, :, :] @ yproj,
+                c_mat[ii, :, :] @ yproj <= ub[ii, :, 0],
             ],
         )
         objective = cp.Minimize(cp.sum_squares(yproj - xinfeas[ii, :]))
@@ -249,12 +245,12 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     a_dyn_new = jax.random.normal(key[6], (batch_size, n_eq, dim))
     b_new = a_dyn_new @ jax.random.normal(key[7], (batch_size, dim, 1))
     eq_constraint = EqualityConstraint(
-        a_dyn=a_dyn_new, b=b_new, method=method, var_a_dyn=True
+        a_mat=a_dyn_new, b=b_new, method=method, var_a_mat=True
     )
     projection_layer = Project(eq_constraint=eq_constraint)
     inp = ProjectionInstance(
         x=xinfeas[..., None],
-        eq=EqualityConstraintsSpecification(a_dyn=a_dyn_new, b=b_new),
+        eq=EqualityConstraintsSpecification(a_mat=a_dyn_new, b=b_new),
     )
     xprojiter = projection_layer.call(yraw=inp)[0].x
     # New cvxpy problem
@@ -281,8 +277,8 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
             list[CvxConstraint],
             [
                 a_dyn_new[ii, :, :] @ yproj == b_new[ii, :, 0],
-                lb[ii, :, 0] <= constr_matrix[ii, :, :] @ yproj,
-                constr_matrix[ii, :, :] @ yproj <= ub[ii, :, 0],
+                lb[ii, :, 0] <= c_mat[ii, :, :] @ yproj,
+                c_mat[ii, :, :] @ yproj <= ub[ii, :, 0],
             ],
         )
         objective = cp.Minimize(cp.sum_squares(yproj - xinfeas[ii, :]))
@@ -291,18 +287,16 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         yqp = yqp.at[ii, :].set(jnp.array(yproj.value).reshape(dim))
 
     eq_constraint = EqualityConstraint(
-        a_dyn=a_dyn, b=b, method=method, var_b=True, var_a_dyn=True
+        a_mat=a_mat, b=b, method=method, var_b=True, var_a_mat=True
     )
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     projection_layer = Project(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint
     )
     inp = ProjectionInstance(
         x=xinfeas[..., None],
-        eq=EqualityConstraintsSpecification(b=b_new, a_dyn=a_dyn_new),
+        eq=EqualityConstraintsSpecification(b=b_new, a_mat=a_dyn_new),
     )
     xprojiter = projection_layer.call(yraw=inp, n_iter=500)[0].x
 
@@ -322,24 +316,24 @@ def test_call_default_n_iter_projects_correctly():
     """
     dim, n_eq, batch = 20, 5, 1
     key = jax.random.PRNGKey(7)
-    kA, kx0, kx = jax.random.split(key, 3)
+    ka_mat, kx0, kx = jax.random.split(key, 3)
 
-    A = jax.random.normal(kA, (batch, n_eq, dim))
+    a_mat = jax.random.normal(ka_mat, (batch, n_eq, dim))
     x0 = jax.random.normal(kx0, (batch, dim, 1))
-    b = A @ x0  # feasible RHS constructed from a random point
+    b = a_mat @ x0  # feasible RHS constructed from a random point
 
     # Deliberately pick a point that does NOT satisfy A x = b
     xinfeas = jax.random.normal(kx, (batch, dim, 1))
-    assert jnp.linalg.norm(A @ xinfeas - b) > 1e-3, "Test point must be infeasible"
+    assert jnp.linalg.norm(a_mat @ xinfeas - b) > 1e-3, "Test point must be infeasible"
 
-    eq = EqualityConstraint(a_dyn=A, b=b, method="pinv", var_b=False)
+    eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv", var_b=False)
     layer = Project(eq_constraint=eq)
 
     # Call without specifying n_iter — uses the default (100 after the fix, 0 before)
     result = layer.call(yraw=ProjectionInstance(x=xinfeas))[0].x
 
     # The projected point must satisfy the equality constraint
-    residual = jnp.linalg.norm(A @ result - b)
+    residual = jnp.linalg.norm(a_mat @ result - b)
     assert residual < 1e-4, f"Expected ||Ax - b|| < 1e-4, got {residual:.6f}"
 
     assert not jnp.allclose(result, xinfeas), (
@@ -355,13 +349,13 @@ def test_call_n_iter_zero_raises():
     """
     dim, n_eq, batch = 5, 2, 1
     key = jax.random.PRNGKey(0)
-    kA, kx0, kx = jax.random.split(key, 3)
+    ka_mat, kx0, kx = jax.random.split(key, 3)
 
-    A = jax.random.normal(kA, (batch, n_eq, dim))
+    a_mat = jax.random.normal(ka_mat, (batch, n_eq, dim))
     x0 = jax.random.normal(kx0, (batch, dim, 1))
-    b = A @ x0
+    b = a_mat @ x0
 
-    eq = EqualityConstraint(a_dyn=A, b=b, method="pinv", var_b=False)
+    eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv", var_b=False)
     layer = Project(eq_constraint=eq)
 
     xinfeas = jax.random.normal(kx, (batch, dim, 1))
@@ -372,16 +366,16 @@ def test_call_n_iter_zero_raises():
 
 @pytest.mark.parametrize("bad_reduction", ["median", 1.5, 0.0, -0.2, 2])
 def test_call_and_check_invalid_reduction_raises(bad_reduction):
-    # Minimal feasible setup: a_dyn x = b with b constructed from a random x0
+    # Minimal feasible setup: a_mat x = b with b constructed from a random x0
     dim, n_eq, batch = 5, 2, 1
     key = jax.random.PRNGKey(0)
     k_a_dyn, kx0, kx = jax.random.split(key, 3)
 
-    a_dyn = jax.random.normal(k_a_dyn, (batch, n_eq, dim))
+    a_mat = jax.random.normal(k_a_dyn, (batch, n_eq, dim))
     x0 = jax.random.normal(kx0, (batch, dim, 1))
-    b = a_dyn @ x0
+    b = a_mat @ x0
 
-    eq = EqualityConstraint(a_dyn=a_dyn, b=b, method="pinv", var_b=False)
+    eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv", var_b=False)
     layer = Project(eq_constraint=eq)
 
     xinfeas = jax.random.normal(kx, (batch, dim, 1))
@@ -400,18 +394,18 @@ def test_project_cv_linear_constraints(seed):
     n_eq = 1
     n_ineq = 2
     key = jrnd.PRNGKey(seed)
-    key, kA, kx, kC = jrnd.split(key, 4)
+    key, ka_mat, kx, kc_mat = jrnd.split(key, 4)
 
-    A = jrnd.normal(kA, shape=(1, n_eq, dim))
+    a_mat = jrnd.normal(ka_mat, shape=(1, n_eq, dim))
     x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-1.0, maxval=1.0)
-    b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    b = a_mat @ x_feas
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, var_b=False)
 
-    C = jrnd.normal(kC, shape=(1, n_ineq, dim))
-    Cx = C @ x_feas
+    c_mat = jrnd.normal(kc_mat, shape=(1, n_ineq, dim))
+    Cx = c_mat @ x_feas
     lb = Cx - 0.1
     ub = Cx + 0.1
-    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     layer = Project(
         eq_constraint=eq_constraint,
@@ -442,31 +436,31 @@ def test_project_cv_nonlinear_constraints(seed):
     n_eq = 1
     n_ineq = 1
     key = jrnd.PRNGKey(seed)
-    key, kA, kx, kC, knA, knf = jrnd.split(key, 6)
+    key, ka_mat, kx, kc_mat, knA, knf = jrnd.split(key, 6)
 
-    A = jrnd.normal(kA, shape=(1, n_eq, dim))
+    a_mat = jrnd.normal(ka_mat, shape=(1, n_eq, dim))
     x_feas = jrnd.uniform(kx, shape=(1, dim, 1), minval=-0.5, maxval=0.5)
-    b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    b = a_mat @ x_feas
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, var_b=False)
 
-    C = jrnd.normal(kC, shape=(1, n_ineq, dim))
-    Cx = C @ x_feas
+    c_mat = jrnd.normal(kc_mat, shape=(1, n_ineq, dim))
+    Cx = c_mat @ x_feas
     lb = Cx - 0.2
     ub = Cx + 0.2
-    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
-    A_soc = jrnd.normal(knA, shape=(1, 2, dim))
+    a_soc_mat = jrnd.normal(knA, shape=(1, 2, dim))
     a_soc = jnp.zeros((1, 2, 1))
     f_soc = jrnd.normal(knf, shape=(1, 1, dim))
     # Build b so that x_feas is safely feasible for the SOC constraint.
     b_soc = (
-        jnp.linalg.norm(A_soc @ x_feas + a_soc, ord=2, axis=1, keepdims=True)
+        jnp.linalg.norm(a_soc_mat @ x_feas + a_soc, ord=2, axis=1, keepdims=True)
         - f_soc @ x_feas
         + 0.5
     )
     nl_spec = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc,
+        a_mat=a_soc_mat,
         a=a_soc,
         f=f_soc,
         b=b_soc,
@@ -499,19 +493,19 @@ def test_project_cv_nonlinear_constraints(seed):
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_project_box_ineq_eq_soc(seed, batch_size):
     dim = 200
-    n_A = 12
-    n_C = 25
-    n_A_soc_1 = 32
-    n_A_soc_2 = 42
+    n_a = 12
+    n_c = 25
+    n_a_soc_1 = 32
+    n_a_soc_2 = 42
     key = jrnd.PRNGKey(seed)
     # Generate a random point which will be feasible by construction
     key, subkey = jrnd.split(key)
     x_feas = jrnd.uniform(subkey, shape=(1, dim, 1), minval=-2, maxval=2)
 
     # Equality constraint
-    A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
-    b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    a_mat = jrnd.uniform(key, shape=(1, n_a, dim), minval=-2, maxval=2)
+    b = a_mat @ x_feas
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] * dim, dtype=jnp.bool_)
@@ -524,29 +518,29 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     # Inequality constraint
     eps_ineq = 1e-2  # slack for inequality constraints
     key, subkey = jrnd.split(key)
-    C = jrnd.uniform(subkey, shape=(1, n_C, dim), minval=-2, maxval=2)
-    lb_ineq = C @ x_feas - eps_ineq
+    c_mat = jrnd.uniform(subkey, shape=(1, n_c, dim), minval=-2, maxval=2)
+    lb_ineq = c_mat @ x_feas - eps_ineq
     key, subkey = jrnd.split(key)
-    ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_C, 1), minval=0, maxval=1)
-    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb_ineq, ub=ub_ineq)
+    ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_c, 1), minval=0, maxval=1)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb_ineq, ub=ub_ineq)
 
     # SOC constraint 1
     eps_soc = 1e-2  # Slack to ensure feasibility of x_feas
     key, subkey = jrnd.split(key)
-    A_soc_1 = jrnd.uniform(subkey, shape=(1, n_A_soc_1, dim), minval=-2, maxval=2)
+    a_soc_1_mat = jrnd.uniform(subkey, shape=(1, n_a_soc_1, dim), minval=-2, maxval=2)
     key, subkey = jrnd.split(key)
-    a_soc_1 = jrnd.uniform(subkey, shape=(batch_size, n_A_soc_1, 1), minval=0.5, maxval=2)
+    a_soc_1 = jrnd.uniform(subkey, shape=(batch_size, n_a_soc_1, 1), minval=0.5, maxval=2)
     key, subkey = jrnd.split(key)
     f_soc_1 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=0, maxval=1)
     b_soc_1 = (
         eps_soc
-        + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1, ord=2, axis=1, keepdims=True)
+        + jnp.linalg.norm(a_soc_1_mat @ x_feas + a_soc_1, ord=2, axis=1, keepdims=True)
         - f_soc_1 @ x_feas
     )
 
     nl_spec_1 = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc_1,
+        a_mat=a_soc_1_mat,
         a=a_soc_1,
         f=f_soc_1,
         b=b_soc_1,
@@ -557,19 +551,19 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
 
     # SOC constraint 2
     key, subkey = jrnd.split(key)
-    A_soc_2 = jrnd.uniform(subkey, shape=(1, n_A_soc_2, dim), minval=-2, maxval=2)
+    a_soc_2_mat = jrnd.uniform(subkey, shape=(1, n_a_soc_2, dim), minval=-2, maxval=2)
     key, subkey = jrnd.split(key)
-    a_soc_2 = jrnd.uniform(subkey, shape=(batch_size, n_A_soc_2, 1), minval=0.5, maxval=2)
+    a_soc_2 = jrnd.uniform(subkey, shape=(batch_size, n_a_soc_2, 1), minval=0.5, maxval=2)
     key, subkey = jrnd.split(key)
     f_soc_2 = jrnd.uniform(subkey, shape=(1, 1, dim), minval=-1, maxval=1)
     b_soc_2 = (
         eps_soc
-        + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2, ord=2, axis=1, keepdims=True)
+        + jnp.linalg.norm(a_soc_2_mat @ x_feas + a_soc_2, ord=2, axis=1, keepdims=True)
         - f_soc_2 @ x_feas
     )
     nl_spec_2 = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc_2,
+        a_mat=a_soc_2_mat,
         a=a_soc_2,
         f=f_soc_2,
         b=b_soc_2,
@@ -603,24 +597,24 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     # Compute projection with cvxpy
     y_cvxpy = cp.Variable(dim)
     x_cvxpy = cp.Parameter(dim)
-    b_eq_cvxpy = cp.Parameter(n_A)
-    a_soc_1_cvxpy = cp.Parameter(n_A_soc_1)
+    b_eq_cvxpy = cp.Parameter(n_a)
+    a_soc_1_cvxpy = cp.Parameter(n_a_soc_1)
     b_soc_1_cvxpy = cp.Parameter(1)
-    a_soc_2_cvxpy = cp.Parameter(n_A_soc_2)
+    a_soc_2_cvxpy = cp.Parameter(n_a_soc_2)
     b_soc_2_cvxpy = cp.Parameter(1)
     constraints = [
-        A[0, :, :] @ y_cvxpy == b_eq_cvxpy,
+        a_mat[0, :, :] @ y_cvxpy == b_eq_cvxpy,
         lb_box[0, :, 0] <= y_cvxpy[mask],
         y_cvxpy[mask] <= ub_box[0, :, 0],
-        lb_ineq[0, :, 0] <= C[0, :, :] @ y_cvxpy,
-        C[0, :, :] @ y_cvxpy <= ub_ineq[0, :, 0],
+        lb_ineq[0, :, 0] <= c_mat[0, :, :] @ y_cvxpy,
+        c_mat[0, :, :] @ y_cvxpy <= ub_ineq[0, :, 0],
         cp.SOC(
             f_soc_1[0, :, :] @ y_cvxpy + b_soc_1_cvxpy,
-            A_soc_1[0, :, :] @ y_cvxpy + a_soc_1_cvxpy,
+            a_soc_1_mat[0, :, :] @ y_cvxpy + a_soc_1_cvxpy,
         ),
         cp.SOC(
             f_soc_2[0, :, :] @ y_cvxpy + b_soc_2_cvxpy,
-            A_soc_2[0, :, :] @ y_cvxpy + a_soc_2_cvxpy,
+            a_soc_2_mat[0, :, :] @ y_cvxpy + a_soc_2_cvxpy,
         ),
     ]
     objective = cp.Minimize(cp.sum_squares(y_cvxpy - x_cvxpy))
@@ -645,7 +639,7 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     assert projection_layer.lifted_eq_constraint is not None
     assert jnp.allclose(
         projection_layer.step_final(sk).x[:, dim:, :],
-        projection_layer.lifted_eq_constraint.a_dyn[0, n_A:, :dim] @ y_opt,
+        projection_layer.lifted_eq_constraint.a_mat[0, n_a:, :dim] @ y_opt,
         atol=1e-5,
         rtol=1e-5,
     ), """
@@ -655,16 +649,18 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     # Generate new soc constraint parameters
     key, subkey = jrnd.split(key)
     a_soc_1_new = jrnd.uniform(
-        subkey, shape=(batch_size, n_A_soc_1, 1), minval=0.5, maxval=2
+        subkey, shape=(batch_size, n_a_soc_1, 1), minval=0.5, maxval=2
     )
     b_soc_1_new = (
         eps_soc
-        + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1_new, ord=2, axis=1, keepdims=True)
+        + jnp.linalg.norm(
+            a_soc_1_mat @ x_feas + a_soc_1_new, ord=2, axis=1, keepdims=True
+        )
         - f_soc_1 @ x_feas
     )
     nl_spec_1_new = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc_1,
+        a_mat=a_soc_1_mat,
         a=a_soc_1_new,
         f=f_soc_1,
         b=b_soc_1_new,
@@ -672,16 +668,18 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
 
     key, subkey = jrnd.split(key)
     a_soc_2_new = jrnd.uniform(
-        subkey, shape=(batch_size, n_A_soc_2, 1), minval=0.5, maxval=2
+        subkey, shape=(batch_size, n_a_soc_2, 1), minval=0.5, maxval=2
     )
     b_soc_2_new = (
         eps_soc
-        + jnp.linalg.norm(A_soc_2 @ x_feas + a_soc_2_new, ord=2, axis=1, keepdims=True)
+        + jnp.linalg.norm(
+            a_soc_2_mat @ x_feas + a_soc_2_new, ord=2, axis=1, keepdims=True
+        )
         - f_soc_2 @ x_feas
     )
     nl_spec_2_new = NonLinearSpecification(
         nl_type=SOCType,
-        A=A_soc_2,
+        a_mat=a_soc_2_mat,
         a=a_soc_2_new,
         f=f_soc_2,
         b=b_soc_2_new,
@@ -709,7 +707,7 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     assert projection_layer.lifted_eq_constraint is not None
     assert jnp.allclose(
         projection_layer.step_final(sk_new).x[:, dim:, :],
-        projection_layer.lifted_eq_constraint.a_dyn[0, n_A:, :dim] @ y_opt_new,
+        projection_layer.lifted_eq_constraint.a_mat[0, n_a:, :dim] @ y_opt_new,
         atol=1e-5,
         rtol=1e-5,
     ), """

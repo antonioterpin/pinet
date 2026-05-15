@@ -35,7 +35,7 @@ def evaluate_hcnn(
     loader: BatchLoader,
     state: train_state.TrainState,
     batched_objective: Callable[[jax.Array], jax.Array],
-    a_dyn: jax.Array,
+    a_mat: jax.Array,
     lb: jax.Array,
     ub: jax.Array,
     prefix: str,
@@ -58,7 +58,7 @@ def evaluate_hcnn(
         loader: DataLoader for the dataset.
         state: The trained model state.
         batched_objective: Function to compute the objective.
-        a_dyn: Coefficient matrix for equality constraints.
+        a_mat: Coefficient matrix for equality constraints.
         lb: Lower bounds for the decision variables.
         ub: Upper bounds for the decision variables.
         prefix: Prefix for logging.
@@ -83,7 +83,7 @@ def evaluate_hcnn(
     x_full = jnp.zeros((0, 0, 1))
     for x_data, obj in loader:
         x_full = jnp.concatenate(
-            (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),
+            (x_data, jnp.zeros((x_data.shape[0], a_mat.shape[1] - x_data.shape[1], 1))),
             axis=1,
         )
         predictions = state.apply_fn(
@@ -96,18 +96,18 @@ def evaluate_hcnn(
         hcnn_obj_batches.append(batched_objective(predictions))
         # Equality Constraint Violation
         eq_cv_batch = jnp.abs(
-            a_dyn[0].reshape(1, a_dyn.shape[1], a_dyn.shape[2])
-            @ predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1)
+            a_mat[0].reshape(1, a_mat.shape[1], a_mat.shape[2])
+            @ predictions.reshape(x_data.shape[0], a_mat.shape[2], 1)
             - x_full,
         )
         eq_cv_batch = jnp.max(eq_cv_batch, axis=1)
         eq_cv_batches.append(eq_cv_batch)
         # Inequality Constraint Violation
         ineq_cv_batch_ub = jnp.maximum(
-            predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1) - ub, 0
+            predictions.reshape(x_data.shape[0], a_mat.shape[2], 1) - ub, 0
         )
         ineq_cv_batch_lb = jnp.maximum(
-            lb - predictions.reshape(x_data.shape[0], a_dyn.shape[2], 1), 0
+            lb - predictions.reshape(x_data.shape[0], a_mat.shape[2], 1), 0
         )
         # Compute the maximum and normalize by the size
         ineq_cv_batch = jnp.maximum(ineq_cv_batch_ub, ineq_cv_batch_lb) / ub
@@ -131,7 +131,7 @@ def evaluate_hcnn(
     if single_instance:
         x_inf = x_data[:1, :, :]
         x_inf_full = jnp.concatenate(
-            (x_inf, jnp.zeros((x_inf.shape[0], a_dyn.shape[1] - x_inf.shape[1], 1))),
+            (x_inf, jnp.zeros((x_inf.shape[0], a_mat.shape[1] - x_inf.shape[1], 1))),
             axis=1,
         )
     else:
@@ -202,7 +202,7 @@ def main(
     loader_key, key = jax.random.split(key, 2)
     # Parse data
     (
-        a_dyn,
+        a_mat,
         lbxs,
         ubxs,
         lbus,
@@ -225,11 +225,11 @@ def main(
         use_jax_loader=use_jax_loader,
     )
 
-    y_dim = a_dyn.shape[2]
+    y_dim = a_mat.shape[2]
     # The X contains only the initial conditions.
     # To properly define the equality constraints we need to append zeros
     x_full = jnp.concatenate(
-        (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),
+        (x_data, jnp.zeros((x_data.shape[0], a_mat.shape[1] - x_data.shape[1], 1))),
         axis=1,
     )
     lb = jnp.concatenate((lbxs, lbus), axis=1)
@@ -240,7 +240,7 @@ def main(
     model, params, train_step = setup_model(
         rng_key=key,
         hyperparameters=hyperparameters,
-        a_dyn=a_dyn,
+        a_mat=a_mat,
         x_data=x_data,
         b=x_full,
         lb=lb,
@@ -277,7 +277,7 @@ def main(
                     (
                         x_batch,
                         jnp.zeros(
-                            (x_batch.shape[0], a_dyn.shape[1] - x_batch.shape[1], 1)
+                            (x_batch.shape[0], a_mat.shape[1] - x_batch.shape[1], 1)
                         ),
                     ),
                     axis=1,
@@ -304,7 +304,7 @@ def main(
                         (
                             x_valid,
                             jnp.zeros(
-                                (x_valid.shape[0], a_dyn.shape[1] - x_valid.shape[1], 1)
+                                (x_valid.shape[0], a_mat.shape[1] - x_valid.shape[1], 1)
                             ),
                         ),
                         axis=1,
@@ -317,7 +317,7 @@ def main(
                     )
                     validation_loss = batched_objective(predictions)
                     eqcv = jnp.abs(
-                        a_dyn[0] @ predictions.reshape(-1, y_dim, 1) - x_valid_full
+                        a_mat[0] @ predictions.reshape(-1, y_dim, 1) - x_valid_full
                     ).max()
                     ineqcvub = jnp.max(
                         jnp.maximum(predictions.reshape(-1, y_dim, 1) - ub, 0), axis=1
@@ -367,7 +367,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Validation",
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             lb=lb,
             ub=ub,
             cv_tol=1e-3,
@@ -379,7 +379,7 @@ def main(
                 state=state,
                 batched_objective=batched_objective,
                 prefix="Test",
-                a_dyn=a_dyn,
+                a_mat=a_mat,
                 lb=lb,
                 ub=ub,
                 cv_tol=1e-3,
@@ -392,7 +392,7 @@ def main(
             state=state,
             batched_objective=batched_objective,
             prefix="Test",
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             lb=lb,
             ub=ub,
             cv_tol=1e-3,
@@ -534,7 +534,7 @@ if __name__ == "__main__":
         loader_key, key = jax.random.split(key, 2)
         # Parse data
         (
-            a_dyn,
+            a_mat,
             lbxs,
             ubxs,
             lbus,
@@ -556,11 +556,11 @@ if __name__ == "__main__":
             rng_key=loader_key,
             use_jax_loader=use_jax_loader,
         )
-        y_dim = a_dyn.shape[2]
+        y_dim = a_mat.shape[2]
         # The X contains only the initial conditions.
         # To properly define the equality constraints we need to append zeros
         x_full = jnp.concatenate(
-            (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),
+            (x_data, jnp.zeros((x_data.shape[0], a_mat.shape[1] - x_data.shape[1], 1))),
             axis=1,
         )
         dimx = lbxs.shape[1]
@@ -570,7 +570,7 @@ if __name__ == "__main__":
         model, params, train_step = setup_model(
             rng_key=key,
             hyperparameters=hyperparameters,
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             x_data=x_data,
             b=x_full,
             lb=lb,
@@ -601,7 +601,7 @@ if __name__ == "__main__":
 
         trajectories_pred, trajectories_cp = generate_trajectories(
             state=state,
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             lbxs=lbxs,
             ubxs=ubxs,
             lbus=lbus,

@@ -9,12 +9,12 @@ import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
 
-# TEMP: pre-PR-#96 SimpleQP datasets shipped with mixed key names — earlier
-# revisions wrote `a_dyn` for the equality matrix, even-earlier ones wrote
-# uppercase `A`/`Q`/`G`/`X`/`Ystar`. PR #96 standardised on lowercase
-# (`a`/`q_mat`/`g_mat`/`x_data`/`y_star`). Accept all three so the in-repo
-# datasets keep working without a regenerate step. Track removal in
-# https://github.com/antonioterpin/pinet/issues/112.
+# TEMP: dataset key shim. Accepts main's uppercase convention
+# (``A``/``Q``/``G``/``X``/``Ystar``), the current lowercase ``_mat``
+# convention (``a_mat``/``q_mat``/``g_mat``/``x_data``/``y_star``), and
+# the intermediate ``a_dyn`` key that the in-repo .npz datasets currently
+# carry. Dataset regeneration (which will drop the ``a_dyn`` fallback)
+# is tracked in https://github.com/antonioterpin/pinet/issues/112.
 def _pick(data: Any, *keys: str) -> jnp.ndarray:
     """Return ``data[k]`` for the first ``k`` in ``keys`` that exists.
 
@@ -44,7 +44,7 @@ class SimpleQPDataset(Dataset[tuple[jax.Array, jax.Array]]):
         self.const = (
             _pick(data, "q_mat", "Q"),
             data["p"],
-            _pick(data, "a", "a_dyn", "A"),
+            _pick(data, "a_mat", "a_dyn", "A"),
             _pick(data, "g_mat", "G"),
             data["h"],
         )

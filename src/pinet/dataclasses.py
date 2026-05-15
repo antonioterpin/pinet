@@ -36,13 +36,13 @@ class EqualityConstraintsSpecification(eqx.Module):
 
     Attributes:
         b: Vector representing the RHS of the equality constraint.
-        a_dyn: Matrix representing the LHS of the equality constraint.
-        a_dyn_pinv: The pseudoinverse of ``a_dyn``.
+        a_mat: Matrix representing the LHS of the equality constraint.
+        a_mat_pinv: The pseudoinverse of ``a_mat``.
     """
 
     b: BatchedRHS | None = None
-    a_dyn: BatchedEqMatrix | None = None
-    a_dyn_pinv: BatchedEqPinv | None = None
+    a_mat: BatchedEqMatrix | None = None
+    a_mat_pinv: BatchedEqPinv | None = None
 
     def validate(self) -> None:
         """Validate the equality constraints specification.
@@ -51,10 +51,10 @@ class EqualityConstraintsSpecification(eqx.Module):
         can be used to validate the inputs before tracing.
 
         Raises:
-            ValueError: If a_dyn is provided but b is not.
+            ValueError: If a_mat is provided but b is not.
         """
-        if self.a_dyn is not None and self.b is None:
-            raise ValueError("If a_dyn is provided, b must also be provided.")
+        if self.a_mat is not None and self.b is None:
+            raise ValueError("If a_mat is provided, b must also be provided.")
 
     def update(self, **kwargs: object) -> "EqualityConstraintsSpecification":
         """Update some attribute by keyword.
@@ -285,14 +285,15 @@ class SocConstraintSpecification(eqx.Module):
         """
         self.validate()
         assert self.mask_t is not None  # narrowed by validate()
-        # ``A`` and ``f`` are placeholders for SOC (which uses masks instead of
-        # the full A/f machinery). Use batch size 1 to satisfy the documented
-        # ``NLMatrix`` / ``NLLinearRHS`` shape contracts (``"1 m n"`` and
-        # ``"1 1 n"``); the constraint dimensions ``m=0``/``1`` and the
-        # variable dimension ``n=mask_t.size`` keep the placeholders empty.
+        # ``a_mat`` and ``f`` are placeholders for SOC (which uses masks instead
+        # of the full a_mat/f machinery). Use batch size 1 to satisfy the
+        # documented ``NLMatrix`` / ``NLLinearRHS`` shape contracts
+        # (``"1 m n"`` and ``"1 1 n"``); the constraint dimensions
+        # ``m=0``/``1`` and the variable dimension ``n=mask_t.size`` keep the
+        # placeholders empty.
         return NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.empty((1, 0, self.mask_t.size)),
+            a_mat=jnp.empty((1, 0, self.mask_t.size)),
             a=self.a,
             f=jnp.empty((1, 1, self.mask_t.size)),
             b=self.b,
@@ -304,14 +305,14 @@ class NonLinearSpecification(eqx.Module):
 
     Attributes:
         nl_type: The type of non-linear constraint (e.g., ``SOCType``, ``L2NormType``).
-        A: Matrix for the constraint (single shared matrix across the batch).
+        a_mat: Matrix for the constraint (single shared matrix across the batch).
         a: Per-instance coefficient vector for the constraint.
         f: Optional RHS vector for the constraint (single shared vector).
         b: Optional per-instance scalar parameter for the constraint.
     """
 
     nl_type: NonLinearConstraintType = eqx.field(static=True)
-    A: NLMatrix
+    a_mat: NLMatrix
     a: BatchedRHS | None = None
     f: NLLinearRHS | None = None
     b: BatchedScalar | None = None
@@ -341,28 +342,28 @@ class NonLinearSpecification(eqx.Module):
 
     def _validate_batch_sizes(self) -> None:
         batch_sizes: list[int] = []
-        for tensor in (self.A, self.a, self.f, self.b):
+        for tensor in (self.a_mat, self.a, self.f, self.b):
             if tensor is not None:
                 batch_sizes.append(tensor.shape[0])
         if batch_sizes:
             non_one_sizes = [size for size in batch_sizes if size != 1]
             if len(set(non_one_sizes)) > 1:
                 raise ValueError(f"Inconsistent batch sizes: {batch_sizes}")
-        if self.A.shape[0] != 1:
-            raise ValueError(f"A must have batch size 1, got {self.A.shape[0]}")
+        if self.a_mat.shape[0] != 1:
+            raise ValueError(f"a_mat must have batch size 1, got {self.a_mat.shape[0]}")
         if self.f is not None and self.f.shape[0] != 1:
             raise ValueError(f"f must have batch size 1, got {self.f.shape[0]}")
 
     def _validate_dim_consistency(self) -> None:
-        if self.a is not None and self.A.shape[1] != self.a.shape[1]:
+        if self.a is not None and self.a_mat.shape[1] != self.a.shape[1]:
             raise ValueError(
-                f"A and a must have same constraint dimension: "
-                f"{self.A.shape[1]} vs {self.a.shape[1]}"
+                f"a_mat and a must have same constraint dimension: "
+                f"{self.a_mat.shape[1]} vs {self.a.shape[1]}"
             )
-        if self.f is not None and self.A.shape[2] != self.f.shape[2]:
+        if self.f is not None and self.a_mat.shape[2] != self.f.shape[2]:
             raise ValueError(
-                f"A and f must have same variable dimension: "
-                f"{self.A.shape[2]} vs {self.f.shape[2]}"
+                f"a_mat and f must have same variable dimension: "
+                f"{self.a_mat.shape[2]} vs {self.f.shape[2]}"
             )
         if (
             self.f is not None
@@ -465,7 +466,7 @@ class EquilibrationParams(eqx.Module):
             * ``"Jacobi"``: compute both row and column norms and update.
             * ``"Gauss"``: compute row, update, compute column, update.
 
-        safeguard: Check if the condition number of ``a_dyn`` has decreased.
+        safeguard: Check if the condition number of ``a_mat`` has decreased.
     """
 
     max_iter: int = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_MAX_ITER)
