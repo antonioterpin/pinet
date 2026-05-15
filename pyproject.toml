@@ -36,6 +36,7 @@ dependencies = [
     "wandb>=0.20.1",
     "jaxtyping>=0.3.7",
     "equinox>=0.13.7",
+    "beartype>=0.22.9",
 ]
 
 # Optional dependencies
