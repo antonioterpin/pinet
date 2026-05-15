@@ -28,7 +28,7 @@ def _pick(data: Any, *keys: str) -> jnp.ndarray:
 
 
 # Load Instance Dataset
-class SimpleQPDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
+class SimpleQPDataset(Dataset[tuple[jax.Array, jax.Array]]):
     """Dataset for simple QP benchmark."""
 
     def __init__(self, filepath: str) -> None:
@@ -60,7 +60,7 @@ class SimpleQPDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         """
         return self.x_data.shape[0]
 
-    def __getitem__(self, idx: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def __getitem__(self, idx: int) -> tuple[jax.Array, jax.Array]:
         """Get item from dataset.
 
         Args:
@@ -79,9 +79,9 @@ def create_dataloaders(
     test_split: float = 0.1,
     shuffle: bool = True,
 ) -> tuple[
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jax.Array, jax.Array]],
+    DataLoader[tuple[jax.Array, jax.Array]],
+    DataLoader[tuple[jax.Array, jax.Array]],
 ]:
     """Dataset loaders for training, validation and test.
 
@@ -123,7 +123,7 @@ def create_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-class DC3Dataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
+class DC3Dataset(Dataset[tuple[jax.Array, jax.Array]]):
     """Dataset for importing DC3 problems."""
 
     def __init__(self, filepath: str, use_convex: bool):
@@ -163,7 +163,7 @@ class DC3Dataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         """
         return self.x_data.shape[0]
 
-    def __getitem__(self, idx: int | jax.Array) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def __getitem__(self, idx: int | jax.Array) -> tuple[jax.Array, jax.Array]:
         """Get item from dataset.
 
         Args:
@@ -210,11 +210,11 @@ class JaxDataLoader:
         """
         return (len(self.dataset) + self.batch_size - 1) // self.batch_size
 
-    def __iter__(self) -> Iterator[tuple[jnp.ndarray, jnp.ndarray]]:
+    def __iter__(self) -> Iterator[tuple[jax.Array, jax.Array]]:
         """Iterate over the dataset.
 
         Yields:
-            tuple[jnp.ndarray, jnp.ndarray]: Batch of input features and objective values.
+            tuple[jax.Array, jax.Array]: Batch of input features and objective values.
         """
         for start in range(0, len(self.dataset), self.batch_size):
             batch_idx = self._perm[start : start + self.batch_size]
@@ -234,7 +234,7 @@ def dc3_dataloader(
     use_convex: bool,
     batch_size: int = 512,
     shuffle: bool = True,
-) -> DataLoader[tuple[jnp.ndarray, jnp.ndarray]]:
+) -> DataLoader[tuple[jax.Array, jax.Array]]:
     """Dataset loader for training, validation, or test.
 
     Args:
@@ -270,15 +270,15 @@ def non_dc3_dataset_setup(
     batch_size: int,
     use_jax_loader: bool,
 ) -> tuple[
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    DataLoader[tuple[jax.Array, jax.Array]],
+    DataLoader[tuple[jax.Array, jax.Array]],
+    DataLoader[tuple[jax.Array, jax.Array]],
 ]:
     """Setup function for datasets generated with our script.
 
@@ -333,15 +333,15 @@ def dc3_dataset_setup(
     batch_size: int,
     use_jax_loader: bool,
 ) -> tuple[
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoader,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoader,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoader,
 ]:
     """Setup function for datasets generated with the DC3 script.
 
@@ -433,15 +433,15 @@ def load_data(
     use_jax_loader: bool = True,
     penalty: float = 0.0,
 ) -> tuple[
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    Callable[[jnp.ndarray], jnp.ndarray],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoader,
-    Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    Callable[[jax.Array], jax.Array],
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoader,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoader,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoader,
+    Callable[[jax.Array, jax.Array], jax.Array],
 ]:
     """Load problem data.
 
@@ -481,7 +481,7 @@ def load_data(
 
     # Define loss/objective function
     # Predictions is of shape (batch_size, Y_DIM) and Q is of shape (Y_DIM, Y_DIM)
-    def quadratic_form(prediction: jnp.ndarray) -> jnp.ndarray:
+    def quadratic_form(prediction: jax.Array) -> jax.Array:
         """Evaluate the quadratic objective.
 
         Args:
@@ -492,7 +492,7 @@ def load_data(
         """
         return 0.5 * prediction.T @ q_mat @ prediction + p.T @ prediction
 
-    def quadratic_form_sine(prediction: jnp.ndarray) -> jnp.ndarray:
+    def quadratic_form_sine(prediction: jax.Array) -> jax.Array:
         """Evaluate the quadratic objective plus sine.
 
         Args:
