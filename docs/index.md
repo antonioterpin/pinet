@@ -22,7 +22,8 @@ One file per topic -- all code must satisfy these:
 |---|---|
 | [environment-tooling.md](standards/environment-tooling.md) | Always use `uv run`; virtual-env discipline |
 | [code-quality.md](standards/code-quality.md) | Pre-commit gates, quality checklist |
-| [code-clarity.md](standards/code-clarity.md) | Naming, comments, markdown & prose conventions |
+| [code-clarity.md](standards/code-clarity.md) | Naming intent, comments, markdown & prose conventions |
+| [naming.md](standards/naming.md) | Identifier conventions (`_mat` suffix, allowed uppercase, jaxtyping axes) |
 | [code-organization.md](standards/code-organization.md) | Module layout and ownership rules |
 | [typing-docstrings.md](standards/typing-docstrings.md) | Modern type hints (PEP 585/604), Google-style docstrings |
 | [testing.md](standards/testing.md) | TDD, Arrange/Act/Assert, coverage, hypothesis |
