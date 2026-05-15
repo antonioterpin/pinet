@@ -28,18 +28,18 @@ _ShapeOrValidationError = (ValueError, TypeError, TypeCheckError)
 
 def test_eq_validate_requires_b_when_a_provided():
     spec = EqualityConstraintsSpecification(
-        a_dyn=jnp.ones((2, 5, 3)),  # (batch, n_constraints, dimension)
+        a=jnp.ones((2, 5, 3)),  # (batch, n_constraints, dimension)
         b=None,
     )
     with pytest.raises(
-        ValueError, match=re.escape("If a_dyn is provided, b must also be provided.")
+        ValueError, match=re.escape("If a is provided, b must also be provided.")
     ):
         spec.validate()
 
 
 def test_eq_validate_passes_when_b_and_a_provided():
     spec = EqualityConstraintsSpecification(
-        a_dyn=jnp.ones((2, 5, 3)),
+        a=jnp.ones((2, 5, 3)),
         b=jnp.ones((2, 5, 1)),
     )
     # should not raise
@@ -47,7 +47,7 @@ def test_eq_validate_passes_when_b_and_a_provided():
 
 
 def test_eq_validate_passes_when_only_b_provided():
-    # b without a_dyn is allowed by current logic
+    # b without a is allowed by current logic
     spec = EqualityConstraintsSpecification(b=jnp.ones((1, 3, 1)))
     spec.validate()
 
@@ -207,20 +207,18 @@ def test_equilibration_validate_update_mode_invalid_raises():
 
 def test_eq_update_returns_new_and_sets_fields():
     spec0 = EqualityConstraintsSpecification()
-    a_dyn = jnp.ones((2, 3, 4))
+    a = jnp.ones((2, 3, 4))
     b = jnp.ones((2, 3, 1))
     apinv = jnp.ones((2, 4, 3))
 
-    spec1 = spec0.update(a_dyn=a_dyn, b=b, a_dyn_pinv=apinv)
+    spec1 = spec0.update(a=a, b=b, a_pinv=apinv)
 
     assert spec1 is not spec0, "update() should return a new equality specification."
-    assert spec1.a_dyn is a_dyn, "Updated equality specification should store a_dyn."
+    assert spec1.a is a, "Updated equality specification should store a."
     assert spec1.b is b, "Updated equality specification should store b."
-    assert spec1.a_dyn_pinv is apinv, (
-        "Updated equality specification should store a_dyn_pinv."
-    )
+    assert spec1.a_pinv is apinv, "Updated equality specification should store a_pinv."
     # original remains unchanged
-    assert spec0.a_dyn is None and spec0.b is None and spec0.a_dyn_pinv is None, (
+    assert spec0.a is None and spec0.b is None and spec0.a_pinv is None, (
         "update() should not mutate the original equality specification."
     )
 
@@ -260,9 +258,9 @@ def test_projection_update_sets_eq_and_box_and_returns_new():
     pi0 = ProjectionInstance(x=x0)
 
     eq = EqualityConstraintsSpecification(
-        a_dyn=jnp.ones((2, 1, 3)),
+        a=jnp.ones((2, 1, 3)),
         b=jnp.ones((2, 1, 1)),
-        a_dyn_pinv=jnp.ones((2, 3, 1)),
+        a_pinv=jnp.ones((2, 3, 1)),
     )
     box = BoxConstraintSpecification(
         lb=jnp.zeros((2, 3, 1)),

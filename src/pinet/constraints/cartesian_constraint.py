@@ -112,7 +112,7 @@ class CartesianConstraint(Constraint):
         # static shape information, so use ``numpy`` for the bookkeeping —
         # ``jnp.any`` would return a tracer when ``CartesianConstraint`` is
         # rebuilt inside the jitted ``solver.admm.initialize`` re-lift
-        # (``var_a_dyn=True`` path) and the ``if`` below would fail.
+        # (``var_a=True`` path) and the ``if`` below would fail.
         used_mask = np.zeros(dim, dtype=bool)
 
         for constraint in constraints:

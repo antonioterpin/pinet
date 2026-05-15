@@ -18,7 +18,7 @@ jax.config.update("jax_enable_x64", True)
 def solve_problems(
     q_mat: jax.Array,
     p: jax.Array,
-    a_dyn: jax.Array,
+    a: jax.Array,
     x_data: jax.Array,
     g_mat: jax.Array,
     h: jax.Array,
@@ -29,7 +29,7 @@ def solve_problems(
     Args:
         q_mat: Quadratic term of the objective function.
         p: Linear term of the objective function.
-        a_dyn: Coefficient matrix for equality constraints.
+        a: Coefficient matrix for equality constraints.
         x_data: Input data for equality constraints.
         g_mat: Coefficient matrix for inequality constraints.
         h: Right-hand side of the inequality constraints.
@@ -55,7 +55,7 @@ def solve_problems(
             constraints = cast(
                 list[cp.Constraint],
                 [
-                    a_dyn[0, :, :] @ ycp == x_data[problem_idx, :, 0],
+                    a[0, :, :] @ ycp == x_data[problem_idx, :, 0],
                     g_mat[0, :, :] @ ycp <= h[0, :, 0],
                 ],
             )
@@ -96,14 +96,12 @@ if __name__ == "__main__":
         axis=0,
     )
     p = jax.random.uniform(key[1], shape=(1, NUM_VAR, 1), minval=0.0, maxval=1.0)
-    a_dyn = jax.random.normal(key[2], shape=(1, NUM_EQ, NUM_VAR))
+    a = jax.random.normal(key[2], shape=(1, NUM_EQ, NUM_VAR))
     x_data = jax.random.uniform(
         key[3], shape=(NUM_EXAMPLES, NUM_EQ, 1), minval=-1.0, maxval=1.0
     )
     g_mat = jax.random.normal(key[4], shape=(1, NUM_INEQ, NUM_VAR))
-    h = jnp.expand_dims(
-        jnp.sum(jnp.abs(g_mat @ jnp.linalg.pinv(a_dyn[0])), axis=1), axis=2
-    )
+    h = jnp.expand_dims(jnp.sum(jnp.abs(g_mat @ jnp.linalg.pinv(a[0])), axis=1), axis=2)
 
     if SAVE_DATASET:
         # Create the datasets directory if it doesn't exist
@@ -111,7 +109,7 @@ if __name__ == "__main__":
 
         # Solve all the problem instances
         objectives, y_star = solve_problems(
-            q_mat, p[0, :, :], a_dyn, x_data, g_mat, h, CONVEX
+            q_mat, p[0, :, :], a, x_data, g_mat, h, CONVEX
         )
 
         # Define the filename and save the dataset
@@ -135,7 +133,7 @@ if __name__ == "__main__":
             filename,
             q_mat=q_mat,
             p=p,
-            a_dyn=a_dyn,
+            a=a,
             x_data=x_data,
             g_mat=g_mat,
             h=h,

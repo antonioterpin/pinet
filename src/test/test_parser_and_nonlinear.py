@@ -46,7 +46,7 @@ def test_simple_problem(seed, batch_size):
     # Equality constraint
     A = jrnd.uniform(key, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] + [False] * (dim - 1), dtype=jnp.bool_)
@@ -165,7 +165,7 @@ def test_simple_problem(seed, batch_size):
     )
 
     # Assertions
-    assert jnp.allclose(eq_lifted.a_dyn, A_lifted_correct), (
+    assert jnp.allclose(eq_lifted.a, A_lifted_correct), (
         """Lifted A matrix is incorrect."""
     )
     assert jnp.allclose(eq_lifted.b, b_lifted_correct), """
@@ -257,7 +257,7 @@ def test_simple_problem(seed, batch_size):
         Projected points do not match CVXPY solution.
     """
     assert jnp.allclose(
-        yk.x[:, dim:, :], eq_lifted.a_dyn[0, n_A:, :dim] @ y_opt, atol=1e-5, rtol=1e-5
+        yk.x[:, dim:, :], eq_lifted.a[0, n_A:, :dim] @ y_opt, atol=1e-5, rtol=1e-5
     ), """
         Auxiliary variables do not match CVXPY solution.
     """
@@ -299,7 +299,7 @@ def test_simple_problem(seed, batch_size):
     """
     assert jnp.allclose(
         yk_new.x[:, dim:, :],
-        eq_lifted.a_dyn[0, n_A:, :dim] @ y_opt_new,
+        eq_lifted.a[0, n_A:, :dim] @ y_opt_new,
         atol=1e-5,
         rtol=1e-5,
     ), """
@@ -318,7 +318,7 @@ def test_parse_non_linear_with_no_box_constraint():
     A = jrnd.uniform(ka, shape=(1, n_eq, dim), minval=-1, maxval=1)
     x_ref = jrnd.uniform(ks, shape=(1, dim, 1), minval=-1, maxval=1)
     b = A @ x_ref
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
 
     C = jrnd.uniform(kc, shape=(1, n_ineq, dim), minval=-1, maxval=1)
     Cx = C @ x_ref
@@ -426,7 +426,7 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
     lb = jnp.array([[[-1.0]]])
     ub = jnp.array([[[1.0]]])
 
-    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a=A, b=b, var_b=False)
     ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb, ub=ub)
 
     nl_spec = NonLinearSpecification(
@@ -458,7 +458,7 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
 def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
     """Test parser raises when inequality C batch size is not 1 in nonlinear mode."""
     eq_constraint = EqualityConstraint(
-        a_dyn=jnp.array([[[1.0, 0.0, 0.0]]]),
+        a=jnp.array([[[1.0, 0.0, 0.0]]]),
         b=jnp.array([[[0.0]]]),
         var_b=False,
     )
@@ -630,9 +630,9 @@ def test_box_and_nonlinear_constraints(seed, batch_size):
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, [1, 5]))
 def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
-    """``var_a_dyn=True`` works on the non-linear path.
+    """``var_a=True`` works on the non-linear path.
 
-    The lifted ``a_dyn`` propagates the user-supplied per-instance
+    The lifted ``a`` propagates the user-supplied per-instance
     equality matrix through ``parse_non_linear`` (re-run inside
     ``solver.admm.initialize``), and the projection still satisfies
     both the equality and SOC constraints.
@@ -650,9 +650,9 @@ def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
     key, kA, kx_feas, kxinfeas, ka, kf = jrnd.split(key, 6)
 
     # Per-instance equality matrix and a feasible point that satisfies it.
-    a_dyn = jrnd.uniform(kA, shape=(batch_size, n_eq, dim), minval=-1.0, maxval=1.0)
+    a = jrnd.uniform(kA, shape=(batch_size, n_eq, dim), minval=-1.0, maxval=1.0)
     x_feas = jrnd.uniform(kx_feas, shape=(batch_size, dim, 1), minval=-1.0, maxval=1.0)
-    b_eq = a_dyn @ x_feas
+    b_eq = a @ x_feas
 
     # Build the SOC: ``||A_soc x + a_soc||_2 <= f_soc x + b_soc``.
     A_soc = jrnd.uniform(kA, shape=(1, m_soc, dim), minval=-1.0, maxval=1.0)
@@ -672,11 +672,9 @@ def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
     )
     nl_constraint = NonLinearConstraint(spec=nl_spec)
 
-    # Construct ``Project`` with ``var_a_dyn=True`` so the per-instance
-    # ``a_dyn`` is supplied at projection time via ``yraw.eq``.
-    eq_constraint = EqualityConstraint(
-        a_dyn=a_dyn, b=b_eq, method="pinv", var_a_dyn=True, var_b=True
-    )
+    # Construct ``Project`` with ``var_a=True`` so the per-instance
+    # ``a`` is supplied at projection time via ``yraw.eq``.
+    eq_constraint = EqualityConstraint(a=a, b=b_eq, method="pinv", var_a=True, var_b=True)
     project_layer = Project(
         eq_constraint=eq_constraint,
         nl_constraints=[nl_constraint],
@@ -686,20 +684,20 @@ def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
     x_infeas = jrnd.uniform(kxinfeas, shape=(batch_size, dim, 1), minval=-3.0, maxval=3.0)
     yraw = ProjectionInstance(
         x=x_infeas,
-        eq=EqualityConstraintsSpecification(a_dyn=a_dyn, b=b_eq),
+        eq=EqualityConstraintsSpecification(a=a, b=b_eq),
         nl=[nl_spec],
     )
     yk, _ = project_layer.call(yraw=yraw, n_iter=500)
     primal = yk.x[:, :dim, :]
 
     # Equality holds.
-    assert jnp.allclose(a_dyn @ primal, b_eq, atol=1e-4), (
-        "Per-instance equality constraint violated under var_a_dyn=True."
+    assert jnp.allclose(a @ primal, b_eq, atol=1e-4), (
+        "Per-instance equality constraint violated under var_a=True."
     )
     # SOC holds.
     soc_lhs = jnp.linalg.norm(A_soc @ primal + a_soc, axis=1, keepdims=True)
     soc_rhs = f_soc @ primal + b_soc
     assert jnp.all(soc_lhs <= soc_rhs + 1e-3), (
-        f"SOC constraint violated under var_a_dyn=True: "
+        f"SOC constraint violated under var_a=True: "
         f"max LHS-RHS={float(jnp.max(soc_lhs - soc_rhs))}"
     )

@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 
 # TEMP: pre-PR-#96 datasets shipped with assorted key names — earliest
-# revisions used `As`/`Ystar`/`T`, later ones `a_dyn`, and the post-PR-96
+# revisions used `As`/`Ystar`/`T`, later ones `a`, and the post-PR-96
 # generators write `a`/`y_star`/`horizon`. Accept all of them so the in-repo
 # datasets keep working without a regenerate step. Track removal in
 # https://github.com/antonioterpin/pinet/issues/112.

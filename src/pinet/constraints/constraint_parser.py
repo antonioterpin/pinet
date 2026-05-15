@@ -75,11 +75,11 @@ class ConstraintParser:
 
         if eq_constraint is None:
             eq_constraint = EqualityConstraint(
-                a_dyn=jnp.empty((1, 0, self.dim)),
+                a=jnp.empty((1, 0, self.dim)),
                 b=jnp.empty((1, 0, 1)),
                 method=None,
                 var_b=False,
-                var_a_dyn=False,
+                var_a=False,
             )
 
         self.eq_constraint = eq_constraint
@@ -91,11 +91,10 @@ class ConstraintParser:
             # Batch consistency checks
             # Equality and inequality matrices must have compatible batch dimensions.
             assert (
-                self.eq_constraint.a_dyn.shape[0]
-                == ineq_constraint.constr_matrix.shape[0]
-                or self.eq_constraint.a_dyn.shape[0] == 1
+                self.eq_constraint.a.shape[0] == ineq_constraint.constr_matrix.shape[0]
+                or self.eq_constraint.a.shape[0] == 1
                 or ineq_constraint.constr_matrix.shape[0] == 1
-            ), "Batch sizes of a_dyn and constr_matrix must be consistent."
+            ), "Batch sizes of a and constr_matrix must be consistent."
             if box_constraint is not None:
                 # An explicit box constraint must provide its lower bounds.
                 assert box_constraint.lb is not None
@@ -165,20 +164,18 @@ class ConstraintParser:
         # Precondition: eq_constraint is set by __init__ for non-identity mode.
         assert eq_constraint is not None
 
-        # Build lifted a_dyn matrix.
-        # Maximum batch size between a_dyn and constr_matrix.
-        mb_ac = max(eq_constraint.a_dyn.shape[0], ineq_constraint.constr_matrix.shape[0])
+        # Build lifted a matrix.
+        # Maximum batch size between a and constr_matrix.
+        mb_ac = max(eq_constraint.a.shape[0], ineq_constraint.constr_matrix.shape[0])
         first_row_batched = jnp.tile(
             jnp.concatenate(
                 [
-                    eq_constraint.a_dyn,
-                    jnp.zeros(
-                        shape=(eq_constraint.a_dyn.shape[0], self.n_eq, self.n_ineq)
-                    ),
+                    eq_constraint.a,
+                    jnp.zeros(shape=(eq_constraint.a.shape[0], self.n_eq, self.n_ineq)),
                 ],
                 axis=2,
             ),
-            (mb_ac // eq_constraint.a_dyn.shape[0], 1, 1),
+            (mb_ac // eq_constraint.a.shape[0], 1, 1),
         )
         second_row_batched = jnp.tile(
             jnp.concatenate(
@@ -202,11 +199,11 @@ class ConstraintParser:
             axis=1,
         )
         eq_lifted = EqualityConstraint(
-            a_dyn=a_dyn_lifted,
+            a=a_dyn_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
-            var_a_dyn=eq_constraint.var_a_dyn,
+            var_a=eq_constraint.var_a,
         )
 
         if self.box_constraint is None:
@@ -330,7 +327,7 @@ class ConstraintParser:
         # ``ArrayLike`` here matches the public spec annotations (jax + numpy)
         # so all the ``.append`` calls below typecheck regardless of which
         # backend the caller passed in.
-        all_matrices: list[ArrayLike] = [eq_constraint.a_dyn]
+        all_matrices: list[ArrayLike] = [eq_constraint.a]
         dims: list[int] = [eq_constraint.dim]
         if self.ineq_constraint is not None:
             all_matrices.append(self.ineq_constraint.constr_matrix)
@@ -363,11 +360,11 @@ class ConstraintParser:
         # ``int`` shape values, so use the built-in ``sum`` to avoid
         # producing a traced array inside ``jnp.sum`` (which would error
         # when ``parse_non_linear`` is re-invoked from the jitted
-        # ``solver.admm.initialize`` for the ``var_a_dyn=True`` re-lift).
+        # ``solver.admm.initialize`` for the ``var_a=True`` re-lift).
         n_aux = sum(dims[1:])
         n_tot = sum(dims)
         # Tile each row block to the largest batch size before concatenating
-        # along the row axis. With ``var_a_dyn=True`` the equality matrix
+        # along the row axis. With ``var_a=True`` the equality matrix
         # carries a per-instance batch (>1); inequality and non-linear
         # matrices are constrained to batch 1 (validated above).
         max_batch = max(M.shape[0] for M in all_matrices)
@@ -391,17 +388,17 @@ class ConstraintParser:
             [eq_constraint.b, jnp.zeros(shape=(eq_constraint.b.shape[0], n_aux, 1))],
             axis=1,
         )
-        # Define lifted equality constraints. ``var_a_dyn`` propagates from the
-        # input: when the user supplies a per-instance ``a_dyn`` via
-        # ``yraw.eq.a_dyn``, ``solver.admm.initialize`` re-runs
+        # Define lifted equality constraints. ``var_a`` propagates from the
+        # input: when the user supplies a per-instance ``a`` via
+        # ``yraw.eq.a``, ``solver.admm.initialize`` re-runs
         # ``parse_non_linear`` with the new value and produces a fresh lifted
-        # ``a_dyn`` / ``a_dyn_pinv`` whose top block reflects that input.
+        # ``a`` / ``a_pinv`` whose top block reflects that input.
         eq_lifted = EqualityConstraint(
-            a_dyn=a_lifted,
+            a=a_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
-            var_a_dyn=eq_constraint.var_a_dyn,
+            var_a=eq_constraint.var_a,
         )
         # Setup primitive constraints -> Box, SOC, ...
         prim_constraints: list[SocConstraint] = []
@@ -462,7 +459,7 @@ class ConstraintParser:
                 # downstream ``validate()`` (which calls ``.sum()``) returns
                 # a concrete Python scalar — important when
                 # ``parse_non_linear`` is re-invoked from the jitted
-                # ``solver.admm.initialize`` for ``var_a_dyn=True``.
+                # ``solver.admm.initialize`` for ``var_a=True``.
                 socspec = SocConstraintSpecification(
                     mask_u=np.array(
                         [False] * n_curr

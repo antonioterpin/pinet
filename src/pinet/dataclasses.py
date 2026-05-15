@@ -36,13 +36,13 @@ class EqualityConstraintsSpecification(eqx.Module):
 
     Attributes:
         b: Vector representing the RHS of the equality constraint.
-        a_dyn: Matrix representing the LHS of the equality constraint.
-        a_dyn_pinv: The pseudoinverse of ``a_dyn``.
+        a: Matrix representing the LHS of the equality constraint.
+        a_pinv: The pseudoinverse of ``a``.
     """
 
     b: BatchedRHS | None = None
-    a_dyn: BatchedEqMatrix | None = None
-    a_dyn_pinv: BatchedEqPinv | None = None
+    a: BatchedEqMatrix | None = None
+    a_pinv: BatchedEqPinv | None = None
 
     def validate(self) -> None:
         """Validate the equality constraints specification.
@@ -51,10 +51,10 @@ class EqualityConstraintsSpecification(eqx.Module):
         can be used to validate the inputs before tracing.
 
         Raises:
-            ValueError: If a_dyn is provided but b is not.
+            ValueError: If a is provided but b is not.
         """
-        if self.a_dyn is not None and self.b is None:
-            raise ValueError("If a_dyn is provided, b must also be provided.")
+        if self.a is not None and self.b is None:
+            raise ValueError("If a is provided, b must also be provided.")
 
     def update(self, **kwargs: object) -> "EqualityConstraintsSpecification":
         """Update some attribute by keyword.
@@ -465,7 +465,7 @@ class EquilibrationParams(eqx.Module):
             * ``"Jacobi"``: compute both row and column norms and update.
             * ``"Gauss"``: compute row, update, compute column, update.
 
-        safeguard: Check if the condition number of ``a_dyn`` has decreased.
+        safeguard: Check if the condition number of ``a`` has decreased.
     """
 
     max_iter: int = eqx.field(static=True, default=EQUILIBRATION_DEFAULT_MAX_ITER)

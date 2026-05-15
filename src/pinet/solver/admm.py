@@ -39,7 +39,7 @@ def initialize(
         dim_lifted: Dimension of the lifted problem.
         d_r: Scaling factor for the lifted dimension.
         nl_constraints: Non-linear constraints, when present. Required for the
-            ``var_a_dyn=True`` re-lift to route through ``parse_non_linear``
+            ``var_a=True`` re-lift to route through ``parse_non_linear``
             instead of ``parse_polytope``.
 
     Returns:
@@ -47,11 +47,11 @@ def initialize(
     """
     # Preprocess
     eq_spec = yraw.eq
-    # ``a_dyn`` is only valid alongside ``b`` (enforced by the spec
+    # ``a`` is only valid alongside ``b`` (enforced by the spec
     # validators), so checking ``b`` covers both per-instance overrides.
     if eq_spec is not None and eq_spec.b is not None:
         # Lift ``b`` (zero-pad to the lifted dimension and apply the row
-        # scaling) and ``a_dyn`` together so the spec is updated atomically:
+        # scaling) and ``a`` together so the spec is updated atomically:
         # splitting this into two ``update`` calls would briefly leave the
         # spec with mismatched ``m`` axes, which beartype's runtime check
         # rejects.
@@ -65,11 +65,9 @@ def initialize(
             )
             * d_r,
         }
-        if eq_spec.a_dyn is not None:
+        if eq_spec.a is not None:
             parser = ConstraintParser(
-                eq_constraint=EqualityConstraint(
-                    a_dyn=eq_spec.a_dyn, b=eq_spec.b, method="pinv"
-                ),
+                eq_constraint=EqualityConstraint(a=eq_spec.a, b=eq_spec.b, method="pinv"),
                 ineq_constraint=ineq_constraint,
                 box_constraint=box_constraint,
                 nl_constraints=nl_constraints,
@@ -77,8 +75,8 @@ def initialize(
             lifted_eq_constraint, _, _ = parser.parse(method="pinv")
             # Parsing must return the lifted equality constraint in this branch.
             assert lifted_eq_constraint is not None
-            updates["a_dyn"] = lifted_eq_constraint.a_dyn
-            updates["a_dyn_pinv"] = lifted_eq_constraint.a_dyn_pinv
+            updates["a"] = lifted_eq_constraint.a
+            updates["a_pinv"] = lifted_eq_constraint.a_pinv
         yraw = yraw.update(eq=eq_spec.update(**updates))
 
     # Return updated value
