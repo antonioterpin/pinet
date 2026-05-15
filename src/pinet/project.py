@@ -274,6 +274,7 @@ class Project:
             dim=self.dim,
             dim_lifted=self.dim_lifted,
             d_r=self.d_r,
+            nl_constraints=self.nl_constraints,
         )
 
     def cv(self, y: ProjectionInstance) -> BatchedScalar:
