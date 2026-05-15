@@ -4,6 +4,7 @@ from collections.abc import Iterable, Sequence
 from typing import cast
 
 import cvxpy as cp
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,16 +12,16 @@ from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 from flax.training.train_state import TrainState
 from matplotlib.patches import Rectangle
 
-BatchLoader = Iterable[tuple[jnp.ndarray, jnp.ndarray]]
+BatchLoader = Iterable[tuple[jax.Array, jax.Array]]
 
 
 def plot_training(
     train_loader: BatchLoader,
     valid_loader: BatchLoader,
-    training_losses: Sequence[float | jnp.ndarray],
-    validation_losses: Sequence[float | jnp.ndarray],
-    eqcvs: Sequence[float | jnp.ndarray],
-    ineqcvs: Sequence[float | jnp.ndarray],
+    training_losses: Sequence[float | jax.Array],
+    validation_losses: Sequence[float | jax.Array],
+    eqcvs: Sequence[float | jax.Array],
+    ineqcvs: Sequence[float | jax.Array],
 ) -> None:
     """Plot training curves.
 
@@ -87,20 +88,20 @@ def plot_training(
 
 def generate_trajectories(
     state: TrainState,
-    a_dyn: jnp.ndarray,
-    lbxs: jnp.ndarray,
-    ubxs: jnp.ndarray,
-    lbus: jnp.ndarray,
-    ubus: jnp.ndarray,
+    a_dyn: jax.Array,
+    lbxs: jax.Array,
+    ubxs: jax.Array,
+    lbus: jax.Array,
+    ubus: jax.Array,
     alpha: float,
     base_dim: int,
     y_dim: int,
     dimx: int,
-    xhat: jnp.ndarray,
+    xhat: jax.Array,
     horizon: int,
-    lb: jnp.ndarray,
-    ub: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    lb: jax.Array,
+    ub: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
     """Generates trajectories from pinet and solver.
 
     Args:
@@ -121,8 +122,8 @@ def generate_trajectories(
 
     Returns:
         tuple: A tuple containing:
-            - trajectories (jnp.ndarray): Predicted trajectories from the model.
-            - trajectories_cp (jnp.ndarray): Trajectories computed using cvxpy.
+            - trajectories (jax.Array): Predicted trajectories from the model.
+            - trajectories_cp (jax.Array): Trajectories computed using cvxpy.
     """
     ntraj = 1
     xinit = jnp.array([[-7, -5]]).reshape(ntraj, base_dim, 1)
@@ -158,7 +159,7 @@ def generate_trajectories(
         problem.solve(verbose=False)
         trajectories_cp = trajectories_cp.at[i].set(jnp.asarray(xcp.value).reshape(-1, 1))
 
-    def plot_trajectory(trajectory_pred: jnp.ndarray, trajectory_cp: jnp.ndarray) -> None:
+    def plot_trajectory(trajectory_pred: jax.Array, trajectory_cp: jax.Array) -> None:
         """Plots the trajectory in z.
 
         Args:

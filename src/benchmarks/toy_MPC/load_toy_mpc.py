@@ -27,10 +27,10 @@ def _pick(data: Any, *keys: str) -> jnp.ndarray:
 
 
 # Load Instance Dataset
-class ToyMPCDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
+class ToyMPCDataset(Dataset[tuple[jax.Array, jax.Array]]):
     """Dataset for toy MPC benchmark."""
 
-    def __init__(self, data: dict[str, jnp.ndarray], const: dict[str, jnp.ndarray]):
+    def __init__(self, data: dict[str, jax.Array], const: dict[str, jax.Array]):
         """Initialize dataset.
 
         Args:
@@ -63,14 +63,14 @@ class ToyMPCDataset(Dataset[tuple[jnp.ndarray, jnp.ndarray]]):
         """
         return self.x0sets.shape[0]
 
-    def __getitem__(self, idx: int | jax.Array) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def __getitem__(self, idx: int | jax.Array) -> tuple[jax.Array, jax.Array]:
         """Get item from dataset.
 
         Args:
             idx: Index of the item to retrieve.
 
         Returns:
-            tuple[jnp.ndarray, jnp.ndarray]:
+            tuple[jax.Array, jax.Array]:
                 Tuple containing the initial condition and the objective value.
         """
         return self.x0sets[idx], self.objectives[idx]
@@ -83,9 +83,9 @@ def create_dataloaders(
     test_split: float = 0.1,
     shuffle: bool = True,
 ) -> tuple[
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]],
+    DataLoader[tuple[jax.Array, jax.Array]],
+    DataLoader[tuple[jax.Array, jax.Array]],
+    DataLoader[tuple[jax.Array, jax.Array]],
 ]:
     """Dataset loaders for training, validation and test.
 
@@ -188,20 +188,20 @@ def load_data(
     test_split: float = 0.1,
     use_jax_loader: bool = True,
 ) -> tuple[
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+    jax.Array,
     float,
     int,
     int,
-    jnp.ndarray,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoaderMPC,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoaderMPC,
-    DataLoader[tuple[jnp.ndarray, jnp.ndarray]] | JaxDataLoaderMPC,
-    Callable[[jnp.ndarray], jnp.ndarray],
+    jax.Array,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoaderMPC,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoaderMPC,
+    DataLoader[tuple[jax.Array, jax.Array]] | JaxDataLoaderMPC,
+    Callable[[jax.Array], jax.Array],
 ]:
     """Load problem data.
 
@@ -215,23 +215,23 @@ def load_data(
 
     Returns:
         tuple: A tuple containing:
-            - As (jnp.ndarray): System dynamics matrix.
-            - lbxs (jnp.ndarray): Lower bounds for state variables.
-            - ubxs (jnp.ndarray): Upper bounds for state variables.
-            - lbus (jnp.ndarray): Lower bounds for control inputs.
-            - ubus (jnp.ndarray): Upper bounds for control inputs.
-            - xhat (jnp.ndarray): Reference state.
+            - As (jax.Array): System dynamics matrix.
+            - lbxs (jax.Array): Lower bounds for state variables.
+            - ubxs (jax.Array): Upper bounds for state variables.
+            - lbus (jax.Array): Lower bounds for control inputs.
+            - ubus (jax.Array): Upper bounds for control inputs.
+            - xhat (jax.Array): Reference state.
             - alpha (float): Regularization parameter.
             - T (int): Time horizon.
             - base_dim (int): Dimension of the base state.
-            - X (jnp.ndarray): Initial conditions for the dataset.
+            - X (jax.Array): Initial conditions for the dataset.
             - train_loader: Training DataLoader or JaxDataLoaderMPC.
             - valid_loader: Validation DataLoader or JaxDataLoaderMPC.
             - test_loader: Test DataLoader or JaxDataLoaderMPC.
             - batched_objective: Function to compute the quadratic objective in batches.
     """
     dataset_path = os.path.join(os.path.dirname(__file__), "datasets", filepath)
-    all_data = cast(dict[str, jnp.ndarray], cast(object, jnp.load(dataset_path)))
+    all_data = cast(dict[str, jax.Array], cast(object, jnp.load(dataset_path)))
     toy_dataset = ToyMPCDataset(all_data, all_data)
     if not use_jax_loader:
         train_loader, valid_loader, test_loader = create_dataloaders(
@@ -302,14 +302,14 @@ def load_data(
     x_data = toy_dataset.x0sets
     dimx = lbxs.shape[1]
 
-    def quadratic_form(prediction: jnp.ndarray) -> jnp.ndarray:
+    def quadratic_form(prediction: jax.Array) -> jax.Array:
         """Evaluate the quadratic objective.
 
         Args:
             prediction: Predicted trajectory and controls for one instance.
 
         Returns:
-            jnp.ndarray: Scalar quadratic objective value.
+            jax.Array: Scalar quadratic objective value.
         """
         return jnp.sum(
             (prediction[:dimx] - jnp.tile(xhat[:, 0], horizon + 1)) ** 2
