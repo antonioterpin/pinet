@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import jax.numpy as jnp
 
-from pinet._typing import ColScaling, RowScaling
+from pinet._typing import ColScaling, RowScaling, ScalarLike
 from pinet.constants import Constants
 from pinet.constraints import (
     AffineInequalityConstraint,
@@ -42,11 +42,25 @@ def initialize(
     """
     # Preprocess
     eq_spec = yraw.eq
-    if eq_spec is not None:
+    # ``a_dyn`` is only valid alongside ``b`` (enforced by the spec
+    # validators), so checking ``b`` covers both per-instance overrides.
+    if eq_spec is not None and eq_spec.b is not None:
+        # Lift ``b`` (zero-pad to the lifted dimension and apply the row
+        # scaling) and ``a_dyn`` together so the spec is updated atomically:
+        # splitting this into two ``update`` calls would briefly leave the
+        # spec with mismatched ``m`` axes, which beartype's runtime check
+        # rejects.
+        updates: dict[str, object] = {
+            "b": jnp.concatenate(
+                [
+                    eq_spec.b,
+                    jnp.zeros(shape=(eq_spec.b.shape[0], dim_lifted - dim, 1)),
+                ],
+                axis=1,
+            )
+            * d_r,
+        }
         if eq_spec.a_dyn is not None:
-            # Lift the equality constraint
-            # The dynamic equality matrix is only valid together with its offset term.
-            assert eq_spec.b is not None
             parser = ConstraintParser(
                 eq_constraint=EqualityConstraint(
                     a_dyn=eq_spec.a_dyn, b=eq_spec.b, method="pinv"
@@ -57,24 +71,9 @@ def initialize(
             lifted_eq_constraint, _, _ = parser.parse(method="pinv")
             # Parsing must return the lifted equality constraint in this branch.
             assert lifted_eq_constraint is not None
-            eq_spec = eq_spec.update(
-                a_dyn=lifted_eq_constraint.a_dyn,
-                a_dyn_pinv=lifted_eq_constraint.a_dyn_pinv,
-            )
-            yraw = yraw.update(eq=eq_spec)
-
-        if eq_spec.b is not None:
-            b_lifted = (
-                jnp.concatenate(
-                    [
-                        eq_spec.b,
-                        jnp.zeros(shape=(eq_spec.b.shape[0], dim_lifted - dim, 1)),
-                    ],
-                    axis=1,
-                )
-                * d_r
-            )
-            yraw = yraw.update(eq=eq_spec.update(b=b_lifted))
+            updates["a_dyn"] = lifted_eq_constraint.a_dyn
+            updates["a_dyn_pinv"] = lifted_eq_constraint.a_dyn_pinv
+        yraw = yraw.update(eq=eq_spec.update(**updates))
 
     # Return updated value
     return yraw.update(x=jnp.zeros((yraw.x.shape[0], dim_lifted, 1)))
@@ -86,7 +85,10 @@ def build_iteration_step(
     dim: int,
     scale: ColScaling | float = 1.0,
 ) -> tuple[
-    Callable[[ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance],
+    Callable[
+        [ProjectionInstance, ProjectionInstance, ScalarLike, ScalarLike],
+        ProjectionInstance,
+    ],
     Callable[[ProjectionInstance], ProjectionInstance],
 ]:
     """Build the iteration and result retrieval step for the ADMM solver.
@@ -106,8 +108,8 @@ def build_iteration_step(
     def iteration_step(
         sk: ProjectionInstance,
         yraw: ProjectionInstance,
-        sigma: float = PROJECTION_DEFAULT_SIGMA,
-        omega: float = PROJECTION_DEFAULT_OMEGA,
+        sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
+        omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
     ) -> ProjectionInstance:
         """One iteration of the ADMM solver.
 

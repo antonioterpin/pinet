@@ -8,6 +8,7 @@ import jax.random as jrnd
 import numpy as np
 import pytest
 from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
+from jaxtyping import TypeCheckError
 
 from pinet import (
     AffineInequalityConstraint,
@@ -415,7 +416,11 @@ def test_parse_non_linear_irrelevant_type_raises_value_error():
         nl_constraints=[nl_constraint],
     )
 
-    with pytest.raises(ValueError, match=r"Unsupported non-linear constraint type"):
+    # With ``PINET_RUNTIME_CHECK=1`` beartype catches the invalid nl_type at
+    # the property's return-value check before the parser runs; otherwise
+    # the parser raises ValueError with the documented message. Either path
+    # is acceptable.
+    with pytest.raises((ValueError, TypeCheckError)):
         parser.parse()
 
 

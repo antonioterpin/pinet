@@ -6,7 +6,7 @@ from functools import partial
 import jax
 from jax import numpy as jnp
 
-from ._typing import BatchedScalar, ColScaling, RowScaling
+from ._typing import BatchedScalar, ColScaling, RowScaling, ScalarLike
 from .constants import Constants
 from .constraints import (
     AffineInequalityConstraint,
@@ -301,8 +301,8 @@ class Project:
 
     def call_and_check(
         self,
-        sigma: float = PROJECTION_DEFAULT_SIGMA,
-        omega: float = PROJECTION_DEFAULT_OMEGA,
+        sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
+        omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
         check_every: int = PROJECTION_DEFAULT_CHECK_EVERY,
         tol: float = PROJECTION_DEFAULT_TOL,
         max_iter: int = PROJECTION_DEFAULT_MAX_ITER,
@@ -389,7 +389,8 @@ class Project:
 def _project_general(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, ScalarLike, ScalarLike],
+        ProjectionInstance,
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
@@ -397,8 +398,8 @@ def _project_general(
     d_c: ColScaling,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
-    sigma: float = PROJECTION_DEFAULT_SIGMA,
-    omega: float = PROJECTION_DEFAULT_OMEGA,
+    sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
+    omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 100,
 ) -> tuple[ProjectionInstance, ProjectionInstance]:
     """Project a batch of points using Douglas-Rachford.
@@ -454,7 +455,8 @@ def _project_general(
 def _project_general_custom(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, ScalarLike, ScalarLike],
+        ProjectionInstance,
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
@@ -462,8 +464,8 @@ def _project_general_custom(
     d_c: ColScaling,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
-    sigma: float = PROJECTION_DEFAULT_SIGMA,
-    omega: float = PROJECTION_DEFAULT_OMEGA,
+    sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
+    omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
@@ -486,7 +488,8 @@ def _project_general_custom(
 def _project_general_fwd(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, ScalarLike, ScalarLike],
+        ProjectionInstance,
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
@@ -494,14 +497,21 @@ def _project_general_fwd(
     d_c: ColScaling,
     yraw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
-    sigma: float = PROJECTION_DEFAULT_SIGMA,
-    omega: float = PROJECTION_DEFAULT_OMEGA,
+    sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
+    omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
     n_iter: int = 0,
     n_iter_bwd: int = 5,
     fpi: bool = False,
 ) -> tuple[
     tuple[ProjectionInstance, ProjectionInstance],
-    tuple[ProjectionInstance, ProjectionInstance, RowScaling, ColScaling, float, float],
+    tuple[
+        ProjectionInstance,
+        ProjectionInstance,
+        RowScaling,
+        ColScaling,
+        ScalarLike,
+        ScalarLike,
+    ],
 ]:
     # unpack trailing options that belong only to custom vjp
     # The decorated function returns a (ProjectionInstance, ProjectionInstance) tuple,
@@ -529,7 +539,8 @@ def _project_general_fwd(
 def _project_general_bwd(
     initialize_fn: Callable[[ProjectionInstance], ProjectionInstance],
     step_iteration: Callable[
-        [ProjectionInstance, ProjectionInstance, float, float], ProjectionInstance
+        [ProjectionInstance, ProjectionInstance, ScalarLike, ScalarLike],
+        ProjectionInstance,
     ],
     step_final: Callable[[ProjectionInstance], ProjectionInstance],
     dim_lifted: int,
@@ -541,8 +552,8 @@ def _project_general_bwd(
         ProjectionInstance,
         RowScaling,
         ColScaling,
-        float,
-        float,
+        ScalarLike,
+        ScalarLike,
     ],
     cotangent: tuple[ProjectionInstance, ProjectionInstance],
 ) -> tuple[None, None, ProjectionInstance, None, None, None]:

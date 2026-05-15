@@ -10,6 +10,7 @@ import jax.random as jrnd
 import numpy as np
 import pytest
 from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
+from jaxtyping import TypeCheckError
 
 from pinet import (
     BoxConstraint,
@@ -21,6 +22,11 @@ from pinet import (
     SocConstraintSpecification,
 )
 from pinet.constraints.base import Constraint
+
+# Beartype (when ``PINET_RUNTIME_CHECK=1``) pre-empts the library's own
+# type/value checks at ``__init__`` time, so negative-path tests accept
+# either ``TypeCheckError`` or the narrower library error.
+_TypeOrValidationError = (TypeError, ValueError, TypeCheckError)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -41,10 +47,7 @@ def test_empty_input_raises():
 
 def test_nl_constraints_is_iterable():
     """Test that non-iterable nl_constraints raises TypeError."""
-    with pytest.raises(
-        TypeError,
-        match=r"nl_constraints must be a list or tuple, got int.",
-    ):
+    with pytest.raises(_TypeOrValidationError):
         # Deliberately wrong type to exercise the input-validation error path.
         CartesianConstraint(nl_constraints=cast(list[SocConstraint], cast(object, 5)))
 
@@ -71,20 +74,11 @@ def test_non_box_soc_constraint_raises():
 
     dummy = DummyConstraint()
 
-    with pytest.raises(
-        ValueError,
-        match=r"The box_constraint must be a BoxConstraint, got DummyConstraint.",
-    ):
+    with pytest.raises(_TypeOrValidationError):
         # Deliberately wrong type to exercise the input-validation error path.
         CartesianConstraint(box_constraint=cast(BoxConstraint, cast(object, dummy)))
 
-    with pytest.raises(
-        ValueError,
-        match=(
-            r"Only SocConstraint is currently supported "
-            r"in nl_constraints, got DummyConstraint."
-        ),
-    ):
+    with pytest.raises(_TypeOrValidationError):
         # Deliberately wrong type to exercise the input-validation error path.
         CartesianConstraint(nl_constraints=cast(list[SocConstraint], [dummy]))
 
@@ -98,19 +92,20 @@ def test_project_raises_when_nl_specs_not_iterable():
     cartesian = CartesianConstraint(nl_constraints=[soc])
 
     # yraw.nl must be list/tuple when nonlinear constraints are present.
-    yraw = ProjectionInstance(
-        x=jnp.zeros((1, dim, 1)),
-        # Deliberately wrong type to exercise the input-validation error path.
-        nl=cast(
-            "list[NonLinearSpecification]",
-            cast(
-                object,
-                SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t),
+    # ProjectionInstance's own __init__ is beartype-checked; constructing the
+    # deliberately-malformed instance may raise a TypeCheckError before
+    # project() runs. Either error path is acceptable.
+    with pytest.raises(_TypeOrValidationError):
+        yraw = ProjectionInstance(
+            x=jnp.zeros((1, dim, 1)),
+            nl=cast(
+                "list[NonLinearSpecification]",
+                cast(
+                    object,
+                    SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t),
+                ),
             ),
-        ),
-    )
-
-    with pytest.raises(TypeError, match=r"yraw.nl must be a list or tuple"):
+        )
         cartesian.project(yraw)
 
 
@@ -120,8 +115,8 @@ def test_wrong_dimensions_box_and_soc_raise():
     box_mask = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
-            lb=jnp.array([[-1.0], [-1.0]]),
-            ub=jnp.array([[1.0], [1.0]]),
+            lb=jnp.array([[[-1.0], [-1.0]]]),
+            ub=jnp.array([[[1.0], [1.0]]]),
             mask=box_mask,
         )
     )
@@ -141,8 +136,8 @@ def test_overlapping_box_and_soc_masks_raise():
     box_mask = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
-            lb=jnp.array([[-1.0], [-1.0]]),
-            ub=jnp.array([[1.0], [1.0]]),
+            lb=jnp.array([[[-1.0], [-1.0]]]),
+            ub=jnp.array([[[1.0], [1.0]]]),
             mask=box_mask,
         )
     )
@@ -330,8 +325,8 @@ def test_projection_equivalence(seed, batch_size):
     box_mask = jnp.array([True] * 4 + [False] * 6, dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
-            lb=jnp.array([[-1.0]] * 4),
-            ub=jnp.array([[1.0]] * 4),
+            lb=jnp.array([[[-1.0]] * 4]),
+            ub=jnp.array([[[1.0]] * 4]),
             mask=box_mask,
         )
     )
@@ -369,8 +364,8 @@ def test_cv():
     box_mask = jnp.array([True] * 3 + [False] * 7, dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
-            lb=jnp.array([[-1.0]] * 3),
-            ub=jnp.array([[1.0]] * 3),
+            lb=jnp.array([[[-1.0]] * 3]),
+            ub=jnp.array([[[1.0]] * 3]),
             mask=box_mask,
         )
     )
@@ -450,8 +445,8 @@ def test_projection_with_only_box_constraint(seed: int, batch_size: int):
     box_mask = jnp.array(
         [True, True, True, True, False, False, False, False, False, False]
     )
-    lb = jnp.array([[-1.0], [-0.5], [-2.0], [-1.5]])
-    ub = jnp.array([[1.0], [0.5], [2.0], [1.5]])
+    lb = jnp.array([[[-1.0], [-0.5], [-2.0], [-1.5]]])
+    ub = jnp.array([[[1.0], [0.5], [2.0], [1.5]]])
     box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub, mask=box_mask))
 
     cartesian = CartesianConstraint(box_constraint=box, nl_constraints=None)

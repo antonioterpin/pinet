@@ -289,9 +289,10 @@ def compute_cv(y: ProjectionInstance) -> jnp.ndarray:
     Returns:
         jnp.ndarray: Flattened constraint-violation values.
     """
-    return projection_layer.cv(y).reshape(
-        -1,
-    )
+    # ``projection_layer.cv`` returns ``BatchedScalar`` (ArrayLike) at the
+    # public boundary; coerce to ``jax.Array`` for the script's downstream
+    # use which expects jax-only attributes (``.reshape``, ``.at`` ...).
+    return jnp.asarray(projection_layer.cv(y)).reshape(-1)
 
 
 x = jax.random.normal(

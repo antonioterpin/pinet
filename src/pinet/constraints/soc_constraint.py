@@ -115,8 +115,10 @@ class SocConstraint(Constraint):
         inner: jax.Array = jnp.where(when2, proj2, proj3)
         final_proj: jax.Array = jnp.where(when1, proj1, inner)
 
+        # Coerce to jax.Array before using ``.at`` (jax-only).
+        x = jnp.asarray(yraw.x)
         return yraw.update(
-            x=yraw.x.at[:, mask_u, :]
+            x=x.at[:, mask_u, :]
             .set(final_proj[:, :-1, :] - a)
             .at[:, mask_t, :]
             .set(final_proj[:, -1:, :] - b)

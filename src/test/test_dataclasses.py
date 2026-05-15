@@ -5,6 +5,7 @@ from typing import cast
 
 import jax.numpy as jnp
 import pytest
+from jaxtyping import TypeCheckError
 
 from pinet import (
     BoxConstraintSpecification,
@@ -17,6 +18,12 @@ from pinet import (
     SOCType,
 )
 from pinet.constraints.non_linear_types import NonLinearConstraintType
+
+# When ``PINET_RUNTIME_CHECK=1`` beartype catches malformed shapes/dtypes at
+# ``__init__`` time with ``TypeCheckError``, pre-empting the library's own
+# ``validate()`` which raises ``ValueError``. Tests that exercise either
+# path accept both error types.
+_ShapeOrValidationError = (ValueError, TypeError, TypeCheckError)
 
 
 def test_eq_validate_requires_b_when_a_provided():
@@ -60,34 +67,30 @@ def test_box_validate_requires_at_least_one_bound():
 
 
 def test_box_validate_lb_ndim_must_be_3():
-    spec = BoxConstraintSpecification(lb=jnp.ones((2, 3)))  # wrong: 2D
-    with pytest.raises(ValueError, match=r"Lower bound must have shape"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = BoxConstraintSpecification(lb=jnp.ones((2, 3)))  # wrong: 2D
         spec.validate()
 
 
 def test_box_validate_ub_ndim_must_be_3():
-    spec = BoxConstraintSpecification(ub=jnp.ones((2, 3)))  # wrong: 2D
-    with pytest.raises(ValueError, match=r"Upper bound must have shape"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = BoxConstraintSpecification(ub=jnp.ones((2, 3)))  # wrong: 2D
         spec.validate()
 
 
 def test_box_validate_lb_ub_same_nconstraints_required():
-    lb = jnp.ones((4, 5, 1))
-    ub = jnp.ones((4, 6, 1))  # n_constraints mismatch
-    spec = BoxConstraintSpecification(lb=lb, ub=ub)
-    with pytest.raises(
-        ValueError, match=r"Lower and upper bounds must have the same shape"
-    ):
+    with pytest.raises(_ShapeOrValidationError):
+        lb = jnp.ones((4, 5, 1))
+        ub = jnp.ones((4, 6, 1))  # n_constraints mismatch
+        spec = BoxConstraintSpecification(lb=lb, ub=ub)
         spec.validate()
 
 
 def test_box_validate_lb_ub_batch_mismatch_without_broadcast():
-    lb = jnp.ones((4, 5, 1))
-    ub = jnp.ones((3, 5, 1))  # batch mismatch and neither is 1
-    spec = BoxConstraintSpecification(lb=lb, ub=ub)
-    with pytest.raises(
-        ValueError, match=r"Batch size of lower and upper bounds must be the same"
-    ):
+    with pytest.raises(_ShapeOrValidationError):
+        lb = jnp.ones((4, 5, 1))
+        ub = jnp.ones((3, 5, 1))  # batch mismatch and neither is 1
+        spec = BoxConstraintSpecification(lb=lb, ub=ub)
         spec.validate()
 
 
@@ -103,18 +106,18 @@ def test_box_validate_lb_must_be_le_ub():
 
 
 def test_box_validate_mask_dtype_bool_required():
-    lb = jnp.ones((1, 3, 1))
-    mask = jnp.array([1, 0, 1])  # int, not bool
-    spec = BoxConstraintSpecification(lb=lb, mask=mask)
-    with pytest.raises(TypeError, match=re.escape("Mask must be a boolean array.")):
+    with pytest.raises(_ShapeOrValidationError):
+        lb = jnp.ones((1, 3, 1))
+        mask = jnp.array([1, 0, 1])  # int, not bool
+        spec = BoxConstraintSpecification(lb=lb, mask=mask)
         spec.validate()
 
 
 def test_box_validate_mask_must_be_1d():
-    lb = jnp.ones((1, 3, 1))
-    mask = jnp.array([[True, False, True]])  # 2D
-    spec = BoxConstraintSpecification(lb=lb, mask=mask)
-    with pytest.raises(ValueError, match=re.escape("Mask must be a 1D array.")):
+    with pytest.raises(_ShapeOrValidationError):
+        lb = jnp.ones((1, 3, 1))
+        mask = jnp.array([[True, False, True]])  # 2D
+        spec = BoxConstraintSpecification(lb=lb, mask=mask)
         spec.validate()
 
 
@@ -150,9 +153,9 @@ def test_box_validate_valid_both_with_broadcast_and_mask():
 
 
 def test_projection_validate_x_ndim_must_be_3():
-    x = jnp.ones((5, 3))  # 2D
-    pi = ProjectionInstance(x=x)
-    with pytest.raises(ValueError, match=r"x must have shape"):
+    with pytest.raises(_ShapeOrValidationError):
+        x = jnp.ones((5, 3))  # 2D
+        pi = ProjectionInstance(x=x)
         pi.validate()
 
 
@@ -346,42 +349,42 @@ def test_equilibration_update_unknown_kw_raises_typeerror():
 
 
 def test_soc_validate_mask_u_must_be_boolean():
-    mask_u = jnp.array([1, 0, 1, 0, 1])  # int, not bool
-    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
-    with pytest.raises(TypeError, match=r"mask_u must be a boolean array."):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([1, 0, 1, 0, 1])  # int, not bool
+        mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
         spec.validate()
 
 
 def test_soc_validate_mask_t_must_be_boolean():
-    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
-    mask_t = jnp.array([0, 1, 0])  # int, not bool
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
-    with pytest.raises(TypeError, match=r"mask_t must be a boolean array."):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+        mask_t = jnp.array([0, 1, 0])  # int, not bool
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
         spec.validate()
 
 
 def test_soc_validate_mask_u_must_be_1d():
-    mask_u = jnp.array([[True, False], [True, False]], dtype=jnp.bool_)  # 2D
-    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
-    with pytest.raises(ValueError, match=r"mask_u must be a 1D array."):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([[True, False], [True, False]], dtype=jnp.bool_)  # 2D
+        mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
         spec.validate()
 
 
 def test_soc_validate_mask_t_must_be_1d():
-    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
-    mask_t = jnp.array([[False, True], [False, False]], dtype=jnp.bool_)  # 2D
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
-    with pytest.raises(ValueError, match=r"mask_t must be a 1D array."):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+        mask_t = jnp.array([[False, True], [False, False]], dtype=jnp.bool_)  # 2D
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
         spec.validate()
 
 
 def test_soc_validate_mask_u_mask_t_same_size():
-    mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)  # size = 5
-    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)  # size = 3
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
-    with pytest.raises(ValueError, match=r"mask_u and mask_t must have the same size."):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([True, False, True, False, True], dtype=jnp.bool_)
+        mask_t = jnp.array([False, True, False], dtype=jnp.bool_)  # size = 3
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
         spec.validate()
 
 
@@ -404,20 +407,20 @@ def test_soc_validate_mask_t_must_select_at_least_one():
 
 
 def test_soc_validate_a_must_be_3d():
-    mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
-    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
-    a = jnp.ones((2, 3))  # 2D, not 3D
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, a=a)
-    with pytest.raises(ValueError, match=r"a must have shape"):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
+        mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+        a = jnp.ones((2, 3))  # 2D, not 3D
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, a=a)
         spec.validate()
 
 
 def test_soc_validate_b_must_be_3d():
-    mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
-    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
-    b = jnp.ones((2, 1))  # 2D, not 3D
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, b=b)
-    with pytest.raises(ValueError, match=r"b must have shape"):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
+        mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+        b = jnp.ones((2, 1))  # 2D, not 3D
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, b=b)
         spec.validate()
 
 
@@ -436,11 +439,11 @@ def test_soc_validate_a_second_dim_must_match_mask_u_size():
 
 
 def test_soc_validate_b_second_dim_must_be_1():
-    mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
-    mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
-    b = jnp.ones((2, 3, 1))  # second dim = 3, not 1
-    spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, b=b)
-    with pytest.raises(ValueError, match=r"The second dimension of b must be 1."):
+    with pytest.raises(_ShapeOrValidationError):
+        mask_u = jnp.array([True, False, True], dtype=jnp.bool_)
+        mask_t = jnp.array([False, True, False], dtype=jnp.bool_)
+        b = jnp.ones((2, 3, 1))  # second dim = 3, not 1
+        spec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t, b=b)
         spec.validate()
 
 
@@ -474,26 +477,23 @@ def test_nonlinear_validate_l2norm_with_rhs_not_supported():
 
 
 def test_nonlinear_validate_nl_type_must_be_constraint_type_instance():
-    spec = NonLinearSpecification(
-        nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
-        A=jnp.ones((1, 2, 3)),
-    )
-    with pytest.raises(
-        ValueError,
-        match=r"nl_type must be a NonLinearConstraintType instance",
-    ):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
+            A=jnp.ones((1, 2, 3)),
+        )
         spec.validate()
 
 
 def test_nonlinear_validate_inconsistent_batch_sizes_raises():
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((2, 2, 3)),
-        a=jnp.ones((3, 2, 1)),
-        f=jnp.ones((2, 1, 3)),
-        b=jnp.ones((3, 1, 1)),
-    )
-    with pytest.raises(ValueError, match=r"Inconsistent batch sizes"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((2, 2, 3)),
+            a=jnp.ones((3, 2, 1)),
+            f=jnp.ones((2, 1, 3)),
+            b=jnp.ones((3, 1, 1)),
+        )
         spec.validate()
 
 
@@ -509,82 +509,79 @@ def test_nonlinear_validate_batch_sizes_allow_broadcast_with_all_present():
 
 
 def test_nonlinear_validate_A_or_f_batch_size_not_one():
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((2, 2, 3)),
-        a=jnp.ones((1, 2, 1)),
-        f=jnp.ones((1, 1, 3)),
-        b=jnp.ones((2, 1, 1)),
-    )
-    with pytest.raises(ValueError, match=r"A must have batch size 1"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((2, 2, 3)),
+            a=jnp.ones((1, 2, 1)),
+            f=jnp.ones((1, 1, 3)),
+            b=jnp.ones((2, 1, 1)),
+        )
         spec.validate()
 
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((1, 2, 3)),
-        a=jnp.ones((1, 2, 1)),
-        f=jnp.ones((2, 1, 3)),
-        b=jnp.ones((2, 1, 1)),
-    )
-    with pytest.raises(ValueError, match=r"f must have batch size 1"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((1, 2, 3)),
+            a=jnp.ones((1, 2, 1)),
+            f=jnp.ones((2, 1, 3)),
+            b=jnp.ones((2, 1, 1)),
+        )
         spec.validate()
 
 
 def test_nonlinear_validate_A_and_a_constraint_dimension():
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((1, 3, 3)),
-        a=jnp.ones((1, 2, 1)),
-        f=jnp.ones((1, 1, 3)),
-        b=jnp.ones((2, 1, 1)),
-    )
-    with pytest.raises(ValueError, match=r"A and a must have same constraint dimension"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((1, 3, 3)),
+            a=jnp.ones((1, 2, 1)),
+            f=jnp.ones((1, 1, 3)),
+            b=jnp.ones((2, 1, 1)),
+        )
         spec.validate()
 
 
 def test_nonlinear_validate_A_and_f_variable_dimension():
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((1, 3, 3)),
-        a=jnp.ones((1, 3, 1)),
-        f=jnp.ones((1, 1, 2)),
-        b=jnp.ones((2, 1, 1)),
-    )
-    with pytest.raises(ValueError, match=r"A and f must have same variable dimension"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((1, 3, 3)),
+            a=jnp.ones((1, 3, 1)),
+            f=jnp.ones((1, 1, 2)),
+            b=jnp.ones((2, 1, 1)),
+        )
         spec.validate()
 
 
 def test_nonlinear_validate_f_and_b_constraint_dimension():
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((1, 3, 3)),
-        a=jnp.ones((1, 3, 1)),
-        f=jnp.ones((1, 2, 3)),
-        b=jnp.ones((2, 1, 1)),
-    )
-    with pytest.raises(ValueError, match=r"f and b must have same constraint dimension"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((1, 3, 3)),
+            a=jnp.ones((1, 3, 1)),
+            f=jnp.ones((1, 2, 3)),
+            b=jnp.ones((2, 1, 1)),
+        )
         spec.validate()
 
 
 def test_nonlinear_validate_b_is_not_a_scalar():
-    spec = NonLinearSpecification(
-        nl_type=SOCType,
-        A=jnp.ones((1, 3, 3)),
-        a=jnp.ones((1, 3, 1)),
-        f=jnp.ones((1, 2, 3)),
-        b=jnp.ones((2, 2, 1)),
-    )
-    with pytest.raises(ValueError, match=r"b must be scalar"):
+    with pytest.raises(_ShapeOrValidationError):
+        spec = NonLinearSpecification(
+            nl_type=SOCType,
+            A=jnp.ones((1, 3, 3)),
+            a=jnp.ones((1, 3, 1)),
+            f=jnp.ones((1, 2, 3)),
+            b=jnp.ones((2, 2, 1)),
+        )
         spec.validate()
 
 
 def test_nonlinear_to_primitive_spec_with_invalid_type():
-    spec = NonLinearSpecification(
-        nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
-        A=jnp.ones((1, 2, 3)),
-    )
-    with pytest.raises(
-        NotImplementedError,
-        match=r"Conversion to primitive spec not implemented",
-    ):
+    with pytest.raises((NotImplementedError, TypeCheckError)):
+        spec = NonLinearSpecification(
+            nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
+            A=jnp.ones((1, 2, 3)),
+        )
         spec.to_primitive_spec()
