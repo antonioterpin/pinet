@@ -116,7 +116,7 @@ class BoxConstraint(Constraint):
         """Project the input to the feasible region.
 
         Args:
-            yraw: ProjectionInstance to projection.
+            yraw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:

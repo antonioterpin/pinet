@@ -38,20 +38,16 @@ class AffineInequalityConstraint(Constraint):
             lb: The lower bound in the inequality.
             ub: The upper bound in the inequality.
         """
-        # Batch sizes must be the same, or one of them must be 1.
+        # Batch broadcasting: either equal, or one side is 1.
         assert c_mat.shape[0] == lb.shape[0] or c_mat.shape[0] == 1 or lb.shape[0] == 1, (
             f"Batch sizes are inconsistent: c_mat{c_mat.shape}, l{lb.shape}"
         )
-
         assert c_mat.shape[0] == ub.shape[0] or c_mat.shape[0] == 1 or ub.shape[0] == 1, (
             f"Batch sizes are inconsistent: c_mat{c_mat.shape}, ub{ub.shape}"
         )
-
-        # Each inequality row needs one lower bound entry.
         assert c_mat.shape[1] == lb.shape[1], (
             "Number of rows in c_mat must equal size of l."
         )
-        # Each inequality row needs one upper bound entry.
         assert c_mat.shape[1] == ub.shape[1], (
             "Number of rows in c_mat must equal size of u."
         )
@@ -64,7 +60,7 @@ class AffineInequalityConstraint(Constraint):
         """Project x onto the affine inequality constraint set.
 
         Args:
-            yraw: ProjectionInstance to projection.
+            yraw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
@@ -96,7 +92,7 @@ class AffineInequalityConstraint(Constraint):
         Returns:
             The constraint violation for each point in the batch.
         """
-        constr_matrix_x = self.c_mat @ yraw.x
-        cv_ub = jnp.maximum(constr_matrix_x - self.ub, 0)
-        cv_lb = jnp.maximum(self.lb - constr_matrix_x, 0)
+        c_mat_x = self.c_mat @ yraw.x
+        cv_ub = jnp.maximum(c_mat_x - self.ub, 0)
+        cv_lb = jnp.maximum(self.lb - c_mat_x, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)
