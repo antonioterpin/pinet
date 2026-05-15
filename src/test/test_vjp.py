@@ -3,7 +3,6 @@
 from functools import partial
 from itertools import product
 from typing import cast
-from typing import Optional
 
 import cvxpy as cp
 import jax
@@ -292,12 +291,10 @@ def common_vjp_checks(
     check_vjp_eps: float = 1e-5,
     check_vjp_atol: float = 1e-3,
     check_vjp_rtol: float = 1e-3,
-    nlspec: Optional[list[NonLinearSpecification]] = None,
+    nlspec: list[NonLinearSpecification] | None = None,
     sigma: float = 1.0,
     omega: float = 1.7,
 ):
-    extra_specs = {} if nlspec is None else {"nl": nlspec}
-
     @partial(jax.jit, static_argnames=["unroll", "n_iter_bwd", "fpi"])
     def loss(
         x: jnp.ndarray,
@@ -306,7 +303,7 @@ def common_vjp_checks(
         n_iter_bwd: int,
         fpi: bool,
     ):
-        inp = ProjectionInstance(x=x[..., None], **extra_specs)
+        inp = ProjectionInstance(x=x[..., None], nl=nlspec)
         if unroll:
             return (
                 projection_layer_unroll.call(
@@ -371,19 +368,21 @@ def common_vjp_checks(
     thelossm = lossvmapped(x - direps, vec)
     grad_fd = (thelossp - thelossm) / (2 * epsilon)
     for name, grad in zip(
-        ["grad_unroll", "grad_fpi", "grad_linsys"], [grad_unroll, grad_fpi, grad_linsys]
+        ["grad_unroll", "grad_fpi", "grad_linsys"],
+        [grad_unroll, grad_fpi, grad_linsys],
+        strict=True,
     ):
         dirgrad = jnp.vecdot(grad, dir)
         if not jnp.allclose(dirgrad, grad_fd, atol=atol_fd, rtol=rtol_fd):
             print(
                 f"Assertion failed for {name}: dirgrad = {dirgrad}, grad_fd = {grad_fd}"
             )
-            assert False, f"Assertion failed for {name}"
+            raise AssertionError(f"Assertion failed for {name}")
 
     # Use jax utils for checking
     def unroll_f(y):
         return projection_layer_unroll.call(
-            yraw=ProjectionInstance(x=y, **extra_specs),
+            yraw=ProjectionInstance(x=y, nl=nlspec),
             n_iter=n_iter,
             sigma=sigma,
             omega=omega,
@@ -391,7 +390,7 @@ def common_vjp_checks(
 
     def fpi_f(y):
         return projection_layer_impl.call(
-            yraw=ProjectionInstance(x=y, **extra_specs),
+            yraw=ProjectionInstance(x=y, nl=nlspec),
             n_iter=n_iter,
             n_iter_bwd=n_iter_bwd,
             fpi=True,
@@ -401,7 +400,7 @@ def common_vjp_checks(
 
     def linsys_f(y):
         return projection_layer_impl.call(
-            yraw=ProjectionInstance(x=y, **extra_specs),
+            yraw=ProjectionInstance(x=y, nl=nlspec),
             n_iter=n_iter,
             n_iter_bwd=n_iter_bwd,
             fpi=False,
@@ -542,32 +541,6 @@ def test_general_eq_ineq(seed, batch_size):
         check_vjp_rtol=1e-3,
     )
 
-    grad_unroll = jax.vmap(
-        lambda x, vec: jax.grad(loss, argnums=0)(
-            x.reshape(1, dim), vec.reshape(dim, 1), True, n_iter_bwd=-1, fpi=True
-        ),
-        in_axes=[0, 1],
-    )(x, vec).reshape(batch_size, -1)
-    grad_fpi = jax.vmap(
-        lambda x, vec: jax.grad(loss, argnums=0)(
-            x.reshape(1, dim), vec.reshape(dim, 1), False, n_iter_bwd=200, fpi=True
-        ),
-        in_axes=[0, 1],
-    )(x, vec).reshape(batch_size, -1)
-    grad_linsys = jax.vmap(
-        lambda x, vec: jax.grad(loss, argnums=0)(
-            x.reshape(1, dim), vec.reshape(dim, 1), False, n_iter_bwd=50, fpi=False
-        ),
-        in_axes=[0, 1],
-    )(x, vec).reshape(batch_size, -1)
-    assert jnp.allclose(grad_unroll, grad_fpi, atol=1e-4, rtol=1e-4), (
-        "FPI implicit gradients should match unrolled gradients. "
-        f"Expected {grad_unroll}, got {grad_fpi}."
-    )
-    assert jnp.allclose(grad_unroll, grad_linsys, atol=1e-4, rtol=1e-4), (
-        "Linear-system implicit gradients should match unrolled gradients. "
-        f"Expected {grad_unroll}, got {grad_linsys}."
-    )
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
 def test_box_eq_ineq_soc(seed, batch_size):
@@ -585,7 +558,7 @@ def test_box_eq_ineq_soc(seed, batch_size):
     key, subkey = jrnd.split(key)
     A = jrnd.uniform(subkey, shape=(1, n_A, dim), minval=-2, maxval=2)
     b = A @ x_feas
-    eq_constraint = EqualityConstraint(A=A, b=b, var_b=False)
+    eq_constraint = EqualityConstraint(a_dyn=A, b=b, var_b=False)
 
     # Box constraint
     mask = jnp.array([True] * dim, dtype=jnp.bool_)
@@ -602,7 +575,7 @@ def test_box_eq_ineq_soc(seed, batch_size):
     lb_ineq = C @ x_feas - eps_ineq
     key, subkey = jrnd.split(key)
     ub_ineq = lb_ineq + jrnd.uniform(subkey, shape=(1, n_C, 1), minval=0, maxval=1)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb_ineq, ub=ub_ineq)
+    ineq_constraint = AffineInequalityConstraint(constr_matrix=C, lb=lb_ineq, ub=ub_ineq)
 
     # SOC constraint 1
     eps_soc = 1e-2  # Slack to ensure feasibility of x_feas
@@ -617,36 +590,6 @@ def test_box_eq_ineq_soc(seed, batch_size):
         + jnp.linalg.norm(A_soc_1 @ x_feas + a_soc_1, ord=2, axis=1, keepdims=True)
         - f_soc_1 @ x_feas
     )
-    thelossp = lossvmapped(x + direps, vec)
-    thelossm = lossvmapped(x - direps, vec)
-    grad_fd = (thelossp - thelossm) / (2 * epsilon)
-    for name, grad in zip(
-        ["grad_unroll", "grad_fpi", "grad_linsys"],
-        [grad_unroll, grad_fpi, grad_linsys],
-        strict=True,
-    ):
-        dirgrad = jnp.vecdot(grad, dir)
-        if not jnp.allclose(dirgrad, grad_fd, atol=1e-3, rtol=1e-3):
-            print(
-                f"Assertion failed for {name}: dirgrad = {dirgrad}, grad_fd = {grad_fd}"
-            )
-            raise AssertionError(f"Assertion failed for {name}")
-
-    # Use jax utils for checking
-    def unroll_f(y):
-        return projection_layer_unroll.call(
-            yraw=ProjectionInstance(x=y),
-            n_iter=200,
-        )[0].x[..., 0]
-
-    def fpi_f(y):
-        return projection_layer_impl.call(
-            yraw=ProjectionInstance(x=y),
-            n_iter=200,
-            n_iter_bwd=200,
-            fpi=True,
-        )[0].x[..., 0]
-
     nl_spec_1 = NonLinearSpecification(
         nl_type=SOCType,
         A=A_soc_1,

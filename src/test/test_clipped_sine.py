@@ -1,5 +1,7 @@
 """Test the HardConstrainedMLP on the clipped sine function."""
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -19,15 +21,13 @@ class HardConstrainedMLP(nn.Module):
 
     box_constraint: BoxConstraint
 
-    def setup(self):
-        self.project = Project(box_constraint=self.box_constraint)
-
     @nn.compact
     def __call__(self, x, step):
         x = nn.Dense(64)(x)
         x = nn.relu(x)
         x = nn.Dense(1)(x)
-        x = self.project.call(yraw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
+        project = Project(box_constraint=self.box_constraint)
+        x = project.call(yraw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
         return x
 
 
@@ -84,8 +84,9 @@ def test_clipped_sine(seed: int):
     for step in range(n_epochs):
         state = train_step(state, x, y, step)
 
-    # Get predictions
-    predictions = model.apply({"params": state.params}, x, 100000)
+    # Get predictions (flax apply may return (output, mutable_state); we use the
+    # default `mutable=False` path so it is just the output array).
+    predictions = cast(jnp.ndarray, model.apply({"params": state.params}, x, 100000))
 
     # Clip y to meet the constraints
     clipped_y = jnp.clip(y, eps, 1 - eps)

@@ -1,14 +1,11 @@
 """Cartesian constraint module for combining Box and SOC constraints."""
 
-from typing import List, Optional
-
 import jax.numpy as jnp
 
 from pinet.dataclasses import ProjectionInstance, SocConstraintSpecification
 
 from .base import Constraint
 from .box import BoxConstraint
-from .non_linear import NonLinearConstraint
 from .soc_constraint import SocConstraint
 
 
@@ -21,16 +18,16 @@ class CartesianConstraint(Constraint):
 
     def __init__(
         self,
-        box_constraint: Optional[BoxConstraint] = None,
-        nl_constraints: Optional[List[NonLinearConstraint]] = None,
+        box_constraint: BoxConstraint | None = None,
+        nl_constraints: list[SocConstraint] | None = None,
     ) -> None:
         """Initialize the Cartesian constraint.
 
         Args:
-            box_constraint (Optional[BoxConstraint]):
-                Box constraint for the Cartesian product. Defaults to None.
-            nl_constraints (Optional[List[NonLinearConstraint]]):
-                List of non-linear constraints (SocConstraint). Defaults to None.
+            box_constraint: Box constraint for the Cartesian product.
+                Defaults to None.
+            nl_constraints: List of non-linear constraints (SocConstraint).
+                Defaults to None.
 
         Raises:
             ValueError: If no constraints are provided, if masks overlap,
@@ -111,7 +108,9 @@ class CartesianConstraint(Constraint):
 
         for constraint in self.constraints:
             if isinstance(constraint, BoxConstraint):
-                new_mask = constraint.mask
+                # BoxConstraint.__init__ ensures mask is set.
+                assert constraint.mask is not None
+                new_mask = jnp.asarray(constraint.mask)
             else:
                 # SOC constraints have both mask_u and mask_t
                 new_mask = jnp.logical_or(constraint.mask_u, constraint.mask_t)
@@ -128,14 +127,14 @@ class CartesianConstraint(Constraint):
         each constraint operates on a disjoint subset of variables.
 
         Args:
-            yraw (ProjectionInstance): ProjectionInstance to project.
+            yraw: ProjectionInstance to project.
 
         Returns:
             ProjectionInstance: The projected input.
         """
         if self.nl_constraints and not isinstance(yraw.nl, (list, tuple)):
             raise TypeError(
-                f"yraw.nl must be a list or tuple, " f"got {type(yraw.nl).__name__}."
+                f"yraw.nl must be a list or tuple, got {type(yraw.nl).__name__}."
             )
 
         if self.box_constraint is not None:
@@ -143,6 +142,8 @@ class CartesianConstraint(Constraint):
 
         # Project onto each constraint
         if self.nl_constraints:
+            # Narrowed by the isinstance check above.
+            assert yraw.nl is not None
             for nl_constraint, update_fn, nl_spec in zip(
                 self.nl_constraints, self.update_fns, yraw.nl, strict=True
             ):
@@ -157,7 +158,7 @@ class CartesianConstraint(Constraint):
         Returns the maximum constraint violation across all constraints.
 
         Args:
-            yraw (ProjectionInstance): ProjectionInstance to evaluate.
+            yraw: ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
@@ -170,8 +171,12 @@ class CartesianConstraint(Constraint):
 
         # Compute constraint violations for nl constraints
         if self.nl_constraints:
+            # cv requires per-instance SOC specs to be supplied on the input.
+            assert yraw.nl is not None, (
+                "yraw.nl must be provided when non-linear constraints are present."
+            )
             for constraint, update_fn, nl_spec in zip(
-                self.nl_constraints, self.update_fns, yraw.nl
+                self.nl_constraints, self.update_fns, yraw.nl, strict=True
             ):
                 yraw = update_fn(yraw, nl_spec.to_primitive_spec())
                 cvs.append(constraint.cv(yraw).reshape(-1))

@@ -117,9 +117,9 @@ class Project:
                 (self.lifted_eq_constraint, self.lifted_box_constraint, self.lift) = (
                     parser.parse(method=None)
                 )
-                # Parsing an inequality-constrained problem must produce a lifted equality.
+                # Inequality-constrained parsing must yield a lifted equality.
                 assert self.lifted_eq_constraint is not None
-                # Parsing an inequality-constrained problem must produce a lifted box.
+                # Inequality-constrained parsing must yield a lifted box.
                 assert self.lifted_box_constraint is not None
                 # Setup always stores equilibration parameters before this branch runs.
                 assert self.equilibration_params is not None
@@ -160,11 +160,21 @@ class Project:
                 # Scale the equality RHS
                 self.lifted_eq_constraint.b *= self.d_r
                 # Scale the lifted box constraints
+                # The polytope path always produces a BoxConstraint (not a cartesian).
+                assert isinstance(self.lifted_box_constraint, BoxConstraint)
+                # BoxConstraint.__init__ guarantees mask/lb/ub are set.
+                assert self.lifted_box_constraint.mask is not None
+                assert self.lifted_box_constraint.lb is not None
+                assert self.lifted_box_constraint.ub is not None
                 mask = self.lifted_box_constraint.mask
                 scale = self.d_c[:, mask, :]
                 self.lifted_box_constraint.scale = 1 / scale
-                self.lifted_box_constraint.ub *= self.lifted_box_constraint.scale
-                self.lifted_box_constraint.lb *= self.lifted_box_constraint.scale
+                self.lifted_box_constraint.ub = (
+                    self.lifted_box_constraint.ub * self.lifted_box_constraint.scale
+                )
+                self.lifted_box_constraint.lb = (
+                    self.lifted_box_constraint.lb * self.lifted_box_constraint.scale
+                )
 
                 self.step_iteration, self.step_final = build_iteration_step(
                     self.lifted_eq_constraint,
@@ -194,8 +204,11 @@ class Project:
                     self.lifted_box_constraint,
                     self.lift,
                 ) = parser.parse(method="pinv")
+                # The non-linear path must produce a lifted equality and a cartesian.
+                assert self.lifted_eq_constraint is not None
+                assert self.lifted_box_constraint is not None
                 # Impose no rescaling
-                self.d_r = jnp.ones((1, self.lifted_eq_constraint.A.shape[1], 1))
+                self.d_r = jnp.ones((1, self.lifted_eq_constraint.a_dyn.shape[1], 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
                 self.step_iteration, self.step_final = build_iteration_step(
@@ -490,19 +503,24 @@ def _project_general_fwd(
     tuple[ProjectionInstance, ProjectionInstance, jnp.ndarray, jnp.ndarray, float, float],
 ]:
     # unpack trailing options that belong only to custom vjp
-    y, s_k = _project_general_custom(
-        initialize_fn=initialize_fn,
-        step_iteration=step_iteration,
-        step_final=step_final,
-        dim_lifted=dim_lifted,
-        d_r=d_r,
-        d_c=d_c,
-        s0=s0,
-        yraw=yraw,
-        sigma=sigma,
-        omega=omega,
-        n_iter=n_iter,
+    # The decorated function returns a (ProjectionInstance, ProjectionInstance) tuple,
+    # but jax.custom_vjp's wrapper hides the precise signature from the typechecker.
+    custom_result: tuple[ProjectionInstance, ProjectionInstance] = (
+        _project_general_custom(
+            initialize_fn=initialize_fn,
+            step_iteration=step_iteration,
+            step_final=step_final,
+            dim_lifted=dim_lifted,
+            d_r=d_r,
+            d_c=d_c,
+            s0=s0,
+            yraw=yraw,
+            sigma=sigma,
+            omega=omega,
+            n_iter=n_iter,
+        )
     )
+    y, s_k = custom_result
 
     return (y, s_k), (s_k, yraw, d_r, d_c, sigma, omega)
 
@@ -517,7 +535,14 @@ def _project_general_bwd(
     n_iter: int,
     n_iter_bwd: int,
     fpi: bool,
-    residuals: tuple,
+    residuals: tuple[
+        ProjectionInstance,
+        ProjectionInstance,
+        jnp.ndarray,
+        jnp.ndarray,
+        float,
+        float,
+    ],
     cotangent: tuple[ProjectionInstance, ProjectionInstance],
 ) -> tuple[None, None, ProjectionInstance, None, None, None]:
     """Backward pass for custom vjp.

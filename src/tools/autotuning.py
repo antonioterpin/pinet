@@ -142,7 +142,10 @@ def load_data(
         test_loader = dc3_dataloader(
             dataset_path_test, use_convex, batch_size=1024, shuffle=False
         )
-        dataset = cast(DC3Dataset, cast(DataLoader, train_loader).dataset)
+        dataset = cast(
+            DC3Dataset,
+            cast(DataLoader[tuple[jnp.ndarray, jnp.ndarray]], train_loader).dataset,
+        )
         q, p, a_dyn, constr_matrix, h = dataset.const
         p = p[0, :, :]
         x_dataset = dataset.x_data

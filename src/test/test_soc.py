@@ -1,4 +1,7 @@
+"""Tests for the second-order cone (SOC) constraint."""
+
 from itertools import product
+from typing import cast
 
 import cvxpy as cp
 import jax
@@ -6,6 +9,7 @@ import jax.numpy as jnp
 import jax.random as jrnd
 import numpy as np
 import pytest
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 
 from pinet import ProjectionInstance, SocConstraint, SocConstraintSpecification
 
@@ -43,9 +47,7 @@ def test_soc(x, y):
     soc_constraint = SocConstraint(socspec=socspec)
     z = soc_constraint.project(ProjectionInstance(x=x)).x
 
-    assert jnp.allclose(
-        y, z
-    ), f"""
+    assert jnp.allclose(y, z), f"""
         Projection of {x} onto SOC should be {y}, instead of {z}.
     """
 
@@ -67,9 +69,7 @@ def test_mask(x, y):
     soc_constraint = SocConstraint(socspec=socspec)
     z = soc_constraint.project(ProjectionInstance(x=x)).x
 
-    assert jnp.allclose(
-        y[:, :2, :], z[:, :2, :]
-    ), f"""
+    assert jnp.allclose(y[:, :2, :], z[:, :2, :]), f"""
             Projection of {x} onto SOC should be {y}, instead of {z}.
         """
 
@@ -88,9 +88,7 @@ def test_soc_a_b_parametrized(seed, batch_size):
     x = jrnd.uniform(key=key_points, shape=(batch_size, DIM, 1), minval=-10, maxval=10)
     key_active, key = jrnd.split(key)
     # Only the first active_dims will be constraint in the SOC
-    active_dims = jrnd.randint(
-        key=key_active, shape=(), minval=1, maxval=DIM - 1
-    ).item()
+    active_dims = jrnd.randint(key=key_active, shape=(), minval=1, maxval=DIM - 1).item()
     # Define projection with cvxpy
     y_cvxpy = cp.Variable(DIM)
     x_cvxpy = cp.Parameter(DIM)
@@ -100,7 +98,9 @@ def test_soc_a_b_parametrized(seed, batch_size):
         cp.SOC(y_cvxpy[active_dims] + b_cvxpy, y_cvxpy[:active_dims] + a_cvxpy)
     ]
     objective = cp.Minimize(cp.sum_squares(y_cvxpy - x_cvxpy))
-    problem = cp.Problem(objective=objective, constraints=constraints)
+    problem = cp.Problem(
+        objective=objective, constraints=cast(list[CvxpyConstraint], constraints)
+    )
 
     ysocp = jnp.zeros((batch_size, DIM, 1))
     for ii in range(batch_size):

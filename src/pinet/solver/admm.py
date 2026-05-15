@@ -8,6 +8,7 @@ from pinet.constants import Constants
 from pinet.constraints import (
     AffineInequalityConstraint,
     BoxConstraint,
+    CartesianConstraint,
     ConstraintParser,
     EqualityConstraint,
 )
@@ -80,7 +81,7 @@ def initialize(
 
 def build_iteration_step(
     eq_constraint: EqualityConstraint,
-    box_constraint: BoxConstraint,
+    box_constraint: BoxConstraint | CartesianConstraint,
     dim: int,
     scale: jnp.ndarray | float = 1.0,
 ) -> tuple[

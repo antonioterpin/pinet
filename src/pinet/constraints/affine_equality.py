@@ -144,11 +144,12 @@ class EqualityConstraint(Constraint):
             ProjectionInstance: The projected point for each point in the batch.
         """
         b, a_dyn, a_dyn_pinv = self.get_params(yraw)
+        # a_dyn must be available to apply the projection.
+        assert a_dyn is not None, (
+            "a_dyn must be provided in EqualityConstraintsSpecification "
+            "when var_a_dyn=True and a_dyn_pinv is not supplied."
+        )
         if a_dyn_pinv is None:
-            assert a_dyn is not None, (
-                "a_dyn must be provided in EqualityConstraintsSpecification "
-                "when var_a_dyn=True and a_dyn_pinv is not supplied."
-            )
             a_dyn_pinv = jnp.linalg.pinv(a_dyn)
 
         return yraw.update(x=yraw.x - a_dyn_pinv @ (a_dyn @ yraw.x - b))
@@ -174,5 +175,7 @@ class EqualityConstraint(Constraint):
                 Shape    (batch_size, 1, 1).
         """
         b, a_dyn, _ = self.get_params(yraw)
+        # a_dyn must be available to compute the violation.
+        assert a_dyn is not None
 
         return jnp.linalg.norm(a_dyn @ yraw.x - b, ord=jnp.inf, axis=1, keepdims=True)

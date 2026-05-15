@@ -77,6 +77,10 @@ def evaluate_hcnn(
     hcnn_obj_batches: list[jnp.ndarray] = []
     eq_cv_batches: list[jnp.ndarray] = []
     ineq_cv_batches: list[jnp.ndarray] = []
+    # Placeholders, overwritten by the loop; kept so the post-loop usages have
+    # valid references even if the loader yielded zero batches.
+    x_data = jnp.zeros((0, 0, 1))
+    x_full = jnp.zeros((0, 0, 1))
     for x_data, obj in loader:
         x_full = jnp.concatenate(
             (x_data, jnp.zeros((x_data.shape[0], a_dyn.shape[1] - x_data.shape[1], 1))),

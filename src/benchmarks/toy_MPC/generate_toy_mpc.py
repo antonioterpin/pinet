@@ -1,11 +1,13 @@
 """Generate toy MPC problem data."""
 
 import pathlib
+from typing import cast
 
 import cvxpy as cp
 import jax
 import jax.numpy as jnp
 import numpy as np
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 from tqdm import tqdm
 
 jax.config.update("jax_enable_x64", True)
@@ -58,7 +60,7 @@ objective = cp.Minimize(
     cp.sum_squares(z[:dimx] - jnp.tile(xhat, horizon + 1))
     + alpha * cp.sum_squares(z[dimx:])
 )
-problem = cp.Problem(objective, constraints)
+problem = cp.Problem(objective, cast(list[CvxpyConstraint], constraints))
 # Setup problem parameter
 xinit.value = np.array(x0)
 problem.solve()

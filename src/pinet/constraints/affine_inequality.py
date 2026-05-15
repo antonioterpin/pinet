@@ -65,11 +65,11 @@ class AffineInequalityConstraint(Constraint):
             "Number of rows in constr_matrix must equal size of u."
         )
 
-    def project(self, inp: ProjectionInstance) -> ProjectionInstance:
+    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            inp: ProjectionInstance to projection.
+            yraw: ProjectionInstance to projection.
                 The .x attribute is the point to project.
 
         Returns:
@@ -93,17 +93,17 @@ class AffineInequalityConstraint(Constraint):
         """Return the number of constraints."""
         return self.constr_matrix.shape[1]
 
-    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
         """Compute the constraint violation.
 
         Args:
-            inp: ProjectionInstance to evaluate.
+            yraw: ProjectionInstance to evaluate.
 
         Returns:
             jnp.ndarray: The constraint violation for each point in the batch.
                 Shape (batch_size, 1, 1).
         """
-        constr_matrix_x = self.constr_matrix @ inp.x
+        constr_matrix_x = self.constr_matrix @ yraw.x
         cv_ub = jnp.maximum(constr_matrix_x - self.ub, 0)
         cv_lb = jnp.maximum(self.lb - constr_matrix_x, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)

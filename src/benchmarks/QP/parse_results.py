@@ -223,17 +223,19 @@ def generate_time_data(id: str, config: str) -> None:
         if folder.is_dir()
         and folder.name not in ("learning_curves", "performances", "optimal_objectives")
     ]
+    method_name_by_subfolder = {
+        "dc3": "dc3",
+        "softMLP": "softMLP",
+        config: "ours",
+        "solver": "solver",
+        "benchmark_jaxopt_small": "jaxopt",
+        "benchmark_jaxopt_large": "jaxopt",
+    }
     for subfolder in dataset_subfolders:
-        if subfolder.name == "dc3":
-            method_name = "dc3"
-        elif subfolder.name == "softMLP":
-            method_name = "softMLP"
-        elif subfolder.name == config:
-            method_name = "ours"
-        elif subfolder.name == "solver":
-            method_name = "solver"
-        elif subfolder.name in {"benchmark_jaxopt_small", "benchmark_jaxopt_large"}:
-            method_name = "jaxopt"
+        method_name = method_name_by_subfolder.get(subfolder.name)
+        if method_name is None:
+            # Unknown subfolder; skip it rather than silently using a stale name.
+            continue
         for nested_folder in subfolder.iterdir():
             if nested_folder.is_dir():
                 results_file = nested_folder / "results.npz"

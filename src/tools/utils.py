@@ -4,14 +4,13 @@ import logging
 import signal
 from typing import Any
 
-import yaml
-
 import wandb
+import yaml
 
 logger = logging.getLogger(__name__)
 
 
-def load_configuration(file_path: str) -> dict:
+def load_configuration(file_path: str) -> dict[str, Any]:
     """Load configuration file from yaml.
 
     Args:
@@ -19,9 +18,17 @@ def load_configuration(file_path: str) -> dict:
 
     Returns:
         dict: A dictionary containing the configuration parameters.
+
+    Raises:
+        TypeError: If the YAML file does not parse to a mapping.
     """
     with open(file_path) as file:
         hyperparameters = yaml.safe_load(file)
+    if not isinstance(hyperparameters, dict):
+        raise TypeError(
+            f"Expected {file_path} to contain a YAML mapping, "
+            f"got {type(hyperparameters).__name__}."
+        )
     return hyperparameters
 
 

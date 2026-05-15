@@ -2,7 +2,23 @@
 
 
 class Constants:
-    """Centralized constants used throughout the pinet package."""
+    """Centralized constants used throughout the pinet package.
+
+    Attributes:
+        SOC_CONSTRAINT_EPSILON: Epsilon for SOC norm divisions.
+        EQUILIBRATION_DEFAULT_TOL: Default equilibration termination tolerance.
+        EQUILIBRATION_DEFAULT_MAX_ITER: Default max equilibration iterations.
+        EQUILIBRATION_DEFAULT_ORD: Default norm order for equilibration.
+        EQUILIBRATION_DEFAULT_COL_SCALING: Whether to apply column scaling.
+        EQUILIBRATION_DEFAULT_UPDATE_MODE: Equilibration update mode.
+        EQUILIBRATION_DEFAULT_SAFEGUARD: Whether to safeguard equilibration.
+        PROJECTION_DEFAULT_SIGMA: Default ADMM stepsize parameter.
+        PROJECTION_DEFAULT_OMEGA: Default ADMM relaxation parameter.
+        PROJECTION_DEFAULT_CHECK_EVERY: Default constraint-check period.
+        PROJECTION_DEFAULT_TOL: Default constraint-violation tolerance.
+        PROJECTION_DEFAULT_MAX_ITER: Default max projection iterations.
+        PROJECTION_DEFAULT_CHECK_REDUCTION: Default batch reduction method.
+    """
 
     # Numerical Stability
     # ==================

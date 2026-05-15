@@ -342,22 +342,18 @@ def setup_model(
     if activation is None:
         raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
-    setups = {"pinet": setup_pinet, "jaxopt": setup_jaxopt, "cvxpy": setup_cvxpy}
-    if proj_method not in setups:
-        raise ValueError(f"Projection method not valid: {proj_method}")
-
     if proj_method == "pinet":
         eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=x_data, method=None, var_b=True)
         ineq_constraint = AffineInequalityConstraint(
             constr_matrix=g_mat, ub=h, lb=-jnp.inf * jnp.ones_like(h)
         )
-        project, project_test, setup_time = setups[proj_method](
+        project, project_test, setup_time = setup_pinet(
             eq_constraint=eq_constraint,
             ineq_constraint=ineq_constraint,
             hyperparameters=hyperparameters,
         )
-    else:
-        project, project_test, setup_time = setups[proj_method](
+    elif proj_method == "jaxopt":
+        project, project_test, setup_time = setup_jaxopt(
             a_dyn=a_dyn,
             b=x_data,
             constr_matrix=g_mat,
@@ -365,6 +361,17 @@ def setup_model(
             setup_reps=setup_reps,
             hyperparameters=hyperparameters,
         )
+    elif proj_method == "cvxpy":
+        project, project_test, setup_time = setup_cvxpy(
+            a_dyn=a_dyn,
+            b=x_data,
+            constr_matrix=g_mat,
+            ub=h,
+            setup_reps=setup_reps,
+            hyperparameters=hyperparameters,
+        )
+    else:
+        raise ValueError(f"Projection method not valid: {proj_method}")
 
     model, params, train_step = build_model_and_train_step(
         rng_key=rng_key,
