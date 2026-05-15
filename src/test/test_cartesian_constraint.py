@@ -52,10 +52,8 @@ def test_nl_constraints_is_iterable():
 def test_non_box_soc_constraint_raises():
     """Test that non-Box/SOC constraint types raise ValueError."""
 
-    # Create a dummy constraint class
     class DummyConstraint(Constraint):
-        def __init__(self):
-            self._dim = 5
+        _dim: int = 5
 
         def project(self, yraw):
             return yraw

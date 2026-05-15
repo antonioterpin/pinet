@@ -1,8 +1,10 @@
 """Box constraint module."""
 
+import equinox as eqx
 import numpy as np
 from jax import numpy as jnp
 
+from pinet._typing import BatchedRHS, BatchedScalar, ColScaling, Mask1D
 from pinet.dataclasses import BoxConstraintSpecification, ProjectionInstance
 
 from .base import Constraint
@@ -15,54 +17,78 @@ class BoxConstraint(Constraint):
     The interval is defined by a lower and an upper bound.
     The constraint possibly acts only on a subset of the dimensions,
     defined by a mask.
+
+    Attributes:
+        lb: Lower bound for each constrained coordinate.
+        ub: Upper bound for each constrained coordinate.
+        mask: Boolean mask selecting which dimensions are constrained.
+        scale: Scaling vector applied to variable bounds passed via ``yraw.box``.
     """
+
+    lb: BatchedRHS | None
+    ub: BatchedRHS | None
+    mask: Mask1D
+    scale: ColScaling
+    _dim: int = eqx.field(static=True)
+    _n_constraints: int = eqx.field(static=True)
 
     def __init__(
         self,
         box_spec: BoxConstraintSpecification,
+        scale: ColScaling | None = None,
     ) -> None:
         """Initialize the box constraint.
 
         Args:
             box_spec: Specification of the box constraint.
                 For variable bounds, provide an example of the bounds.
+            scale: Optional scaling vector applied to variable bounds passed via
+                ``yraw.box``. Defaults to all ones.
         """
-        self.lb: jnp.ndarray | None = box_spec.lb
-        self.ub: jnp.ndarray | None = box_spec.ub
+        lb = box_spec.lb
+        ub = box_spec.ub
         mask = box_spec.mask
         if mask is not None:
-            self._dim = int(mask.size)
-        elif self.lb is not None:
-            self._dim = self.lb.shape[1]
+            dim = int(mask.size)
+        elif lb is not None:
+            dim = lb.shape[1]
         else:
             # Either lb or ub must be provided if mask is not set.
-            assert self.ub is not None
-            self._dim = self.ub.shape[1]
-        self.scale = jnp.ones((1, self._dim, 1))
+            assert ub is not None
+            dim = ub.shape[1]
 
-        if self.lb is not None:
-            self._n_constraints = self.lb.shape[1]
+        if lb is not None:
+            n_constraints = lb.shape[1]
         else:
             # At least one of lb or ub must be provided.
-            assert self.ub is not None
-            self._n_constraints = self.ub.shape[1]
-        self.mask: jnp.ndarray = (
+            assert ub is not None
+            n_constraints = ub.shape[1]
+
+        self.lb = lb
+        self.ub = ub
+        self.mask = (
             mask
             if mask is not None
-            else jnp.asarray(np.ones(shape=(self._dim,), dtype=jnp.bool_))
+            else jnp.asarray(np.ones(shape=(dim,), dtype=jnp.bool_))
         )
+        # Default scale is applied to per-instance bounds supplied via
+        # ``yraw.box.lb/ub``, which have shape ``(batch, n_constraints, 1)``.
+        # Using ``dim`` here would broadcast-error whenever ``mask`` is set
+        # (``dim != n_constraints``).
+        self.scale = scale if scale is not None else jnp.ones((1, n_constraints, 1))
+        self._dim = dim
+        self._n_constraints = n_constraints
 
     def get_params(
         self, yraw: ProjectionInstance
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[BatchedRHS, BatchedRHS, Mask1D]:
         """Get the parameters of the box constraint.
 
         Args:
             yraw: ProjectionInstance to get the parameters from.
 
         Returns:
-            tuple: A tuple containing the lower and upper bounds and the mask.
-                Each of shape (batch_size, n_constraints, 1).
+            A tuple ``(lb, ub, mask)`` with the lower/upper bounds and the mask.
         """
         lb = (
             (yraw.box.lb * self.scale)
@@ -83,7 +109,6 @@ class BoxConstraint(Constraint):
             ub = jnp.inf * jnp.ones_like(lb)
         # A mask is always required to know which coordinates are clipped.
         assert mask is not None
-        # NOTE: Mask is never None
 
         return lb, ub, mask
 
@@ -95,23 +120,21 @@ class BoxConstraint(Constraint):
                 The .x attribute is the point to project.
 
         Returns:
-            ProjectionInstance: The projected point for each point in the batch.
-                .x of shape (batch_size, dimension, 1).
+            The projected point for each point in the batch.
         """
         lb, ub, mask = self.get_params(yraw)
         return yraw.update(
             x=yraw.x.at[:, mask, :].set(jnp.clip(yraw.x[:, mask, :], lb, ub))
         )
 
-    def cv(self, yraw: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
             yraw: ProjectionInstance to evaluate.
 
         Returns:
-            jnp.ndarray: The constraint violation for each point in the batch.
-                Shape (batch_size, 1, 1).
+            The constraint violation for each point in the batch.
         """
         lb, ub, mask = self.get_params(yraw)
         cvs = jnp.maximum(
@@ -122,18 +145,10 @@ class BoxConstraint(Constraint):
 
     @property
     def dim(self) -> int:
-        """Return the dimension of the constraint set.
-
-        Returns:
-            int: The dimension of the constraint set.
-        """
+        """Return the dimension of the constraint set."""
         return self._dim
 
     @property
     def n_constraints(self) -> int:
-        """Return the number of constraints.
-
-        Returns:
-            int: The number of constraints.
-        """
+        """Return the number of constraints."""
         return self._n_constraints
