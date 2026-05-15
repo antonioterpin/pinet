@@ -75,11 +75,11 @@ class ConstraintParser:
 
         if eq_constraint is None:
             eq_constraint = EqualityConstraint(
-                a_dyn=jnp.empty((1, 0, self.dim)),
+                a_mat=jnp.empty((1, 0, self.dim)),
                 b=jnp.empty((1, 0, 1)),
                 method=None,
                 var_b=False,
-                var_a_dyn=False,
+                var_a_mat=False,
             )
 
         self.eq_constraint = eq_constraint
@@ -91,11 +91,10 @@ class ConstraintParser:
             # Batch consistency checks
             # Equality and inequality matrices must have compatible batch dimensions.
             assert (
-                self.eq_constraint.a_dyn.shape[0]
-                == ineq_constraint.constr_matrix.shape[0]
-                or self.eq_constraint.a_dyn.shape[0] == 1
-                or ineq_constraint.constr_matrix.shape[0] == 1
-            ), "Batch sizes of a_dyn and constr_matrix must be consistent."
+                self.eq_constraint.a_mat.shape[0] == ineq_constraint.c_mat.shape[0]
+                or self.eq_constraint.a_mat.shape[0] == 1
+                or ineq_constraint.c_mat.shape[0] == 1
+            ), "Batch sizes of a_mat and c_mat must be consistent."
             if box_constraint is not None:
                 # An explicit box constraint must provide its lower bounds.
                 assert box_constraint.lb is not None
@@ -117,14 +116,14 @@ class ConstraintParser:
         if nl_constraints is not None:
             for non_linear in nl_constraints:
                 # Check that all batch sizes of matrices are 1
-                assert non_linear.A is None or non_linear.A.shape[0] == 1, (
-                    "Batch size of non-linear constraint A must be 1 or None."
+                assert non_linear.a_mat is None or non_linear.a_mat.shape[0] == 1, (
+                    "Batch size of non-linear constraint a_mat must be 1 or None."
                 )
                 assert non_linear.f is None or non_linear.f.shape[0] == 1, (
                     "Batch size of non-linear constraint f must be 1 or None."
                 )
             if ineq_constraint is not None:
-                assert ineq_constraint.constr_matrix.shape[0] == 1, (
+                assert ineq_constraint.c_mat.shape[0] == 1, (
                     "Batch size of inequality constraint must be 1 or None."
                 )
 
@@ -165,33 +164,33 @@ class ConstraintParser:
         # Precondition: eq_constraint is set by __init__ for non-identity mode.
         assert eq_constraint is not None
 
-        # Build lifted a_dyn matrix.
-        # Maximum batch size between a_dyn and constr_matrix.
-        mb_ac = max(eq_constraint.a_dyn.shape[0], ineq_constraint.constr_matrix.shape[0])
+        # Build lifted a_mat matrix.
+        # Maximum batch size between a_mat and c_mat.
+        mb_ac = max(eq_constraint.a_mat.shape[0], ineq_constraint.c_mat.shape[0])
         first_row_batched = jnp.tile(
             jnp.concatenate(
                 [
-                    eq_constraint.a_dyn,
+                    eq_constraint.a_mat,
                     jnp.zeros(
-                        shape=(eq_constraint.a_dyn.shape[0], self.n_eq, self.n_ineq)
+                        shape=(eq_constraint.a_mat.shape[0], self.n_eq, self.n_ineq)
                     ),
                 ],
                 axis=2,
             ),
-            (mb_ac // eq_constraint.a_dyn.shape[0], 1, 1),
+            (mb_ac // eq_constraint.a_mat.shape[0], 1, 1),
         )
         second_row_batched = jnp.tile(
             jnp.concatenate(
                 [
-                    ineq_constraint.constr_matrix,
+                    ineq_constraint.c_mat,
                     -jnp.tile(
                         jnp.eye(self.n_ineq).reshape(1, self.n_ineq, self.n_ineq),
-                        (ineq_constraint.constr_matrix.shape[0], 1, 1),
+                        (ineq_constraint.c_mat.shape[0], 1, 1),
                     ),
                 ],
                 axis=2,
             ),
-            (mb_ac // ineq_constraint.constr_matrix.shape[0], 1, 1),
+            (mb_ac // ineq_constraint.c_mat.shape[0], 1, 1),
         )
         a_dyn_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
         b_lifted = jnp.concatenate(
@@ -202,11 +201,11 @@ class ConstraintParser:
             axis=1,
         )
         eq_lifted = EqualityConstraint(
-            a_dyn=a_dyn_lifted,
+            a_mat=a_dyn_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
-            var_a_dyn=eq_constraint.var_a_dyn,
+            var_a_mat=eq_constraint.var_a_mat,
         )
 
         if self.box_constraint is None:
@@ -289,9 +288,7 @@ class ConstraintParser:
             Returns:
                 The lifted projection instance.
             """
-            y = y.update(
-                x=jnp.concatenate([y.x, ineq_constraint.constr_matrix @ y.x], axis=1)
-            )
+            y = y.update(x=jnp.concatenate([y.x, ineq_constraint.c_mat @ y.x], axis=1))
             if eq_constraint.var_b:
                 # Variable equality data must be present before extending the RHS.
                 assert y.eq is not None
@@ -330,16 +327,16 @@ class ConstraintParser:
         # ``ArrayLike`` here matches the public spec annotations (jax + numpy)
         # so all the ``.append`` calls below typecheck regardless of which
         # backend the caller passed in.
-        all_matrices: list[ArrayLike] = [eq_constraint.a_dyn]
+        all_matrices: list[ArrayLike] = [eq_constraint.a_mat]
         dims: list[int] = [eq_constraint.dim]
         if self.ineq_constraint is not None:
-            all_matrices.append(self.ineq_constraint.constr_matrix)
+            all_matrices.append(self.ineq_constraint.c_mat)
             dims.append(self.ineq_constraint.n_constraints)
         for non_linear in nl_constraints:
             # Non-linear constraints must expose their linear-transformation matrix.
-            assert non_linear.A is not None
-            all_matrices.append(non_linear.A)
-            dims.append(non_linear.A.shape[1])
+            assert non_linear.a_mat is not None
+            all_matrices.append(non_linear.a_mat)
+            dims.append(non_linear.a_mat.shape[1])
             # Normalise the linear RHS row so SOCType (with or without ``f``)
             # and L2NormType all flow through the same lifted-auxiliary
             # plumbing: every NL constraint contributes ``m`` aux rows for
@@ -351,7 +348,7 @@ class ConstraintParser:
                 f_row: ArrayLike = (
                     non_linear.f
                     if non_linear.f is not None
-                    else jnp.zeros((1, 1, non_linear.A.shape[2]))
+                    else jnp.zeros((1, 1, non_linear.a_mat.shape[2]))
                 )
                 all_matrices.append(f_row)
                 dims[-1] += 1
@@ -363,11 +360,11 @@ class ConstraintParser:
         # ``int`` shape values, so use the built-in ``sum`` to avoid
         # producing a traced array inside ``jnp.sum`` (which would error
         # when ``parse_non_linear`` is re-invoked from the jitted
-        # ``solver.admm.initialize`` for the ``var_a_dyn=True`` re-lift).
+        # ``solver.admm.initialize`` for the ``var_a_mat=True`` re-lift).
         n_aux = sum(dims[1:])
         n_tot = sum(dims)
         # Tile each row block to the largest batch size before concatenating
-        # along the row axis. With ``var_a_dyn=True`` the equality matrix
+        # along the row axis. With ``var_a_mat=True`` the equality matrix
         # carries a per-instance batch (>1); inequality and non-linear
         # matrices are constrained to batch 1 (validated above).
         max_batch = max(M.shape[0] for M in all_matrices)
@@ -391,17 +388,17 @@ class ConstraintParser:
             [eq_constraint.b, jnp.zeros(shape=(eq_constraint.b.shape[0], n_aux, 1))],
             axis=1,
         )
-        # Define lifted equality constraints. ``var_a_dyn`` propagates from the
-        # input: when the user supplies a per-instance ``a_dyn`` via
-        # ``yraw.eq.a_dyn``, ``solver.admm.initialize`` re-runs
+        # Define lifted equality constraints. ``var_a_mat`` propagates from the
+        # input: when the user supplies a per-instance ``a_mat`` via
+        # ``yraw.eq.a_mat``, ``solver.admm.initialize`` re-runs
         # ``parse_non_linear`` with the new value and produces a fresh lifted
-        # ``a_dyn`` / ``a_dyn_pinv`` whose top block reflects that input.
+        # ``a_mat`` / ``a_mat_pinv`` whose top block reflects that input.
         eq_lifted = EqualityConstraint(
-            a_dyn=a_lifted,
+            a_mat=a_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
-            var_a_dyn=eq_constraint.var_a_dyn,
+            var_a_mat=eq_constraint.var_a_mat,
         )
         # Setup primitive constraints -> Box, SOC, ...
         prim_constraints: list[SocConstraint] = []
@@ -455,32 +452,32 @@ class ConstraintParser:
         # carries the user-supplied scalar bound either way.
         for nl in nl_constraints:
             # Non-linear constraints need a linear-transformation matrix for lifting.
-            assert nl.A is not None
+            assert nl.a_mat is not None
             if nl.nl_type in (SOCType, L2NormType):
                 # Masks depend only on (static) dimensions, not on traced
                 # tensor values. Build them as ``numpy`` arrays so the
                 # downstream ``validate()`` (which calls ``.sum()``) returns
                 # a concrete Python scalar — important when
                 # ``parse_non_linear`` is re-invoked from the jitted
-                # ``solver.admm.initialize`` for ``var_a_dyn=True``.
+                # ``solver.admm.initialize`` for ``var_a_mat=True``.
                 socspec = SocConstraintSpecification(
                     mask_u=np.array(
                         [False] * n_curr
-                        + [True] * nl.A.shape[1]
-                        + [False] * (n_tot - n_curr - nl.A.shape[1]),
+                        + [True] * nl.a_mat.shape[1]
+                        + [False] * (n_tot - n_curr - nl.a_mat.shape[1]),
                         dtype=np.bool_,
                     ),
                     mask_t=np.array(
-                        [False] * (n_curr + nl.A.shape[1])
+                        [False] * (n_curr + nl.a_mat.shape[1])
                         + [True]
-                        + [False] * (n_tot - n_curr - nl.A.shape[1] - 1),
+                        + [False] * (n_tot - n_curr - nl.a_mat.shape[1] - 1),
                         dtype=np.bool_,
                     ),
                     a=nl.a,
                     b=nl.b,
                 )
                 prim_constraints.append(SocConstraint(socspec=socspec))
-                n_curr += nl.A.shape[1] + 1
+                n_curr += nl.a_mat.shape[1] + 1
             else:  # pragma: no cover -- defended by NonLinearSpecification._validate_type
                 raise ValueError(
                     f"Unsupported non-linear constraint type: {type(nl.nl_type)}"

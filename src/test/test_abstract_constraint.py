@@ -54,7 +54,7 @@ def _make_nl_parameter_carrier() -> NonLinearConstraint:
     """Build a minimal valid ``NonLinearConstraint`` parameter carrier."""
     spec = NonLinearSpecification(
         nl_type=SOCType,
-        A=jnp.zeros((1, 1, 2)),
+        a_mat=jnp.zeros((1, 1, 2)),
         a=jnp.zeros((1, 1, 1)),
         f=None,
         b=jnp.zeros((1, 1, 1)),
@@ -87,18 +87,18 @@ def test_nonlinear_constraint_cv_raises() -> None:
 def test_equality_project_pinv_recomputes_when_pinv_missing() -> None:
     """``project_pinv`` falls back to ``jnp.linalg.pinv`` when no pinv is cached.
 
-    Exercises the ``a_dyn_pinv is None`` branch inside ``project_pinv``: the
-    constraint is configured with ``var_a_dyn=True`` and the per-instance
-    spec supplies ``a_dyn`` but no ``a_dyn_pinv``.
+    Exercises the ``a_mat_pinv is None`` branch inside ``project_pinv``: the
+    constraint is configured with ``var_a_mat=True`` and the per-instance
+    spec supplies ``a_mat`` but no ``a_mat_pinv``.
     """
-    a_dyn = jnp.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+    a_mat = jnp.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
     b = jnp.array([[[0.3], [-0.4]]])
-    eq = EqualityConstraint(a_dyn=a_dyn, b=b, method="pinv", var_a_dyn=True)
+    eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv", var_a_mat=True)
 
     x = jnp.array([[[1.0], [2.0], [3.0]]])
     yraw = ProjectionInstance(
         x=x,
-        eq=EqualityConstraintsSpecification(a_dyn=a_dyn, b=b, a_dyn_pinv=None),
+        eq=EqualityConstraintsSpecification(a_mat=a_mat, b=b, a_mat_pinv=None),
     )
     out = eq.project_pinv(yraw)
     # The first two coordinates must match b exactly after projection.

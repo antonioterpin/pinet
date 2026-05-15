@@ -9,10 +9,11 @@ import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
 
 
-# TEMP: pre-PR-#96 datasets shipped with assorted key names — earliest
-# revisions used `As`/`Ystar`/`T`, later ones `a_dyn`, and the post-PR-96
-# generators write `a`/`y_star`/`horizon`. Accept all of them so the in-repo
-# datasets keep working without a regenerate step. Track removal in
+# TEMP: dataset key shim. Accepts main's uppercase convention
+# (``As``/``T``/``Ystar``), the current lowercase ``_mat`` convention
+# (``a_mat``/``horizon``/``y_star``), and the intermediate ``a_dyn`` key
+# that some in-repo datasets carry. Dataset regeneration (which will drop
+# the ``a_dyn`` fallback) is tracked in
 # https://github.com/antonioterpin/pinet/issues/112.
 def _pick(data: Any, *keys: str) -> jnp.ndarray:
     """Return ``data[k]`` for the first ``k`` in ``keys`` that exists.
@@ -41,7 +42,7 @@ class ToyMPCDataset(Dataset[tuple[jax.Array, jax.Array]]):
         self.x0sets = data["x0sets"]
         # Constant problem ingredients
         self.const = (
-            _pick(const, "a", "a_dyn", "As"),
+            _pick(const, "a_mat", "a_dyn", "As"),
             const["lbxs"],
             const["ubxs"],
             const["lbus"],

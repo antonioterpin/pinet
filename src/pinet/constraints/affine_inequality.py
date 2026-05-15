@@ -12,61 +12,51 @@ class AffineInequalityConstraint(Constraint):
     """Affine inequality constraint set.
 
     The (affine) inequality constraint set is defined as:
-    lb <= constr_matrix @ x <= ub
+    lb <= c_mat @ x <= ub
     where the constraint matrix and the vectors lb and ub are the parameters.
 
     Attributes:
-        constr_matrix: Matrix in the inequality.
+        c_mat: Matrix in the inequality.
         lb: Lower bound.
         ub: Upper bound.
     """
 
-    constr_matrix: BatchedIneqMatrix
+    c_mat: BatchedIneqMatrix
     lb: BatchedIneqBound
     ub: BatchedIneqBound
 
     def __init__(
         self,
-        constr_matrix: BatchedIneqMatrix,
+        c_mat: BatchedIneqMatrix,
         lb: BatchedIneqBound,
         ub: BatchedIneqBound,
     ) -> None:
         """Initialize the affine inequality constraint.
 
         Args:
-            constr_matrix: The matrix in the inequality.
+            c_mat: The matrix in the inequality.
             lb: The lower bound in the inequality.
             ub: The upper bound in the inequality.
         """
         # Batch sizes must be the same, or one of them must be 1.
-        assert (
-            constr_matrix.shape[0] == lb.shape[0]
-            or constr_matrix.shape[0] == 1
-            or lb.shape[0] == 1
-        ), (
-            "Batch sizes are inconsistent: "
-            f"constr_matrix{constr_matrix.shape}, l{lb.shape}"
+        assert c_mat.shape[0] == lb.shape[0] or c_mat.shape[0] == 1 or lb.shape[0] == 1, (
+            f"Batch sizes are inconsistent: c_mat{c_mat.shape}, l{lb.shape}"
         )
 
-        assert (
-            constr_matrix.shape[0] == ub.shape[0]
-            or constr_matrix.shape[0] == 1
-            or ub.shape[0] == 1
-        ), (
-            "Batch sizes are inconsistent: "
-            f"constr_matrix{constr_matrix.shape}, ub{ub.shape}"
+        assert c_mat.shape[0] == ub.shape[0] or c_mat.shape[0] == 1 or ub.shape[0] == 1, (
+            f"Batch sizes are inconsistent: c_mat{c_mat.shape}, ub{ub.shape}"
         )
 
         # Each inequality row needs one lower bound entry.
-        assert constr_matrix.shape[1] == lb.shape[1], (
-            "Number of rows in constr_matrix must equal size of l."
+        assert c_mat.shape[1] == lb.shape[1], (
+            "Number of rows in c_mat must equal size of l."
         )
         # Each inequality row needs one upper bound entry.
-        assert constr_matrix.shape[1] == ub.shape[1], (
-            "Number of rows in constr_matrix must equal size of u."
+        assert c_mat.shape[1] == ub.shape[1], (
+            "Number of rows in c_mat must equal size of u."
         )
 
-        self.constr_matrix = constr_matrix
+        self.c_mat = c_mat
         self.lb = lb
         self.ub = ub
 
@@ -90,12 +80,12 @@ class AffineInequalityConstraint(Constraint):
     @property
     def dim(self) -> int:
         """Return the dimension of the constraint set."""
-        return self.constr_matrix.shape[-1]
+        return self.c_mat.shape[-1]
 
     @property
     def n_constraints(self) -> int:
         """Return the number of constraints."""
-        return self.constr_matrix.shape[1]
+        return self.c_mat.shape[1]
 
     def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
@@ -106,7 +96,7 @@ class AffineInequalityConstraint(Constraint):
         Returns:
             The constraint violation for each point in the batch.
         """
-        constr_matrix_x = self.constr_matrix @ yraw.x
+        constr_matrix_x = self.c_mat @ yraw.x
         cv_ub = jnp.maximum(constr_matrix_x - self.ub, 0)
         cv_lb = jnp.maximum(self.lb - constr_matrix_x, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)

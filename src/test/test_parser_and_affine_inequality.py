@@ -35,17 +35,15 @@ def test_simple_2d(method, seed, batch_size):
     dim = 2
     n_ineq = 1
     key = jax.random.PRNGKey(seed)
-    # Equality constraint: a_dyn @ x = b
-    a_dyn = jnp.array([[[1, 0]]])
+    # Equality constraint: a_mat @ x = b
+    a_mat = jnp.array([[[1, 0]]])
     b = jnp.zeros(shape=(1, 1, 1))
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
-    # Inequality constraint: l <= constr_matrix @ x <= u
-    constr_matrix = jnp.array([[[1, 1]]])
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method)
+    # Inequality constraint: l <= c_mat @ x <= u
+    c_mat = jnp.array([[[1, 1]]])
     lb = jnp.zeros(shape=(1, 1, 1))
     ub = jnp.ones(shape=(1, 1, 1))
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     # Parse constraints
     parser = ConstraintParser(
@@ -85,9 +83,9 @@ def test_simple_2d(method, seed, batch_size):
         constraints = cast(
             list[cp.Constraint],
             [
-                a_dyn[0, :, :] @ ycp == b[0, :, 0],
-                lb[0, :, 0] <= constr_matrix[0, :, :] @ ycp,
-                constr_matrix[0, :, :] @ ycp <= ub[0, :, 0],
+                a_mat[0, :, :] @ ycp == b[0, :, 0],
+                lb[0, :, 0] <= c_mat[0, :, :] @ ycp,
+                c_mat[0, :, :] @ ycp <= ub[0, :, 0],
             ],
         )
         objective = cp.Minimize(cp.sum_squares(ycp - x[ii, :, 0]))
@@ -107,7 +105,7 @@ def test_simple_2d(method, seed, batch_size):
         constraints_lifted = cast(
             list[cp.Constraint],
             [
-                lifted_eq.a_dyn[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
+                lifted_eq.a_mat[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
                 lifted_box.lb[0, :, 0] <= yliftedcp[lifted_box.mask],
                 yliftedcp[lifted_box.mask] <= lifted_box.ub[0, :, 0],
             ],
@@ -156,9 +154,9 @@ def test_general_eq_ineq(method, seed, batch_size):
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=3)
     # Generate equality constraints LHS
-    a_dyn = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    a_mat = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
-    constr_matrix = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    c_mat = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Compute RHS by solving feasibility problem
     xfeas = cp.Variable(dim)
     bfeas = cp.Variable(n_eq)
@@ -167,9 +165,9 @@ def test_general_eq_ineq(method, seed, batch_size):
     constraints = cast(
         list[cp.Constraint],
         [
-            a_dyn[0, :, :] @ xfeas == bfeas,
-            lfeas <= constr_matrix[0, :, :] @ xfeas,
-            constr_matrix[0, :, :] @ xfeas <= ufeas,
+            a_mat[0, :, :] @ xfeas == bfeas,
+            lfeas <= c_mat[0, :, :] @ xfeas,
+            c_mat[0, :, :] @ xfeas <= ufeas,
             -1 <= xfeas,
             xfeas <= 1,
         ],
@@ -182,10 +180,8 @@ def test_general_eq_ineq(method, seed, batch_size):
     lb = jnp.tile(jnp.array(lfeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
     ub = jnp.tile(jnp.array(ufeas.value).reshape((1, n_ineq, 1)), (1, 1, 1))
 
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     # Parse constraints
     parser = ConstraintParser(
@@ -216,9 +212,9 @@ def test_general_eq_ineq(method, seed, batch_size):
         constraints = cast(
             list[cp.Constraint],
             [
-                a_dyn[0, :, :] @ yproj == b[0, :, 0],
-                lb[0, :, 0] <= constr_matrix[0, :, :] @ yproj,
-                constr_matrix[0, :, :] @ yproj <= ub[0, :, 0],
+                a_mat[0, :, :] @ yproj == b[0, :, 0],
+                lb[0, :, 0] <= c_mat[0, :, :] @ yproj,
+                c_mat[0, :, :] @ yproj <= ub[0, :, 0],
             ],
         )
         objective = cp.Minimize(cp.sum_squares(yproj - x[ii, :, 0]))
@@ -233,7 +229,7 @@ def test_general_eq_ineq(method, seed, batch_size):
         constraints_lifted = cast(
             list[cp.Constraint],
             [
-                lifted_eq.a_dyn[0, :, :] @ yliftedproj == lifted_eq.b[0, :, 0],
+                lifted_eq.a_mat[0, :, :] @ yliftedproj == lifted_eq.b[0, :, 0],
                 lifted_box.lb[0, :, 0] <= yliftedproj[lifted_box.mask],
                 yliftedproj[lifted_box.mask] <= lifted_box.ub[0, :, 0],
             ],
@@ -308,8 +304,8 @@ def test_general_eq_ineq_box(
     batch_size_x: int,
 ) -> None:
     """This test considers the set:
-    a_dyn @ x == b,
-    l <= constr_matrix @ x <= u
+    a_mat @ x == b,
+    l <= c_mat @ x <= u
     lbox <= x[mask] <= ubox
 
     Args:
@@ -347,9 +343,9 @@ def test_general_eq_ineq_box(
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=4)
     # Generate equality constraints LHS
-    a_dyn = jax.random.normal(key[0], shape=(batch_size_a, n_eq, dim))
+    a_mat = jax.random.normal(key[0], shape=(batch_size_a, n_eq, dim))
     # Generate inequality constraints LHS
-    constr_matrix = jax.random.normal(key[1], shape=(batch_size_c, n_ineq, dim))
+    c_mat = jax.random.normal(key[1], shape=(batch_size_c, n_ineq, dim))
     # Randomly generate mask for box constraints
     indices = jnp.concatenate([jnp.ones(n_box), jnp.zeros(dim - n_box)])
     mask = jax.random.permutation(key[2], indices).astype(bool)
@@ -379,11 +375,11 @@ def test_general_eq_ineq_box(
         uboxidx = min(ii, batch_size_box_upper - 1)
         # Add constraints
         constraints += [
-            a_dyn[aidx, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
+            a_mat[aidx, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
             == bfeas[bfeasidx * n_eq : (bfeasidx + 1) * n_eq],
             lfeas[lfeasidx * n_ineq : (lfeasidx + 1) * n_ineq]
-            <= constr_matrix[cidx, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
-            constr_matrix[cidx, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
+            <= c_mat[cidx, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
+            c_mat[cidx, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
             <= ufeas[ufeasidx * n_ineq : (ufeasidx + 1) * n_ineq],
             -1 <= lbox[lboxidx * n_box : (lboxidx + 1) * n_box],
             ubox[uboxidx * n_box : (uboxidx + 1) * n_box] <= 1,
@@ -405,10 +401,8 @@ def test_general_eq_ineq_box(
     box_lower = jnp.array(lbox.value).reshape((batch_size_box_lower, n_box, 1))
     box_upper = jnp.array(ubox.value).reshape((batch_size_box_upper, n_box, 1))
 
-    eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=b, method=method)
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
     box_constraint = BoxConstraint(
         BoxConstraintSpecification(lb=box_lower, ub=box_upper, mask=mask)
     )
@@ -453,9 +447,9 @@ def test_general_eq_ineq_box(
         constraints = cast(
             list[cp.Constraint],
             [
-                a_dyn[aidx, :, :] @ yproj == b[bfeasidx, :, 0],
-                lb[lfeasidx, :, 0] <= constr_matrix[cidx, :, :] @ yproj,
-                constr_matrix[cidx, :, :] @ yproj <= ub[ufeasidx, :, 0],
+                a_mat[aidx, :, :] @ yproj == b[bfeasidx, :, 0],
+                lb[lfeasidx, :, 0] <= c_mat[cidx, :, :] @ yproj,
+                c_mat[cidx, :, :] @ yproj <= ub[ufeasidx, :, 0],
                 box_lower[lboxidx, :, 0] <= yproj[mask],
                 yproj[mask] <= box_upper[uboxidx, :, 0],
             ],
@@ -478,7 +472,7 @@ def test_general_eq_ineq_box(
         constraints_lifted = cast(
             list[cp.Constraint],
             [
-                lifted_eq.a_dyn[acidx, :, :] @ yliftedproj == lifted_eq.b[bfeasidx, :, 0],
+                lifted_eq.a_mat[acidx, :, :] @ yliftedproj == lifted_eq.b[bfeasidx, :, 0],
                 lifted_box.lb[loweridx, :, 0] <= yliftedproj[lifted_box.mask],
                 yliftedproj[lifted_box.mask] <= lifted_box.ub[upperidx, :, 0],
             ],
@@ -521,10 +515,10 @@ def test_general_eq_ineq_box(
     # Write box constraints as affine inequality constraints
     c_aug = jnp.concatenate(
         (
-            constr_matrix,
+            c_mat,
             jnp.tile(
                 jnp.eye(dim)[mask, :].reshape(1, n_box, dim),
-                (constr_matrix.shape[0], 1, 1),
+                (c_mat.shape[0], 1, 1),
             ),
         ),
         axis=1,
@@ -548,9 +542,7 @@ def test_general_eq_ineq_box(
         axis=1,
     )
     n_ineq_aug = n_ineq + n_box
-    ineq_constraint_aug = AffineInequalityConstraint(
-        constr_matrix=c_aug, lb=lbaug, ub=ubaug
-    )
+    ineq_constraint_aug = AffineInequalityConstraint(c_mat=c_aug, lb=lbaug, ub=ubaug)
 
     parser_aug = ConstraintParser(
         eq_constraint=eq_constraint, ineq_constraint=ineq_constraint_aug
@@ -594,13 +586,11 @@ def test_simple_no_equality(seed, batch_size):
     dim = 2
     n_ineq = 1
     key = jax.random.PRNGKey(seed)
-    # Inequality constraint: l <= constr_matrix @ x <= u
-    constr_matrix = jnp.array([[[1, 1]]])
+    # Inequality constraint: l <= c_mat @ x <= u
+    c_mat = jnp.array([[[1, 1]]])
     lb = jnp.zeros(shape=(1, 1, 1))
     ub = jnp.ones(shape=(1, 1, 1))
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     # Parse constraints
     parser = ConstraintParser(eq_constraint=None, ineq_constraint=ineq_constraint)
@@ -654,8 +644,8 @@ def test_simple_no_equality(seed, batch_size):
         constraints = cast(
             list[cp.Constraint],
             [
-                lb[0, :, 0] <= constr_matrix[0, :, :] @ ycp,
-                constr_matrix[0, :, :] @ ycp <= ub[0, :, 0],
+                lb[0, :, 0] <= c_mat[0, :, :] @ ycp,
+                c_mat[0, :, :] @ ycp <= ub[0, :, 0],
             ],
         )
         objective = cp.Minimize(cp.sum_squares(ycp - x[ii, :, 0]))
@@ -670,7 +660,7 @@ def test_simple_no_equality(seed, batch_size):
         constraints_lifted = cast(
             list[cp.Constraint],
             [
-                lifted_eq.a_dyn[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
+                lifted_eq.a_mat[0, :, :] @ yliftedcp == lifted_eq.b[0, :, 0],
                 lifted_box.lb[0, :, 0] <= yliftedcp[lifted_box.mask],
                 yliftedcp[lifted_box.mask] <= lifted_box.ub[0, :, 0],
             ],
@@ -700,12 +690,10 @@ def test_simple_no_equality(seed, batch_size):
 
 def test_affine_inequality_project_cannot_be_called_directly():
     """Test that the project method cannot be called directly."""
-    constr_matrix = jnp.array([[[1, 1]]])
+    c_mat = jnp.array([[[1, 1]]])
     lb = jnp.zeros(shape=(1, 1, 1))
     ub = jnp.ones(shape=(1, 1, 1))
-    ineq_constraint = AffineInequalityConstraint(
-        constr_matrix=constr_matrix, lb=lb, ub=ub
-    )
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
 
     with pytest.raises(
         NotImplementedError,
@@ -718,9 +706,9 @@ def test_affine_inequality_project_cannot_be_called_directly():
 
 def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
     dim, n_eq = 3, 2
-    a_dyn = jnp.arange(n_eq * dim, dtype=jnp.float64).reshape(1, n_eq, dim)
+    a_mat = jnp.arange(n_eq * dim, dtype=jnp.float64).reshape(1, n_eq, dim)
     b = jnp.zeros((1, n_eq, 1))
-    eq = EqualityConstraint(a_dyn=a_dyn, b=b, method="pinv")
+    eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv")
 
     parser = ConstraintParser(eq_constraint=eq, ineq_constraint=None, box_constraint=None)
     eq_out, box_out, _ = parser.parse(method="pinv")
@@ -735,7 +723,7 @@ def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
     assert eq_out is not None, (
         "Parser should preserve the equality constraint when no lifting is needed."
     )
-    assert eq_out.a_dyn is a_dyn, (
+    assert eq_out.a_mat is a_mat, (
         "Parser should preserve the original equality matrix when no lifting is needed."
     )
     assert eq_out.b is b, (
@@ -745,9 +733,9 @@ def test_constraint_parser_no_ineq_no_box_returns_eq_as_is():
 
 def test_constraint_parser_no_ineq_with_box_returns_inputs():
     dim, n_eq = 4, 1
-    a_dyn = jnp.ones((1, n_eq, dim))
+    a_mat = jnp.ones((1, n_eq, dim))
     b = jnp.zeros((1, n_eq, 1))
-    eq = EqualityConstraint(a_dyn=a_dyn, b=b, method="pinv")
+    eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv")
 
     mask = jnp.array([True, False, True, False])
     n_box = int(mask.sum())

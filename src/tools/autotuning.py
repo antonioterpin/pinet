@@ -59,8 +59,8 @@ class LoadedData:
         filename: Dataset filename or filename prefix used to load the problem.
         q: Linear cost term of the quadratic program.
         p: Quadratic cost matrix of the quadratic program.
-        a_dyn: Equality-constraint matrix.
-        constr_matrix: Inequality-constraint matrix.
+        a_mat: Equality-constraint matrix.
+        c_mat: Inequality-constraint matrix.
         h: Constraint right-hand side tensor.
         x_dataset: Input dataset associated with the loaded problem instance.
         train_loader: Dataloader for the training split.
@@ -71,8 +71,8 @@ class LoadedData:
     filename: str
     q: jax.Array
     p: jax.Array
-    a_dyn: BatchedEqMatrix
-    constr_matrix: BatchedIneqMatrix
+    a_mat: BatchedEqMatrix
+    c_mat: BatchedIneqMatrix
     h: jax.Array
     x_dataset: jax.Array
     train_loader: Any
@@ -122,7 +122,7 @@ def load_data(
         train_loader, valid_loader, test_loader = create_dataloaders(
             dataset_path, batch_size=2048, val_split=0.1, test_split=0.1
         )
-        q, p, a_dyn, constr_matrix, h = qp_dataset.const
+        q, p, a_mat, c_mat, h = qp_dataset.const
         p = p[0, :, :]
         x_dataset = qp_dataset.x_data
     else:
@@ -154,7 +154,7 @@ def load_data(
             DC3Dataset,
             cast(DataLoader[tuple[jax.Array, jax.Array]], train_loader).dataset,
         )
-        q, p, a_dyn, constr_matrix, h = dataset.const
+        q, p, a_mat, c_mat, h = dataset.const
         p = p[0, :, :]
         x_dataset = dataset.x_data
 
@@ -162,8 +162,8 @@ def load_data(
         filename=filename,
         q=q,
         p=p,
-        a_dyn=a_dyn,
-        constr_matrix=constr_matrix,
+        a_mat=a_mat,
+        c_mat=c_mat,
         h=h,
         x_dataset=x_dataset,
         train_loader=train_loader,
@@ -186,8 +186,8 @@ data = load_data(
 filename = data.filename
 q = data.q
 p = data.p
-a_dyn = data.a_dyn
-constr_matrix = data.constr_matrix
+a_mat = data.a_mat
+c_mat = data.c_mat
 h = data.h
 x_dataset = data.x_dataset
 train_loader = data.train_loader
@@ -233,9 +233,9 @@ def build_evaluate_params(
 
 # %%
 # Setup the projection layer
-eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=x_batch, method=None, var_b=True)
+eq_constraint = EqualityConstraint(a_mat=a_mat, b=x_batch, method=None, var_b=True)
 ineq_constraint = AffineInequalityConstraint(
-    constr_matrix=constr_matrix,
+    c_mat=c_mat,
     ub=h,
     lb=-jnp.inf * jnp.ones_like(h),
 )

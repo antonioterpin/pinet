@@ -28,18 +28,18 @@ _ShapeOrValidationError = (ValueError, TypeError, TypeCheckError)
 
 def test_eq_validate_requires_b_when_a_provided():
     spec = EqualityConstraintsSpecification(
-        a_dyn=jnp.ones((2, 5, 3)),  # (batch, n_constraints, dimension)
+        a_mat=jnp.ones((2, 5, 3)),  # (batch, n_constraints, dimension)
         b=None,
     )
     with pytest.raises(
-        ValueError, match=re.escape("If a_dyn is provided, b must also be provided.")
+        ValueError, match=re.escape("If a_mat is provided, b must also be provided.")
     ):
         spec.validate()
 
 
 def test_eq_validate_passes_when_b_and_a_provided():
     spec = EqualityConstraintsSpecification(
-        a_dyn=jnp.ones((2, 5, 3)),
+        a_mat=jnp.ones((2, 5, 3)),
         b=jnp.ones((2, 5, 1)),
     )
     # should not raise
@@ -47,7 +47,7 @@ def test_eq_validate_passes_when_b_and_a_provided():
 
 
 def test_eq_validate_passes_when_only_b_provided():
-    # b without a_dyn is allowed by current logic
+    # b without a_mat is allowed by current logic
     spec = EqualityConstraintsSpecification(b=jnp.ones((1, 3, 1)))
     spec.validate()
 
@@ -207,20 +207,20 @@ def test_equilibration_validate_update_mode_invalid_raises():
 
 def test_eq_update_returns_new_and_sets_fields():
     spec0 = EqualityConstraintsSpecification()
-    a_dyn = jnp.ones((2, 3, 4))
+    a_mat = jnp.ones((2, 3, 4))
     b = jnp.ones((2, 3, 1))
     apinv = jnp.ones((2, 4, 3))
 
-    spec1 = spec0.update(a_dyn=a_dyn, b=b, a_dyn_pinv=apinv)
+    spec1 = spec0.update(a_mat=a_mat, b=b, a_mat_pinv=apinv)
 
     assert spec1 is not spec0, "update() should return a new equality specification."
-    assert spec1.a_dyn is a_dyn, "Updated equality specification should store a_dyn."
+    assert spec1.a_mat is a_mat, "Updated equality specification should store a_mat."
     assert spec1.b is b, "Updated equality specification should store b."
-    assert spec1.a_dyn_pinv is apinv, (
-        "Updated equality specification should store a_dyn_pinv."
+    assert spec1.a_mat_pinv is apinv, (
+        "Updated equality specification should store a_mat_pinv."
     )
     # original remains unchanged
-    assert spec0.a_dyn is None and spec0.b is None and spec0.a_dyn_pinv is None, (
+    assert spec0.a_mat is None and spec0.b is None and spec0.a_mat_pinv is None, (
         "update() should not mutate the original equality specification."
     )
 
@@ -260,9 +260,9 @@ def test_projection_update_sets_eq_and_box_and_returns_new():
     pi0 = ProjectionInstance(x=x0)
 
     eq = EqualityConstraintsSpecification(
-        a_dyn=jnp.ones((2, 1, 3)),
+        a_mat=jnp.ones((2, 1, 3)),
         b=jnp.ones((2, 1, 1)),
-        a_dyn_pinv=jnp.ones((2, 3, 1)),
+        a_mat_pinv=jnp.ones((2, 3, 1)),
     )
     box = BoxConstraintSpecification(
         lb=jnp.zeros((2, 3, 1)),
@@ -466,7 +466,7 @@ def test_soc_validate_passes_with_minimal_inputs():
 def test_nonlinear_validate_l2norm_with_rhs_not_supported():
     spec = NonLinearSpecification(
         nl_type=L2NormType,
-        A=jnp.ones((1, 2, 3)),
+        a_mat=jnp.ones((1, 2, 3)),
         f=jnp.ones((1, 1, 3)),
     )
     with pytest.raises(
@@ -480,7 +480,7 @@ def test_nonlinear_validate_nl_type_must_be_constraint_type_instance():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
-            A=jnp.ones((1, 2, 3)),
+            a_mat=jnp.ones((1, 2, 3)),
         )
         spec.validate()
 
@@ -489,7 +489,7 @@ def test_nonlinear_validate_inconsistent_batch_sizes_raises():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((2, 2, 3)),
+            a_mat=jnp.ones((2, 2, 3)),
             a=jnp.ones((3, 2, 1)),
             f=jnp.ones((2, 1, 3)),
             b=jnp.ones((3, 1, 1)),
@@ -500,7 +500,7 @@ def test_nonlinear_validate_inconsistent_batch_sizes_raises():
 def test_nonlinear_validate_batch_sizes_allow_broadcast_with_all_present():
     spec = NonLinearSpecification(
         nl_type=SOCType,
-        A=jnp.ones((1, 2, 3)),
+        a_mat=jnp.ones((1, 2, 3)),
         a=jnp.ones((4, 2, 1)),
         f=jnp.ones((1, 1, 3)),
         b=jnp.ones((4, 1, 1)),
@@ -512,7 +512,7 @@ def test_nonlinear_validate_A_or_f_batch_size_not_one():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((2, 2, 3)),
+            a_mat=jnp.ones((2, 2, 3)),
             a=jnp.ones((1, 2, 1)),
             f=jnp.ones((1, 1, 3)),
             b=jnp.ones((2, 1, 1)),
@@ -522,7 +522,7 @@ def test_nonlinear_validate_A_or_f_batch_size_not_one():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((1, 2, 3)),
+            a_mat=jnp.ones((1, 2, 3)),
             a=jnp.ones((1, 2, 1)),
             f=jnp.ones((2, 1, 3)),
             b=jnp.ones((2, 1, 1)),
@@ -534,7 +534,7 @@ def test_nonlinear_validate_A_and_a_constraint_dimension():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((1, 3, 3)),
+            a_mat=jnp.ones((1, 3, 3)),
             a=jnp.ones((1, 2, 1)),
             f=jnp.ones((1, 1, 3)),
             b=jnp.ones((2, 1, 1)),
@@ -546,7 +546,7 @@ def test_nonlinear_validate_A_and_f_variable_dimension():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((1, 3, 3)),
+            a_mat=jnp.ones((1, 3, 3)),
             a=jnp.ones((1, 3, 1)),
             f=jnp.ones((1, 1, 2)),
             b=jnp.ones((2, 1, 1)),
@@ -558,7 +558,7 @@ def test_nonlinear_validate_f_and_b_constraint_dimension():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((1, 3, 3)),
+            a_mat=jnp.ones((1, 3, 3)),
             a=jnp.ones((1, 3, 1)),
             f=jnp.ones((1, 2, 3)),
             b=jnp.ones((2, 1, 1)),
@@ -570,7 +570,7 @@ def test_nonlinear_validate_b_is_not_a_scalar():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
             nl_type=SOCType,
-            A=jnp.ones((1, 3, 3)),
+            a_mat=jnp.ones((1, 3, 3)),
             a=jnp.ones((1, 3, 1)),
             f=jnp.ones((1, 2, 3)),
             b=jnp.ones((2, 2, 1)),
@@ -582,6 +582,6 @@ def test_nonlinear_to_primitive_spec_with_invalid_type():
     with pytest.raises((NotImplementedError, TypeCheckError)):
         spec = NonLinearSpecification(
             nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
-            A=jnp.ones((1, 2, 3)),
+            a_mat=jnp.ones((1, 2, 3)),
         )
         spec.to_primitive_spec()

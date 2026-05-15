@@ -22,7 +22,7 @@ class NonLinearConstraint(Constraint):
     """
 
     spec: NonLinearSpecification
-    _A: NLMatrix
+    _a_mat: NLMatrix
     _a: BatchedRHS | None
     _f: NLLinearRHS | None
     _b: BatchedScalar | None
@@ -40,19 +40,19 @@ class NonLinearConstraint(Constraint):
         """
         # Check for dimension
         spec.validate()
-        self._dim = spec.A.shape[-1]
+        self._dim = spec.a_mat.shape[-1]
 
         self.spec = spec
-        self._A = spec.A
+        self._a_mat = spec.a_mat
         self._a = spec.a
         self._f = spec.f
         self._b = spec.b
         self._nl_type = spec.nl_type
 
     @property
-    def A(self) -> NLMatrix:
+    def a_mat(self) -> NLMatrix:
         """Matrix for linear transformation before non-linear function g."""
-        return self._A
+        return self._a_mat
 
     @property
     def a(self) -> BatchedRHS | None:

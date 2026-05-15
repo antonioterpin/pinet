@@ -104,9 +104,9 @@ def setup_pinet(
 
 
 def setup_jaxopt(
-    a_dyn: jax.Array,
+    a_mat: jax.Array,
     b: jax.Array,
-    constr_matrix: jax.Array,
+    c_mat: jax.Array,
     ub: jax.Array,
     setup_reps: int,
     hyperparameters: dict[str, Any],
@@ -114,9 +114,9 @@ def setup_jaxopt(
     """Setup of jaxopt projection layer.
 
     Args:
-        a_dyn: Coefficient matrix for the equality constraint.
+        a_mat: Coefficient matrix for the equality constraint.
         b: Right-hand side vector for the equality constraint.
-        constr_matrix: Coefficient matrix for the inequality constraint.
+        c_mat: Coefficient matrix for the inequality constraint.
         ub: Upper bounds for the inequality constraint.
         setup_reps: Number of repetitions for setup timing.
             For jaxopt, we do not time the setup.
@@ -127,10 +127,10 @@ def setup_jaxopt(
         and the setup time, which is always `0.0` for jaxopt.
     """
     project = get_jaxopt_projection(
-        a_dyn=a_dyn[0, :, :],
-        constr_matrix=constr_matrix[0, :, :],
+        a_mat=a_mat[0, :, :],
+        c_mat=c_mat[0, :, :],
         d=ub[0, :, 0],
-        dim=a_dyn.shape[2],
+        dim=a_mat.shape[2],
         tol=hyperparameters["jaxopt_tol"],
     )
     project_test = project
@@ -139,9 +139,9 @@ def setup_jaxopt(
 
 
 def setup_cvxpy(
-    a_dyn: jax.Array,
+    a_mat: jax.Array,
     b: jax.Array,
-    constr_matrix: jax.Array,
+    c_mat: jax.Array,
     ub: jax.Array,
     setup_reps: int,
     hyperparameters: dict[str, Any],
@@ -153,9 +153,9 @@ def setup_cvxpy(
     """Setup of cvxpy projection layer.
 
     Args:
-        a_dyn: Coefficient matrix for the equality constraint.
+        a_mat: Coefficient matrix for the equality constraint.
         b: Right-hand side vector for the equality constraint.
-        constr_matrix: Coefficient matrix for the inequality constraint.
+        c_mat: Coefficient matrix for the inequality constraint.
         ub: Upper bounds for the inequality constraint.
         setup_reps: Number of repetitions for setup timing.
             For cvxpy, we do not time the setup.
@@ -166,10 +166,10 @@ def setup_cvxpy(
         and the setup time, which is always `0.0` for cvxpy.
     """
     cvxpy_proj = get_cvxpy_projection(
-        a_dyn=a_dyn[0, :, :],
-        constr_matrix=constr_matrix[0, :, :],
+        a_mat=a_mat[0, :, :],
+        c_mat=c_mat[0, :, :],
         d=ub[0, :, 0],
-        dim=a_dyn.shape[2],
+        dim=a_mat.shape[2],
     )
 
     def project(xx, bb):
@@ -304,7 +304,7 @@ def setup_model(
     rng_key: jax.Array,
     hyperparameters: dict[str, Any],
     proj_method: str,
-    a_dyn: jax.Array,
+    a_mat: jax.Array,
     x_data: jax.Array,
     g_mat: jax.Array,
     h: jax.Array,
@@ -322,7 +322,7 @@ def setup_model(
         rng_key: Random key for initialization.
         hyperparameters: Hyperparameters for the model and projection.
         proj_method: Method for projection (`"pinet"`, `"jaxopt"`, or `"cvxpy"`).
-        a_dyn: Coefficient matrix for the equality constraint.
+        a_mat: Coefficient matrix for the equality constraint.
         x_data: Right-hand side vector for the equality constraint.
         g_mat: Coefficient matrix for the inequality constraint.
         h: Upper bounds for the inequality constraint.
@@ -341,9 +341,9 @@ def setup_model(
         raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
     if proj_method == "pinet":
-        eq_constraint = EqualityConstraint(a_dyn=a_dyn, b=x_data, method=None, var_b=True)
+        eq_constraint = EqualityConstraint(a_mat=a_mat, b=x_data, method=None, var_b=True)
         ineq_constraint = AffineInequalityConstraint(
-            constr_matrix=g_mat, ub=h, lb=-jnp.inf * jnp.ones_like(h)
+            c_mat=g_mat, ub=h, lb=-jnp.inf * jnp.ones_like(h)
         )
         project, project_test, setup_time = setup_pinet(
             eq_constraint=eq_constraint,
@@ -352,18 +352,18 @@ def setup_model(
         )
     elif proj_method == "jaxopt":
         project, project_test, setup_time = setup_jaxopt(
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             b=x_data,
-            constr_matrix=g_mat,
+            c_mat=g_mat,
             ub=h,
             setup_reps=setup_reps,
             hyperparameters=hyperparameters,
         )
     elif proj_method == "cvxpy":
         project, project_test, setup_time = setup_cvxpy(
-            a_dyn=a_dyn,
+            a_mat=a_mat,
             b=x_data,
-            constr_matrix=g_mat,
+            c_mat=g_mat,
             ub=h,
             setup_reps=setup_reps,
             hyperparameters=hyperparameters,
@@ -373,7 +373,7 @@ def setup_model(
 
     model, params, train_step = build_model_and_train_step(
         rng_key=rng_key,
-        dim=a_dyn.shape[2],
+        dim=a_mat.shape[2],
         features_list=hyperparameters["features_list"],
         activation=activation,
         project=project,
