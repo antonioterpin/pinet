@@ -485,6 +485,24 @@ def test_nonlinear_validate_nl_type_must_be_constraint_type_instance():
         spec.validate()
 
 
+def test_validate_type_rejects_unsupported_nl_type_post_construction():
+    """``_validate_type`` is the single owner of the supported-set
+    invariant: the parser and ``to_primitive_spec`` rely on it and carry no
+    guard of their own.
+
+    The nl_type is corrupted *after* construction so beartype (hook on by
+    default) does not pre-empt at the constructor; this exercises the
+    reachable ``nl_type not in (SOCType, L2NormType)`` raise in-process.
+    """
+    spec = NonLinearSpecification(nl_type=SOCType, a_mat=jnp.ones((1, 2, 3)))
+    object.__setattr__(spec, "nl_type", cast(object, "not_a_real_type"))
+    with pytest.raises(ValueError, match=r"SOCType or L2NormType"):
+        spec.validate()
+    # to_primitive_spec routes through the same guard.
+    with pytest.raises(ValueError, match=r"SOCType or L2NormType"):
+        spec.to_primitive_spec()
+
+
 def test_nonlinear_validate_inconsistent_batch_sizes_raises():
     with pytest.raises(_ShapeOrValidationError):
         spec = NonLinearSpecification(
@@ -579,7 +597,10 @@ def test_nonlinear_validate_b_is_not_a_scalar():
 
 
 def test_nonlinear_to_primitive_spec_with_invalid_type():
-    with pytest.raises((NotImplementedError, TypeCheckError)):
+    # to_primitive_spec validates the type up front: an unsupported nl_type
+    # fails via _validate_type (ValueError) or, with PINET_RUNTIME_CHECK=1,
+    # is rejected by beartype at construction (TypeCheckError).
+    with pytest.raises((ValueError, TypeCheckError)):
         spec = NonLinearSpecification(
             nl_type=cast(NonLinearConstraintType, cast(object, "invalid_type")),
             a_mat=jnp.ones((1, 2, 3)),

@@ -329,10 +329,14 @@ class NonLinearSpecification(eqx.Module):
                 "L2NormType with RHS (f) is not supported in NonLinearSpecification. "
                 "Use SOCType instead."
             )
-        if not isinstance(self.nl_type, NonLinearConstraintType):
+        # Single owner of the "which nl_type the library supports" invariant.
+        # The parser and to_primitive_spec rely on this: any spec that passes
+        # validate() is guaranteed to carry a supported type, so they need no
+        # parallel guard. A future NonLinearConstraintType member is rejected
+        # here at construction instead of being silently mis-projected.
+        if self.nl_type not in (SOCType, L2NormType):
             raise ValueError(
-                f"nl_type must be a NonLinearConstraintType instance, "
-                f"got {type(self.nl_type)}"
+                f"nl_type must be SOCType or L2NormType, got {self.nl_type!r}."
             )
 
     def _validate_batch_sizes(self) -> None:
@@ -388,21 +392,15 @@ class NonLinearSpecification(eqx.Module):
             Equivalent primitive constraint spec.
 
         Raises:
-            NotImplementedError: If the non-linear type is not supported.
+            ValueError: If ``nl_type`` is not a supported type.
         """
+        self._validate_type()
         # SOCType (with or without ``f``) and L2NormType both project via
         # the SOC primitive: the parser already lifts ``A x + a`` and
         # ``f x + b`` (or ``b`` alone for L2) into auxiliary variables —
         # here A is ``a_mat``, a is ``a``, f is ``f``, b is ``b`` — so the
         # downstream SOC sees the original ``a`` / ``b`` offsets.
-        if self.nl_type in (SOCType, L2NormType):
-            return SocConstraintSpecification(
-                a=self.a,
-                b=self.b,
-            )
-        raise NotImplementedError(  # pragma: no cover -- defended by _validate_type
-            f"Conversion to primitive spec not implemented for nl_type {self.nl_type}"
-        )
+        return SocConstraintSpecification(a=self.a, b=self.b)
 
 
 class ProjectionInstance(eqx.Module):

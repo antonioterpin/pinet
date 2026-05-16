@@ -8,7 +8,6 @@ import jax.random as jrnd
 import numpy as np
 import pytest
 from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
-from jaxtyping import TypeCheckError
 
 from pinet import (
     AffineInequalityConstraint,
@@ -418,43 +417,6 @@ def test_parse_non_linear_l2_norm_projection(seed: int, batch_size: int):
         f"L2 norm bound violated after projection: max={float(jnp.max(norms))}, "
         f"bound={float(b_l2[0, 0, 0])}"
     )
-
-
-def test_parse_non_linear_irrelevant_type_raises_value_error():
-    """Test parser raises for unsupported nonlinear type value."""
-    a_mat = jnp.array([[[1.0, 0.0]]])
-    b = jnp.array([[[0.0]]])
-    c_mat = jnp.array([[[1.0, 0.0]]])
-    lb = jnp.array([[[-1.0]]])
-    ub = jnp.array([[[1.0]]])
-
-    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, var_b=False)
-    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
-
-    nl_spec = NonLinearSpecification(
-        nl_type=SOCType,
-        a_mat=jnp.array([[[1.0, 0.0]]]),
-        a=jnp.zeros((1, 1, 1)),
-        f=jnp.array([[[0.0, 1.0]]]),
-        b=jnp.ones((1, 1, 1)),
-    )
-    nl_constraint = NonLinearConstraint(spec=nl_spec)
-    # Deliberately monkey-patch an invalid type to exercise the parser's error path.
-    object.__setattr__(nl_constraint, "_nl_type", "irrelevant_type")
-
-    parser = ConstraintParser(
-        eq_constraint=eq_constraint,
-        ineq_constraint=ineq_constraint,
-        box_constraint=None,
-        nl_constraints=[nl_constraint],
-    )
-
-    # With ``PINET_RUNTIME_CHECK=1`` beartype catches the invalid nl_type at
-    # the property's return-value check before the parser runs; otherwise
-    # the parser raises ValueError with the documented message. Either path
-    # is acceptable.
-    with pytest.raises((ValueError, TypeCheckError)):
-        parser.parse()
 
 
 def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
