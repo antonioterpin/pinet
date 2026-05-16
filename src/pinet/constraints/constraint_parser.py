@@ -132,7 +132,7 @@ class ConstraintParser:
                 Valid methods are "pinv", and None.
 
         Returns:
-            A tuple (eq_constraint, constraint_set, lift_function).
+            A tuple (eq_constraint, primitive_constraint, lift_function).
         """
         if self._identity_mode:
             return (self.eq_constraint, self.box_constraint, lambda y: y)
@@ -149,7 +149,7 @@ class ConstraintParser:
             method: Method to use for solving linear systems.
 
         Returns:
-            A tuple (lifted_eq_constraint, lifted_box_constraint, lift_function).
+            A tuple (lifted_eq_constraint, lifted_primitive_constraint, lift_function).
         """
         ineq_constraint = self.ineq_constraint
         # Precondition: the polytope path requires an inequality constraint.

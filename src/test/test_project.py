@@ -420,10 +420,10 @@ def test_project_cv_linear_constraints(seed):
     y_lifted = layer.lift(yraw)
     # The non-simple polytope path always populates these lifted attributes.
     assert layer.lifted_eq_constraint is not None
-    assert layer.lifted_box_constraint is not None
+    assert layer.lifted_primitive_constraint is not None
     cv_expected = jnp.maximum(
         layer.lifted_eq_constraint.cv(y_lifted),
-        layer.lifted_box_constraint.cv(y_lifted),
+        layer.lifted_primitive_constraint.cv(y_lifted),
     )
 
     assert jnp.allclose(cv_layer, cv_expected)
@@ -481,10 +481,10 @@ def test_project_cv_nonlinear_constraints(seed):
     y_lifted = layer.lift(yraw)
     # The non-linear path always populates these lifted attributes.
     assert layer.lifted_eq_constraint is not None
-    assert layer.lifted_box_constraint is not None
+    assert layer.lifted_primitive_constraint is not None
     cv_expected = jnp.maximum(
         layer.lifted_eq_constraint.cv(y_lifted),
-        layer.lifted_box_constraint.cv(y_lifted),
+        layer.lifted_primitive_constraint.cv(y_lifted),
     )
 
     assert jnp.allclose(cv_layer, cv_expected)

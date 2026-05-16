@@ -119,11 +119,11 @@ class Project:
                     ineq_constraint=self.ineq_constraint,
                     box_constraint=self.box_constraint,
                 )
-                (parsed_eq, parsed_box, self.lift) = parser.parse(method=None)
+                (parsed_eq, parsed_primitive, self.lift) = parser.parse(method=None)
                 # Inequality-constrained parsing must yield a lifted equality.
                 assert parsed_eq is not None
-                # Inequality-constrained parsing must yield a lifted box.
-                assert parsed_box is not None
+                # Inequality-constrained parsing must yield a lifted primitive.
+                assert parsed_primitive is not None
                 # Setup always stores equilibration parameters before this branch runs.
                 assert self.equilibration_params is not None
                 # Only equilibrate when we have a single a_mat.
@@ -161,28 +161,28 @@ class Project:
                     var_a_mat=parsed_eq.var_a_mat,
                 )
 
-                # Scale the lifted box constraints.
+                # Scale the lifted primitive constraint.
                 # The polytope path always produces a BoxConstraint (not a cartesian).
-                assert isinstance(parsed_box, BoxConstraint)
+                assert isinstance(parsed_primitive, BoxConstraint)
                 # BoxConstraint.__init__ guarantees mask/lb/ub are set.
-                assert parsed_box.mask is not None
-                assert parsed_box.lb is not None
-                assert parsed_box.ub is not None
-                mask = parsed_box.mask
+                assert parsed_primitive.mask is not None
+                assert parsed_primitive.lb is not None
+                assert parsed_primitive.ub is not None
+                mask = parsed_primitive.mask
                 box_scale = 1 / self.d_c[:, mask, :]
 
-                self.lifted_box_constraint = BoxConstraint(
+                self.lifted_primitive_constraint = BoxConstraint(
                     BoxConstraintSpecification(
-                        lb=parsed_box.lb * box_scale,
-                        ub=parsed_box.ub * box_scale,
-                        mask=parsed_box.mask,
+                        lb=parsed_primitive.lb * box_scale,
+                        ub=parsed_primitive.ub * box_scale,
+                        mask=parsed_primitive.mask,
                     ),
                     scale=box_scale,
                 )
 
                 self.step_iteration, self.step_final = build_iteration_step(
                     self.lifted_eq_constraint,
-                    self.lifted_box_constraint,
+                    self.lifted_primitive_constraint,
                     self.dim,
                     self.d_c[:, : self.dim, :],
                 )
@@ -202,19 +202,19 @@ class Project:
                 )
                 (
                     self.lifted_eq_constraint,
-                    self.lifted_box_constraint,
+                    self.lifted_primitive_constraint,
                     self.lift,
                 ) = parser.parse(method="pinv")
                 # The non-linear path must produce a lifted equality and a cartesian.
                 assert self.lifted_eq_constraint is not None
-                assert self.lifted_box_constraint is not None
+                assert self.lifted_primitive_constraint is not None
                 # Impose no rescaling
                 self.d_r = jnp.ones((1, self.lifted_eq_constraint.a_mat.shape[1], 1))
                 self.d_c = jnp.ones((1, self.dim_lifted, 1))
 
                 self.step_iteration, self.step_final = build_iteration_step(
                     eq_constraint=self.lifted_eq_constraint,
-                    box_constraint=self.lifted_box_constraint,
+                    box_constraint=self.lifted_primitive_constraint,
                     dim=self.dim,
                     scale=self.d_c[:, : self.dim, :],
                 )
@@ -288,12 +288,12 @@ class Project:
             return self.single_constraint.cv(y)
 
         assert self.lifted_eq_constraint is not None
-        assert self.lifted_box_constraint is not None
+        assert self.lifted_primitive_constraint is not None
         if y.x.shape[1] != self.dim_lifted:
             y = self.lift(y)
         return jnp.maximum(
             self.lifted_eq_constraint.cv(y),
-            self.lifted_box_constraint.cv(y),
+            self.lifted_primitive_constraint.cv(y),
         )
 
     def call_and_check(
