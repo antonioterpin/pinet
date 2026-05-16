@@ -17,12 +17,7 @@ from .affine_inequality import AffineInequalityConstraint
 from .box import BoxConstraint
 from .cartesian_constraint import CartesianConstraint
 from .non_linear import NonLinearConstraint
-from .non_linear_types import L2NormType, SOCType
 from .soc_constraint import SocConstraint
-
-# TODO: If we only have 2 constraints where one is equality and the
-# other is primitive, then we directly use these.
-
 
 ParseLifter = Callable[[ProjectionInstance], ProjectionInstance]
 ParseResult = tuple[
@@ -115,7 +110,6 @@ class ConstraintParser:
                 ), "Batch sizes of ub and upper_bound must be consistent."
         if nl_constraints is not None:
             for non_linear in nl_constraints:
-                # Check that all batch sizes of matrices are 1
                 assert non_linear.a_mat is None or non_linear.a_mat.shape[0] == 1, (
                     "Batch size of non-linear constraint a_mat must be 1 or None."
                 )
@@ -340,22 +334,20 @@ class ConstraintParser:
             # Normalise the linear RHS row so SOCType (with or without ``f``)
             # and L2NormType all flow through the same lifted-auxiliary
             # plumbing: every NL constraint contributes ``m`` aux rows for
-            # the ``u_aux = A x`` equality plus one row for the bound. For
-            # L2NormType (constant bound) and SOCType-without-f, the row is
-            # synthesised as zeros so the ``t_aux`` ends up identically zero
-            # and the SOC's own ``b`` offset carries the original scalar.
-            if non_linear.nl_type in (SOCType, L2NormType):
-                f_row: ArrayLike = (
-                    non_linear.f
-                    if non_linear.f is not None
-                    else jnp.zeros((1, 1, non_linear.a_mat.shape[2]))
-                )
-                all_matrices.append(f_row)
-                dims[-1] += 1
-            else:  # pragma: no cover -- defended by NonLinearSpecification._validate_type
-                raise ValueError(
-                    f"Unsupported non-linear constraint type: {type(non_linear.nl_type)}"
-                )
+            # the ``u_aux = A x`` equality (A is ``non_linear.a_mat``) plus
+            # one row for the bound. For L2NormType (constant bound) and
+            # SOCType-without-f, the row is synthesised as zeros so the
+            # ``t_aux`` ends up identically zero and the SOC's own ``b``
+            # offset carries the original scalar. ``nl_type`` is guaranteed
+            # supported by ``NonLinearSpecification._validate_type`` (run at
+            # ``NonLinearConstraint`` construction), so no type guard here.
+            f_row: ArrayLike = (
+                non_linear.f
+                if non_linear.f is not None
+                else jnp.zeros((1, 1, non_linear.a_mat.shape[2]))
+            )
+            all_matrices.append(f_row)
+            dims[-1] += 1
         # Dimension of auxiliary variables. ``dims`` is a Python list of
         # ``int`` shape values, so use the built-in ``sum`` to avoid
         # producing a traced array inside ``jnp.sum`` (which would error
@@ -453,35 +445,35 @@ class ConstraintParser:
         for nl in nl_constraints:
             # Non-linear constraints need a linear-transformation matrix for lifting.
             assert nl.a_mat is not None
-            if nl.nl_type in (SOCType, L2NormType):
-                # Masks depend only on (static) dimensions, not on traced
-                # tensor values. Build them as ``numpy`` arrays so the
-                # downstream ``validate()`` (which calls ``.sum()``) returns
-                # a concrete Python scalar — important when
-                # ``parse_non_linear`` is re-invoked from the jitted
-                # ``solver.admm.initialize`` for ``var_a_mat=True``.
-                socspec = SocConstraintSpecification(
-                    mask_u=np.array(
-                        [False] * n_curr
-                        + [True] * nl.a_mat.shape[1]
-                        + [False] * (n_tot - n_curr - nl.a_mat.shape[1]),
-                        dtype=np.bool_,
-                    ),
-                    mask_t=np.array(
-                        [False] * (n_curr + nl.a_mat.shape[1])
-                        + [True]
-                        + [False] * (n_tot - n_curr - nl.a_mat.shape[1] - 1),
-                        dtype=np.bool_,
-                    ),
-                    a=nl.a,
-                    b=nl.b,
-                )
-                prim_constraints.append(SocConstraint(socspec=socspec))
-                n_curr += nl.a_mat.shape[1] + 1
-            else:  # pragma: no cover -- defended by NonLinearSpecification._validate_type
-                raise ValueError(
-                    f"Unsupported non-linear constraint type: {type(nl.nl_type)}"
-                )
+            # ``nl_type`` is guaranteed supported by
+            # ``NonLinearSpecification._validate_type`` (run at
+            # ``NonLinearConstraint`` construction). SOCType and L2NormType
+            # both lower to the same SocConstraint; the difference is carried
+            # by the synthesised f-row in the equality block above.
+            # Masks depend only on (static) dimensions, not on traced
+            # tensor values. Build them as ``numpy`` arrays so the
+            # downstream ``validate()`` (which calls ``.sum()``) returns
+            # a concrete Python scalar — important when
+            # ``parse_non_linear`` is re-invoked from the jitted
+            # ``solver.admm.initialize`` for ``var_a_mat=True``.
+            socspec = SocConstraintSpecification(
+                mask_u=np.array(
+                    [False] * n_curr
+                    + [True] * nl.a_mat.shape[1]
+                    + [False] * (n_tot - n_curr - nl.a_mat.shape[1]),
+                    dtype=np.bool_,
+                ),
+                mask_t=np.array(
+                    [False] * (n_curr + nl.a_mat.shape[1])
+                    + [True]
+                    + [False] * (n_tot - n_curr - nl.a_mat.shape[1] - 1),
+                    dtype=np.bool_,
+                ),
+                a=nl.a,
+                b=nl.b,
+            )
+            prim_constraints.append(SocConstraint(socspec=socspec))
+            n_curr += nl.a_mat.shape[1] + 1
 
         cartesian_lifted = CartesianConstraint(
             box_constraint=box_lifted, nl_constraints=prim_constraints

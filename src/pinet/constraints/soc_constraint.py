@@ -93,7 +93,7 @@ class SocConstraint(Constraint):
         """Project onto SOC constraints.
 
         Args:
-            yraw: ProjectionInstance to projection.
+            yraw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:

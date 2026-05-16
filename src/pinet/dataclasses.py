@@ -47,8 +47,7 @@ class EqualityConstraintsSpecification(eqx.Module):
     def validate(self) -> None:
         """Validate the equality constraints specification.
 
-        NOTE: This checks cannot be done after tracing, but this function
-        can be used to validate the inputs before tracing.
+        Must run before tracing; the checks are not jit-traceable.
 
         Raises:
             ValueError: If a_mat is provided but b is not.
@@ -57,10 +56,10 @@ class EqualityConstraintsSpecification(eqx.Module):
             raise ValueError("If a_mat is provided, b must also be provided.")
 
     def update(self, **kwargs: object) -> "EqualityConstraintsSpecification":
-        """Update some attribute by keyword.
+        """Return a copy with the given fields overridden.
 
         Args:
-            **kwargs: Keyword arguments matching field names to update.
+            **kwargs: New values for fields to override.
 
         Returns:
             Updated instance.
@@ -82,10 +81,10 @@ class BoxConstraintSpecification(eqx.Module):
     mask: Mask1D | None = None
 
     def update(self, **kwargs: object) -> "BoxConstraintSpecification":
-        """Update some attribute by keyword.
+        """Return a copy with the given fields overridden.
 
         Args:
-            **kwargs: Keyword arguments matching field names to update.
+            **kwargs: New values for fields to override.
 
         Returns:
             Updated instance.
@@ -154,8 +153,7 @@ class BoxConstraintSpecification(eqx.Module):
     def validate(self) -> None:
         """Validate the box constraint specification.
 
-        NOTE: This checks cannot be done after tracing, but this function
-        can be used to validate the inputs before tracing.
+        Must run before tracing; the checks are not jit-traceable.
 
         Raises:
             ValueError: If bounds are invalid or inconsistent.
@@ -185,10 +183,10 @@ class SocConstraintSpecification(eqx.Module):
     b: BatchedScalar | None = None
 
     def update(self, **kwargs: object) -> "SocConstraintSpecification":
-        """Update some attribute by keyword.
+        """Return a copy with the given fields overridden.
 
         Args:
-            **kwargs: Field values to override.
+            **kwargs: New values for fields to override.
 
         Returns:
             Updated instance.
@@ -196,10 +194,9 @@ class SocConstraintSpecification(eqx.Module):
         return replace(self, **kwargs)
 
     def validate(self) -> None:
-        """Validate the soc constraint specification.
+        """Validate the SOC constraint specification.
 
-        NOTE: This checks cannot be done after tracing, but this function
-        can be used to validate the inputs before tracing.
+        Must run before tracing; the checks are not jit-traceable.
         """
         if getattr(self.mask_u, "dtype", None) != jnp.bool_:
             raise TypeError("mask_u must be a boolean array.")
@@ -217,7 +214,6 @@ class SocConstraintSpecification(eqx.Module):
                 f"Received shape: {getattr(self.mask_t, 'shape', None)}."
             )
 
-        # Check that mask_u and mask_t have the same size
         if (
             self.mask_u is not None
             and self.mask_t is not None
@@ -257,7 +253,6 @@ class SocConstraintSpecification(eqx.Module):
                 f"Received shape: {getattr(self.b, 'shape', None)}."
             )
 
-        # Check that a and b are of the correct dimensions
         if self.a is not None and self.mask_u is not None:
             dim_a = self.a.shape[1]
             num_true_u = int(self.mask_u.sum())
@@ -334,10 +329,14 @@ class NonLinearSpecification(eqx.Module):
                 "L2NormType with RHS (f) is not supported in NonLinearSpecification. "
                 "Use SOCType instead."
             )
-        if not isinstance(self.nl_type, NonLinearConstraintType):
+        # Single owner of the "which nl_type the library supports" invariant.
+        # The parser and to_primitive_spec rely on this: any spec that passes
+        # validate() is guaranteed to carry a supported type, so they need no
+        # parallel guard. A future NonLinearConstraintType member is rejected
+        # here at construction instead of being silently mis-projected.
+        if self.nl_type not in (SOCType, L2NormType):
             raise ValueError(
-                f"nl_type must be a NonLinearConstraintType instance, "
-                f"got {type(self.nl_type)}"
+                f"nl_type must be SOCType or L2NormType, got {self.nl_type!r}."
             )
 
     def _validate_batch_sizes(self) -> None:
@@ -393,20 +392,15 @@ class NonLinearSpecification(eqx.Module):
             Equivalent primitive constraint spec.
 
         Raises:
-            NotImplementedError: If the non-linear type is not supported.
+            ValueError: If ``nl_type`` is not a supported type.
         """
+        self._validate_type()
         # SOCType (with or without ``f``) and L2NormType both project via
         # the SOC primitive: the parser already lifts ``A x + a`` and
-        # ``f x + b`` (or ``b`` alone for L2) into auxiliary variables, so
-        # the downstream SOC sees the original ``a`` / ``b`` offsets.
-        if self.nl_type in (SOCType, L2NormType):
-            return SocConstraintSpecification(
-                a=self.a,
-                b=self.b,
-            )
-        raise NotImplementedError(  # pragma: no cover -- defended by _validate_type
-            f"Conversion to primitive spec not implemented for nl_type {self.nl_type}"
-        )
+        # ``f x + b`` (or ``b`` alone for L2) into auxiliary variables —
+        # here A is ``a_mat``, a is ``a``, f is ``f``, b is ``b`` — so the
+        # downstream SOC sees the original ``a`` / ``b`` offsets.
+        return SocConstraintSpecification(a=self.a, b=self.b)
 
 
 class ProjectionInstance(eqx.Module):
@@ -429,8 +423,7 @@ class ProjectionInstance(eqx.Module):
     def validate(self) -> None:
         """Validate the projection instance.
 
-        NOTE: This checks cannot be done after tracing, but this function
-        can be used to validate the inputs before tracing.
+        Must run before tracing; the checks are not jit-traceable.
 
         Raises:
             ValueError: If x does not have shape (batch_size, dimension, 1).
@@ -442,10 +435,10 @@ class ProjectionInstance(eqx.Module):
             )
 
     def update(self, **kwargs: object) -> "ProjectionInstance":
-        """Update some attribute by keyword.
+        """Return a copy with the given fields overridden.
 
         Args:
-            **kwargs: Keyword arguments matching field names to update.
+            **kwargs: New values for fields to override.
 
         Returns:
             Updated instance.

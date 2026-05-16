@@ -55,28 +55,21 @@ class EqualityConstraint(Constraint):
             var_a_mat: Boolean that indicates whether the a_mat matrix
                 changes or is constant.
         """
-        # The equality constraint always needs its left-hand side matrix.
         assert a_mat is not None, "Matrix a_mat must be provided."
-        # The equality constraint always needs its right-hand side vector.
         assert b is not None, "Vector b must be provided."
-
-        # The equality matrix is batched as (batch_size, n_constraints, dimension).
         assert a_mat.ndim == _EXPECTED_NDIM, (
             "a_mat is a matrix with shape (batch_size, n_constraints, dimension)."
         )
-        # The right-hand side is batched with the same rank as a_mat.
         assert b.ndim == _EXPECTED_NDIM, (
             "b is a matrix with shape (batch_size, n_constraints, 1)."
         )
-        # The last axis of b stores a single scalar per constraint.
         assert b.shape[2] == _LAST_AXIS_SIZE_B, (
             "b must have shape (batch_size, n_constraints, 1)."
         )
-        # Batch sizes must be the same, or one of them must be 1.
+        # Batch broadcasting: either equal, or one side is 1.
         assert a_mat.shape[0] == b.shape[0] or a_mat.shape[0] == 1 or b.shape[0] == 1, (
             f"Batch sizes are inconsistent: a_mat{a_mat.shape}, b{b.shape}"
         )
-        # Each equality row in a_mat needs one matching entry in b.
         assert a_mat.shape[1] == b.shape[1], (
             "Number of rows in a_mat must equal size of b."
         )
@@ -119,7 +112,7 @@ class EqualityConstraint(Constraint):
         """Project onto equality constraints.
 
         Args:
-            yraw: ProjectionInstance to projection.
+            yraw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
@@ -136,7 +129,7 @@ class EqualityConstraint(Constraint):
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
-            yraw: ProjectionInstance to projection.
+            yraw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:

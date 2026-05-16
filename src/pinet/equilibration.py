@@ -17,7 +17,8 @@ def ruiz_equilibration(
     Ruiz equilibration iteratively scales the rows and columns of a_mat so that
     all rows have equal norms and all columns have equals norms.
 
-    TODO: Add equilibration for joint constraints.
+    Support for jointly-constrained problems is tracked in
+    https://github.com/antonioterpin/pinet/issues/54.
 
     Args:
         a_mat: Input matrix.
@@ -92,17 +93,16 @@ def ruiz_equilibration(
         if term_criterion < params.tol:
             break
 
-    # Get the best scaled matrix
-    scaled_a_dyn_best = a_mat * d_r_best[:, None]
-    scaled_a_dyn_best = scaled_a_dyn_best * d_c_best[None, :]
+    scaled_a_mat_best = a_mat * d_r_best[:, None]
+    scaled_a_mat_best = scaled_a_mat_best * d_c_best[None, :]
 
     # Safeguard
     if params.safeguard:
-        cond_a_dyn = jnp.linalg.cond(a_mat)
-        cond_scaled_a_dyn = jnp.linalg.cond(scaled_a_dyn_best)
-        if cond_scaled_a_dyn > cond_a_dyn:
-            scaled_a_dyn_best = a_mat
+        cond_a_mat = jnp.linalg.cond(a_mat)
+        cond_scaled_a_mat = jnp.linalg.cond(scaled_a_mat_best)
+        if cond_scaled_a_mat > cond_a_mat:
+            scaled_a_mat_best = a_mat
             d_r_best = jnp.ones(a_mat.shape[0])
             d_c_best = jnp.ones(a_mat.shape[1])
 
-    return scaled_a_dyn_best, d_r_best, d_c_best
+    return scaled_a_mat_best, d_r_best, d_c_best
