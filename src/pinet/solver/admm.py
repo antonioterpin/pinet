@@ -143,5 +143,4 @@ def build_iteration_step(
         sk = sk.update(x=sk.x + omega * (tk.x - zk.x))
         return sk
 
-    # The second element is used to extract the projection from the auxiliary
     return (iteration_step, eq_constraint.project)

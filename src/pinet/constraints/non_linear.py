@@ -13,7 +13,8 @@ class NonLinearConstraint(Constraint):
 
     This class describes constraints of the form:
     g(A @ y + a) <= f @ y + b,
-    where g is a convex function. Concrete non-linear constraints (e.g.
+    where ``A`` is ``a_mat``, ``a`` is ``a``, ``f`` is ``f``, ``b`` is ``b``,
+    and ``g`` is a convex function. Concrete non-linear constraints (e.g.
     ``SocConstraint``) provide ``project`` and ``cv``; calling these on the base
     class raises ``NotImplementedError``.
 

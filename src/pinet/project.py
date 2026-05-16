@@ -187,7 +187,6 @@ class Project:
                     self.d_c[:, : self.dim, :],
                 )
             else:
-                # Compute lifted dimension
                 if self.ineq_constraint is not None:
                     self.dim_lifted += self.ineq_constraint.n_constraints
                 for nl in self.nl_constraints:
@@ -201,8 +200,6 @@ class Project:
                     box_constraint=self.box_constraint,
                     nl_constraints=self.nl_constraints,
                 )
-                # TODO: Change the "lifted_box_constraint" name?
-                # This is cartesian constraint now.
                 (
                     self.lifted_eq_constraint,
                     self.lifted_box_constraint,
@@ -224,7 +221,8 @@ class Project:
 
         if is_single_simple_constraint:
             # For a single simple constraint the projection is a closed-form
-            # one-step operation: proj(x) = x - A^+ (Ax - b).
+            # one-step operation: proj(x) = x - A^+ (A x - b),
+            # where A is ``a_mat``, A^+ is ``a_mat_pinv``, and b is ``b``.
             # The ADMM initializer zeros out yraw.x, causing _project_single
             # to project the origin rather than the actual input point.
             # Override initialize so yraw.x is preserved end-to-end.
@@ -289,9 +287,7 @@ class Project:
         if self.is_single_simple_constraint:
             return self.single_constraint.cv(y)
 
-        # The lifted equality constraint must exist for the general projection path.
         assert self.lifted_eq_constraint is not None
-        # The lifted box constraint must exist for the general projection path.
         assert self.lifted_box_constraint is not None
         if y.x.shape[1] != self.dim_lifted:
             y = self.lift(y)
