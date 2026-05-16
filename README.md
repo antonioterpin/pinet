@@ -69,11 +69,11 @@ A = jnp.zeros((1, n_eq, d))         # (1, n_eq, d)  # broadcast across batch
 b = jnp.zeros((B, n_eq, 1))         # (B, n_eq, 1)
 
 eq = EqualityConstraint(
-    A=A,
+    a_mat=A,
     b=b,
     method=None,                    # let Project decide / lift later
     var_b=True,                     # b provided per-batch at runtime
-    var_A=False,                    # A constant (broadcasted)
+    var_a_mat=False,                # A constant (broadcasted)
 )
 ```
 
@@ -92,7 +92,7 @@ C  = jnp.zeros((1, n_ineq, d))      # (1, n_ineq, d)
 lb = jnp.full((B, n_ineq, 1), -1.0) # (B, n_ineq, 1)
 ub = jnp.full((B, n_ineq, 1),  1.0) # (B, n_ineq, 1)
 
-ineq = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+ineq = AffineInequalityConstraint(c_mat=C, lb=lb, ub=ub)
 ```
 
 > [!WARNING]
@@ -142,7 +142,7 @@ b_nl = jnp.full((B, 1, 1), 0.5)               # (B, 1, 1)
 
 nl_spec = NonLinearSpecification(
     nl_type=SOCType,
-    A=A_nl,
+    a_mat=A_nl,
     a=a_nl,
     f=f_nl,
     b=b_nl,
@@ -163,7 +163,7 @@ B, d = 1, 2
 C = jnp.eye(d).reshape(1, d, d)               # (1, d, d)
 lb = jnp.full((B, d, 1), -2.0)                # (B, d, 1)
 ub = jnp.full((B, d, 1),  2.0)                # (B, d, 1)
-ineq = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+ineq = AffineInequalityConstraint(c_mat=C, lb=lb, ub=ub)
 
 # Non-linear constraint: ||y||_2 <= y_0 + 0.5
 A_nl = jnp.array([[[1.0, 0.0], [0.0, 1.0]]])  # (1, 2, d)
@@ -173,7 +173,7 @@ b_nl = jnp.full((B, 1, 1), 0.5)               # (B, 1, 1)
 
 nl_spec = NonLinearSpecification(
     nl_type=SOCType,
-    A=A_nl,
+    a_mat=A_nl,
     a=a_nl,
     f=f_nl,
     b=b_nl,
@@ -262,20 +262,20 @@ from flax import linen as nn
 from pinet import BoxConstraint, BoxConstraintSpecification, EqualityConstraint
 from src.benchmarks.model import build_model_and_train_step, setup_pinet
 
-def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
+def setup_model(rng_key, hyperparameters, a_mat, x_data, b, lb, ub, batched_objective):
     activation = getattr(nn, hyperparameters["activation"])
     if activation is None:
         raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
-    # Constraints (b varies at runtime; A is constant & broadcasted)
-    eq  = EqualityConstraint(A=A, b=b, method=None, var_b=True)
+    # Constraints (b varies at runtime; a_mat is constant & broadcasted)
+    eq  = EqualityConstraint(a_mat=a_mat, b=b, method=None, var_b=True)
     box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
     project, project_test, _ = setup_pinet(eq_constraint=eq, box_constraint=box,
                                            hyperparameters=hyperparameters)
 
     model, params, train_step = build_model_and_train_step(
         rng_key=rng_key,
-        dim=A.shape[2],
+        dim=a_mat.shape[2],
         features_list=hyperparameters["features_list"],
         activation=activation,
         project=project,                # projector in the training graph
@@ -283,7 +283,7 @@ def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
         raw_train=hyperparameters.get("raw_train", False),
         raw_test=hyperparameters.get("raw_test", False),
         loss_fn=lambda preds, _b: batched_objective(preds),
-        example_x=X[:1, :, 0],
+        example_x=x_data[:1, :, 0],
         example_b=b[:1],
         jit=True,
     )
@@ -293,11 +293,11 @@ def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
 ### Run the end-to-end script
 To reproduce the results in the paper, you can run
 ```bash
-python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 0
+python -m src.benchmarks.toy_MPC.run_toy_mpc --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 0
 ```
 To generate the dataset, run
 ```bash
-python -m src.benchmarks.toy_MPC.generate_toy_MPC
+python -m src.benchmarks.toy_MPC.generate_toy_mpc
 ```
 
 You’ll get:

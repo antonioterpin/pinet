@@ -2,29 +2,11 @@
 
 import os
 from collections.abc import Callable, Iterator
-from typing import Any, cast
+from typing import cast
 
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
-
-
-# TEMP: dataset key shim. Accepts main's uppercase convention
-# (``A``/``Q``/``G``/``X``/``Ystar``), the current lowercase ``_mat``
-# convention (``a_mat``/``q_mat``/``g_mat``/``x_data``/``y_star``), and
-# the intermediate ``a_dyn`` key that the in-repo .npz datasets currently
-# carry. Dataset regeneration (which will drop the ``a_dyn`` fallback)
-# is tracked in https://github.com/antonioterpin/pinet/issues/112.
-def _pick(data: Any, *keys: str) -> jnp.ndarray:
-    """Return ``data[k]`` for the first ``k`` in ``keys`` that exists.
-
-    ``data`` is typed as ``Any`` because callers pass either a plain dict or a
-    ``numpy.lib.npyio.NpzFile``; both support ``in`` and indexing.
-    """
-    for k in keys:
-        if k in data:
-            return data[k]
-    raise KeyError(f"None of {keys} present in dataset (have: {sorted(data)})")
 
 
 # Load Instance Dataset
@@ -39,18 +21,18 @@ class SimpleQPDataset(Dataset[tuple[jax.Array, jax.Array]]):
         """
         data = jnp.load(filepath)
         # Parameter values for each instance
-        self.x_data = _pick(data, "x_data", "X")
+        self.x_data = data["x_data"]
         # Constant problem ingredients
         self.const = (
-            _pick(data, "q_mat", "Q"),
+            data["q_mat"],
             data["p"],
-            _pick(data, "a_mat", "a_dyn", "A"),
-            _pick(data, "g_mat", "G"),
+            data["a_mat"],
+            data["g_mat"],
             data["h"],
         )
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.y_star = _pick(data, "y_star", "Ystar")
+        self.y_star = data["y_star"]
 
     def __len__(self) -> int:
         """Length of dataset.
