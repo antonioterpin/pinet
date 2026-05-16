@@ -445,3 +445,55 @@ def test_safeguard_when_condition_worsens_triggers_identity_scalings():
         "Safeguard should return identity column scalings when equilibration "
         f"worsens conditioning. Got {dc_yes}."
     )
+
+
+def test_safeguard_keeps_scaling_when_condition_improves():
+    """Safeguard on, but equilibration helps: the scaled result is kept.
+
+    Covers the ``cond_scaled <= cond_a`` fall-through of the safeguard
+    branch (the complement of
+    ``test_safeguard_when_condition_worsens_triggers_identity_scalings``).
+    """
+    # Well-conditioned, diagonally dominant base.
+    base = jnp.array(
+        [
+            [1.0, 0.2, -0.1],
+            [0.3, 1.0, 0.25],
+            [-0.15, 0.1, 1.0],
+        ]
+    )
+    # Blow up the condition number purely via row scaling (~1e6 factor);
+    # Ruiz equilibration removes exactly this imbalance.
+    row_scale = jnp.array([1.0e3, 1.0, 1.0e-3])
+    a_mat = base * row_scale[:, None]
+
+    params = EquilibrationParams(
+        max_iter=50,
+        tol=1e-8,
+        ord=2.0,
+        col_scaling=True,
+        update_mode="Gauss",
+        safeguard=True,
+    )
+
+    cond_before = jnp.linalg.cond(a_mat).item()
+    scaled, d_r, d_c = ruiz_equilibration(a_mat, params)
+    cond_after = jnp.linalg.cond(scaled).item()
+
+    # Equilibration must improve conditioning here, so the safeguard's
+    # revert branch is NOT taken and the scaled result is returned.
+    assert cond_after < cond_before, (
+        f"Equilibration should improve conditioning: cond_before={cond_before}, "
+        f"cond_after={cond_after}."
+    )
+    # The kept scalings are the equilibration's, not the identity revert.
+    assert not jnp.allclose(d_r, jnp.ones(a_mat.shape[0])), (
+        f"Row scalings should be non-identity when kept. Got {d_r}."
+    )
+    assert not jnp.allclose(d_c, jnp.ones(a_mat.shape[1])), (
+        f"Column scalings should be non-identity when kept. Got {d_c}."
+    )
+    # And the returned matrix is the equilibrated one, not the input.
+    assert jnp.allclose(scaled, a_mat * d_r[:, None] * d_c[None, :]), (
+        "Returned matrix must equal diag(d_r) @ a_mat @ diag(d_c)."
+    )
