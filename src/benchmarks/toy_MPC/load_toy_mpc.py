@@ -2,29 +2,11 @@
 
 import os
 from collections.abc import Callable
-from typing import Any, cast
+from typing import cast
 
 import jax
 import jax.numpy as jnp
 from torch.utils.data import DataLoader, Dataset, random_split
-
-
-# TEMP: dataset key shim. Accepts main's uppercase convention
-# (``As``/``T``/``Ystar``), the current lowercase ``_mat`` convention
-# (``a_mat``/``horizon``/``y_star``), and the intermediate ``a_dyn`` key
-# that some in-repo datasets carry. Dataset regeneration (which will drop
-# the ``a_dyn`` fallback) is tracked in
-# https://github.com/antonioterpin/pinet/issues/112.
-def _pick(data: Any, *keys: str) -> jnp.ndarray:
-    """Return ``data[k]`` for the first ``k`` in ``keys`` that exists.
-
-    ``data`` is typed as ``Any`` because callers pass either a plain dict or a
-    ``numpy.lib.npyio.NpzFile``; both support ``in`` and indexing.
-    """
-    for k in keys:
-        if k in data:
-            return data[k]
-    raise KeyError(f"None of {keys} present in dataset (have: {sorted(data)})")
 
 
 # Load Instance Dataset
@@ -42,19 +24,19 @@ class ToyMPCDataset(Dataset[tuple[jax.Array, jax.Array]]):
         self.x0sets = data["x0sets"]
         # Constant problem ingredients
         self.const = (
-            _pick(const, "a_mat", "a_dyn", "As"),
+            const["a_mat"],
             const["lbxs"],
             const["ubxs"],
             const["lbus"],
             const["ubus"],
             const["xhat"],
             const["alpha"],
-            _pick(const, "horizon", "T"),
+            const["horizon"],
             const["base_dim"],
         )
         # Optimal objectives and solutions for all problem instances
         self.objectives = data["objectives"]
-        self.y_star = _pick(data, "y_star", "Ystar")
+        self.y_star = data["y_star"]
 
     def __len__(self) -> int:
         """Length of dataset.
@@ -253,7 +235,7 @@ def load_data(
         val_idx = permutation[train_size : train_size + val_size]
         test_idx = permutation[train_size + val_size :]
 
-        y_star_full = _pick(all_data, "y_star", "Ystar")
+        y_star_full = all_data["y_star"]
         train_dataset = {
             "x0sets": all_data["x0sets"][train_idx],
             "objectives": all_data["objectives"][train_idx],
