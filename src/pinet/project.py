@@ -287,9 +287,7 @@ class Project:
         if self.is_single_simple_constraint:
             return self.single_constraint.cv(y)
 
-        # The lifted equality constraint must exist for the general projection path.
         assert self.lifted_eq_constraint is not None
-        # The lifted box constraint must exist for the general projection path.
         assert self.lifted_box_constraint is not None
         if y.x.shape[1] != self.dim_lifted:
             y = self.lift(y)
