@@ -559,6 +559,142 @@ def test_simple_qp_3epoch_golden_metrics():
 
 
 @pytest.mark.benchmark
+def test_simple_qp_examples10000_3epoch_golden_metrics():
+    """Regenerated SimpleQP var100/10000 reproduces its pinned metrics (seed 0).
+
+    Unlike examples200, this dataset was regenerated under the current JAX
+    RNG (issue #112): main shipped it matrices-only with no ``y_star``, so it
+    was never loadable or tested there. Values are therefore pinned to the
+    committed regenerated dataset, not to main. For reference, main's own
+    (different) random draw scores ``rs ~ 0.028`` / ``opt_obj ~ -16.630``
+    under this same harness -- statistically equivalent.
+    """
+    dataset_path = _QP_DATASETS / "SimpleQP_seed42_var100_ineq50_eq50_examples10000.npz"
+    _require(dataset_path)
+
+    torch.manual_seed(0)
+    rng = jax.random.PRNGKey(0)
+    loader_rng, model_rng = jax.random.split(rng)
+
+    (
+        a,
+        g_mat,
+        h,
+        x_data,
+        batched_objective,
+        train_loader,
+        _val_loader,
+        test_loader,
+        batched_loss,
+    ) = load_qp_data(
+        use_dc3_dataset=False,
+        use_convex=True,
+        problem_seed=42,
+        problem_var=100,
+        problem_nineq=50,
+        problem_neq=50,
+        problem_examples=10000,
+        rng_key=loader_rng,
+        batch_size=_QP_PROD_HYPERPARAMS["batch_size"],
+        use_jax_loader=False,
+        penalty=0.0,
+    )
+
+    model, params, _setup_time, train_step = setup_qp_model(
+        rng_key=model_rng,
+        hyperparameters=_QP_PROD_HYPERPARAMS,
+        proj_method="pinet",
+        a_mat=a,
+        x_data=x_data,
+        g_mat=g_mat,
+        h=h,
+        batched_loss=batched_loss,
+    )
+    state = train_state.TrainState.create(
+        apply_fn=model.apply,
+        params=params["params"],
+        tx=optax.adam(float(_QP_PROD_HYPERPARAMS["learning_rate"])),
+    )
+
+    state = _train_qp(state, train_step, train_loader, n_epochs=3)
+    metrics = _eval_qp(state, test_loader, a, g_mat, h, batched_objective)
+
+    # Golden values captured from the committed regenerated dataset (issue #112).
+    assert metrics["rs"] == pytest.approx(0.03992, abs=5e-3), metrics
+    assert metrics["obj"] == pytest.approx(-16.14, abs=0.1), metrics
+    assert metrics["opt_obj"] == pytest.approx(-16.82041, abs=1e-3), metrics
+    assert metrics["eq_cv_max"] < 1e-6, metrics
+    assert metrics["ineq_cv_max"] < 1e-3, metrics
+
+
+@pytest.mark.benchmark
+def test_simple_qp_var1000_3epoch_golden_metrics():
+    """Regenerated SimpleQP var1000/2000 reproduces its pinned metrics (seed 0).
+
+    Pinned to the committed regenerated dataset (issue #112), not main. On
+    its own (different) random draw main scores ``rs ~ 0.094`` /
+    ``opt_obj ~ -168.360`` under this same harness -- statistically
+    equivalent to the regenerated instance.
+    """
+    dataset_path = _QP_DATASETS / "SimpleQP_seed42_var1000_ineq500_eq500_examples2000.npz"
+    _require(dataset_path)
+
+    torch.manual_seed(0)
+    rng = jax.random.PRNGKey(0)
+    loader_rng, model_rng = jax.random.split(rng)
+
+    (
+        a,
+        g_mat,
+        h,
+        x_data,
+        batched_objective,
+        train_loader,
+        _val_loader,
+        test_loader,
+        batched_loss,
+    ) = load_qp_data(
+        use_dc3_dataset=False,
+        use_convex=True,
+        problem_seed=42,
+        problem_var=1000,
+        problem_nineq=500,
+        problem_neq=500,
+        problem_examples=2000,
+        rng_key=loader_rng,
+        batch_size=_QP_PROD_HYPERPARAMS["batch_size"],
+        use_jax_loader=False,
+        penalty=0.0,
+    )
+
+    model, params, _setup_time, train_step = setup_qp_model(
+        rng_key=model_rng,
+        hyperparameters=_QP_PROD_HYPERPARAMS,
+        proj_method="pinet",
+        a_mat=a,
+        x_data=x_data,
+        g_mat=g_mat,
+        h=h,
+        batched_loss=batched_loss,
+    )
+    state = train_state.TrainState.create(
+        apply_fn=model.apply,
+        params=params["params"],
+        tx=optax.adam(float(_QP_PROD_HYPERPARAMS["learning_rate"])),
+    )
+
+    state = _train_qp(state, train_step, train_loader, n_epochs=3)
+    metrics = _eval_qp(state, test_loader, a, g_mat, h, batched_objective)
+
+    # Golden values captured from the committed regenerated dataset (issue #112).
+    assert metrics["rs"] == pytest.approx(0.09311, abs=5e-3), metrics
+    assert metrics["obj"] == pytest.approx(-150.79, abs=1.0), metrics
+    assert metrics["opt_obj"] == pytest.approx(-166.26942, abs=1e-2), metrics
+    assert metrics["eq_cv_max"] < 1e-6, metrics
+    assert metrics["ineq_cv_max"] < 1e-2, metrics
+
+
+@pytest.mark.benchmark
 def test_dc3_simple_qp_3epoch_golden_metrics():
     """DC3 small QP 3-epoch run reproduces main's test metrics (seed 0)."""
     base = _QP_DATASETS / "dc3_random_simple_dataset_var100_ineq50_eq50_ex10000"
