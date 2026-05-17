@@ -26,7 +26,7 @@ One file per topic -- all code must satisfy these:
 | [naming.md](standards/naming.md) | Identifier conventions (`_mat` suffix, allowed uppercase, jaxtyping axes) |
 | [code-organization.md](standards/code-organization.md) | Module layout and ownership rules |
 | [typing-docstrings.md](standards/typing-docstrings.md) | Modern type hints (PEP 585/604), Google-style docstrings |
-| [testing.md](standards/testing.md) | TDD, Arrange/Act/Assert, coverage, hypothesis |
+| [testing.md](standards/testing.md) | pytest, docs-first tests, functionality-driven design, coverage |
 | [ml-numerical.md](standards/ml-numerical.md) | JAX, determinism, jit/vmap guidelines |
 | [api-design.md](standards/api-design.md) | Public API contracts, simplicity |
 | [change-scope.md](standards/change-scope.md) | What belongs in a single PR |

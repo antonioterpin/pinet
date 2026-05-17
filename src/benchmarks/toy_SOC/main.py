@@ -35,6 +35,8 @@ HYPERPARAMETERS: dict[str, Any] = {
     "batch_size": 512,
     "n_epochs": 1000,
     "learning_rate": 1e-3,
+    # Validation
+    "validation_batch_size": 1024,  # reference (CVXPY) problem instances
 }
 
 # Use 64 bit precision for numerical stability
@@ -50,6 +52,7 @@ omega = HYPERPARAMETERS["omega"]
 BATCH_SIZE = HYPERPARAMETERS["batch_size"]
 n_epochs = HYPERPARAMETERS["n_epochs"]
 learning_rate = HYPERPARAMETERS["learning_rate"]
+VALIDATION_BATCH_SIZE = HYPERPARAMETERS["validation_batch_size"]
 # Key
 key = jrnd.PRNGKey(HYPERPARAMETERS["seed"])
 
@@ -257,9 +260,8 @@ def print_stats(x: jax.Array, s: jax.Array, b: jax.Array, c: jax.Array, xstar: j
 
 
 # %% Validate the problem
-batch_size = 1024
 # Symbolic problem
-b, c, xstar, sstar = generate_problem(key, batch_size)
+b, c, xstar, sstar = generate_problem(key, VALIDATION_BATCH_SIZE)
 
 # %% CVXPY
 A_np = np.asarray(a_mat)
@@ -273,7 +275,7 @@ constraints = [A_np @ x_var + s_var == b_par, cp.SOC(s_var[-1], s_var[:-1])]
 problem = cp.Problem(cp.Minimize(c_par @ x_var), cast(list[CvxpyConstraint], constraints))
 x_sol = []
 s_sol = []
-for i in range(batch_size):
+for i in range(VALIDATION_BATCH_SIZE):
     b_par.value = np.asarray(b[i]).ravel()  # shape (m,)
     c_par.value = np.asarray(c[i]).ravel()  # shape (n,)
 
@@ -286,8 +288,8 @@ for i in range(batch_size):
     x_sol.append(x_var.value.reshape(n, 1))
     s_sol.append(s_var.value.reshape(m, 1))
 
-x_cvxpy = jnp.asarray(x_sol).reshape(batch_size, n, 1)
-s_cvxpy = jnp.asarray(s_sol).reshape(batch_size, m, 1)
+x_cvxpy = jnp.asarray(x_sol).reshape(VALIDATION_BATCH_SIZE, n, 1)
+s_cvxpy = jnp.asarray(s_sol).reshape(VALIDATION_BATCH_SIZE, m, 1)
 
 # Print the statistics of the solution
 print_stats(x_cvxpy, s_cvxpy, b, c, xstar)
