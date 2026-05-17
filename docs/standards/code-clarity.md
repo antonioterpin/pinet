@@ -45,7 +45,7 @@
 
 - In markdown documentation **and in docstrings**, **only capitalize the first word** of headers, titles, and docstring section headings.
 - This rule applies to all Markdown files in the repository (including `docs/`, `README.md`, PR/issue templates) and to all Python docstrings (including the first-line summary and any in-docstring section headings).
-- Keep proper nouns, library names, and acronyms as needed (for example, `GitHub`, `API`, `JAX`, `NumPy`, `PiNet`, `CVXPY`, `QP`, `SOC`, `ADMM`).
+- Keep proper nouns, library names, and acronyms as needed (for example, `GitHub`, `API`, `JAX`, `NumPy`, `Pinet`, `CVXPY`, `QP`, `SOC`, `ADMM`).
 - Examples:
   - correct: `## Projection layer` (not `## Projection Layer`)
   - correct: `## Constraint types` (not `## Constraint Types`)

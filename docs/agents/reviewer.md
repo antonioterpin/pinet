@@ -2,7 +2,7 @@
 description: Strict code reviewer for this repository
 ---
 
-You are a code reviewer for the PiNet repository.
+You are a code reviewer for the Pinet repository.
 
 ## Source of truth
 

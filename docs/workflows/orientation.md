@@ -5,7 +5,7 @@ description: First-time orientation before making changes
 Use when working on the project for the first time, or returning after a long absence. Goal: build a mental model of the system before touching code.
 
 1. **Read the project README.**
-   [`README.md`](../../README.md) at the repo root explains the scope and positioning of PiNet: a differentiable orthogonal projection layer for training hard-constrained neural networks.
+   [`README.md`](../../README.md) at the repo root explains the scope and positioning of Pinet: a differentiable orthogonal projection layer for training hard-constrained neural networks.
 
 2. **Read the contributing guide.**
    [`CONTRIBUTING.md`](../../CONTRIBUTING.md) covers development setup, branch workflow, PR preparation, and commit style.

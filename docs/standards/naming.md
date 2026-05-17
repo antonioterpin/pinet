@@ -10,20 +10,10 @@ Single source of truth for identifier naming across the library, tests, tools, a
 | Vector or offset | bare lowercase letter | `a`, `b`, `f`, `h`, `p`, `lb`, `ub`, `xhat` |
 | Scalar | bare lowercase letter | `alpha`, `sigma`, `omega`, `tol` |
 | Count or row dimension | `n_*` or `m_*` | `n_eq`, `n_ineq`, `n_a`, `n_c`, `n_a_soc_1`, `dim`, `dim_lifted` |
-| Flag (is per-instance) | `var_*` | `var_a_mat`, `var_b` |
+| Is per-instance | `var_*` | `var_a_mat`, `var_b` |
 | RNG key | `k*` prefix, matrix variant uses the full matrix name | `key`, `ka`, `kb`, `kf`, `kx`, `ka_mat`, `kc_mat` |
-| Boolean mask | `mask_*` | `mask_u`, `mask_t`, `box_mask` |
+| Boolean mask | `mask_*` | `mask_u`, `mask_t`, `mask_box` |
 | Private attribute | leading `_` | `_a_mat`, `_a`, `_f`, `_b`, `_nl_type`, `_dim`, `_rng_key` |
-
-## Per-spec attributes
-
-| Spec or class | Attributes | Role |
-|---------------|------------|------|
-| `EqualityConstraintsSpecification` | `a_mat`, `b`, `a_mat_pinv` | equality matrix, RHS vector, pinv of `a_mat` |
-| `AffineInequalityConstraint` | `c_mat`, `lb`, `ub` | inequality matrix, lower and upper bound vectors |
-| `BoxConstraintSpecification` | `lb`, `ub`, `mask` | box bounds plus the active-dim mask |
-| `SocConstraintSpecification` | `mask_u`, `mask_t`, `a`, `b` | cone-vector mask, scalar mask, offset vector, scalar offset |
-| `NonLinearSpecification` | `a_mat`, `a`, `f`, `b`, `nl_type` | NL matrix, offset vector, linear-RHS row, scalar bound, type tag |
 
 `EqualityConstraintsSpecification.a_mat` (matrix) and `NonLinearSpecification.a` (offset vector) are intentionally distinct attributes on different classes. The `_mat` suffix is what tells them apart at the call site.
 

@@ -1,4 +1,4 @@
-# PiNet development
+# Pinet development
 
 All documentation is centralized in `docs/`. Claude will discover what it needs based on your task.
 

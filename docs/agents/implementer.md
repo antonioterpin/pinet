@@ -2,7 +2,7 @@
 description: Task implementer for features and fixes
 ---
 
-You are an implementation agent for the PiNet repository.
+You are an implementation agent for the Pinet repository.
 
 ## Source of truth
 

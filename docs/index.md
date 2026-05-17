@@ -1,6 +1,6 @@
-# PiNet documentation hub
+# Pinet documentation hub
 
-This is the single source of truth for all PiNet documentation related to agent-driven development. Start here.
+This is the single source of truth for all Pinet documentation related to agent-driven development. Start here.
 
 ---
 
@@ -8,7 +8,7 @@ This is the single source of truth for all PiNet documentation related to agent-
 
 | Document | What it covers |
 |---|---|
-| [agent-development.md](guides/agent-development.md) | Using PiNet with Claude Code, GitHub Copilot, Antigravity, and custom agents |
+| [agent-development.md](guides/agent-development.md) | Using Pinet with Claude Code, GitHub Copilot, Antigravity, and custom agents |
 
 The top-level [CONTRIBUTING.md](../CONTRIBUTING.md) covers human-facing development setup, branch workflow, PR preparation, and commit style.
 

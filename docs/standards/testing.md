@@ -6,9 +6,14 @@
 
 ## Test structure
 
-- Test directories **mirror `src/pinet/`** so you can find tests by module path.
-- **Keep test files small and focused.** One file per concern or layer.
-- Each test file has a **module-level docstring** explaining what behavior it verifies.
+- Tests live **flat in `src/test/`**, one file per area, named
+  `test_<area>.py` (e.g. `test_box.py`, `test_project.py`). A future
+  reorganization into a tree mirroring `src/pinet/` is tracked in
+  [issue #130](https://github.com/antonioterpin/pinet/issues/130).
+- **Prefer small, focused files**, one concern or layer per file. Some
+  legacy files are still large; split them when you touch them.
+- Each test file carries a **module-level docstring** explaining what
+  behavior it verifies.
 - Tests are **type-checked** under basedpyright, same as `src/`. Fixtures and helpers must carry accurate type hints.
 
 ## Test design
@@ -42,8 +47,8 @@ When adding tests to a new area:
 # All tests
 uv run pytest
 
-# A specific module
-uv run pytest src/test/constraints/
+# A specific file
+uv run pytest src/test/test_box.py
 
 # With coverage
 uv run pytest --cov=src/pinet --cov-report=term-missing
