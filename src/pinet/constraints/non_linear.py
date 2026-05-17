@@ -85,11 +85,11 @@ class NonLinearConstraint(Constraint):
         """Return the type of non-linear constraint."""
         return self._nl_type
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
 
         Returns:
             The projected input.
@@ -102,11 +102,11 @@ class NonLinearConstraint(Constraint):
             "NonLinearConstraint is a parameter carrier; use a concrete subclass."
         )
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.

@@ -17,17 +17,41 @@ from jax import numpy as jnp
 from jax import random as jrnd
 from jax.scipy.sparse.linalg import bicgstab
 
-CONSTRAINT_TOL = 1e-6
+# %% Hyperparameters
+# Every tunable knob for the SOC benchmark -- problem size, solver, and
+# training -- is collected here so a single block governs the run.
+HYPERPARAMETERS: dict[str, Any] = {
+    # Problem
+    "n": 250,  # primal dimension
+    "m": 250,  # number of equality / cone rows
+    "seed": 1,  # PRNG seed
+    "constraint_tol": 1e-6,  # feasibility tolerance used in validation
+    # Solver (Douglas-Rachford)
+    "n_iter_forward": 1000,  # forward solver iterations
+    "n_iter_backward": 200,  # backward (implicit-diff) solver iterations
+    "sigma": 0.1,  # step size
+    "omega": 1.8,  # relaxation parameter
+    # Training
+    "batch_size": 512,
+    "n_epochs": 1000,
+    "learning_rate": 1e-3,
+}
 
 # Use 64 bit precision for numerical stability
 jconf.update("jax_enable_x64", True)
 
-# %%
-# Problem dimensions
-n = 250
-m = 250
+n = HYPERPARAMETERS["n"]
+m = HYPERPARAMETERS["m"]
+CONSTRAINT_TOL = HYPERPARAMETERS["constraint_tol"]
+n_iter_forward = HYPERPARAMETERS["n_iter_forward"]
+n_iter_backward = HYPERPARAMETERS["n_iter_backward"]
+sigma = HYPERPARAMETERS["sigma"]
+omega = HYPERPARAMETERS["omega"]
+BATCH_SIZE = HYPERPARAMETERS["batch_size"]
+n_epochs = HYPERPARAMETERS["n_epochs"]
+learning_rate = HYPERPARAMETERS["learning_rate"]
 # Key
-key = jrnd.PRNGKey(1)
+key = jrnd.PRNGKey(HYPERPARAMETERS["seed"])
 
 use_custom_vjp = True
 custom_vjp: Any
@@ -269,19 +293,14 @@ s_cvxpy = jnp.asarray(s_sol).reshape(batch_size, m, 1)
 print_stats(x_cvxpy, s_cvxpy, b, c, xstar)
 
 # %% Use our solver
-n_iter_forward = 1e3
-n_iter_backward = 200
-sigma = 0.1
-omega = 1.8
-
-a_dyn_aug = jnp.concatenate((a_mat, jnp.eye(m)), axis=1)
+a_mat_aug = jnp.concatenate((a_mat, jnp.eye(m)), axis=1)
 # The augmented equality matrix must match the primal-plus-slack dimension.
-assert a_dyn_aug.shape == (
+assert a_mat_aug.shape == (
     m,
     m + n,
-), f"Augmented matrix a_mat should have shape ({m}, {m + n}), instead: {a_dyn_aug.shape}"
+), f"Augmented matrix a_mat should have shape ({m}, {m + n}), instead: {a_mat_aug.shape}"
 
-a_dyn_aug_inv = jnp.linalg.pinv(a_dyn_aug)
+a_mat_aug_inv = jnp.linalg.pinv(a_mat_aug)
 
 
 def project_pinv_vb(xs: jax.Array, b: jax.Array):
@@ -298,14 +317,14 @@ def project_pinv_vb(xs: jax.Array, b: jax.Array):
     Returns:
         jax.Array: Projected array satisfying the equality constraints.
     """
-    return xs - a_dyn_aug_inv @ (a_dyn_aug @ xs - b)
+    return xs - a_mat_aug_inv @ (a_mat_aug @ xs - b)
 
 
-def step_iteration(yraw: jax.Array, sk: jax.Array, b: jax.Array):
+def step_iteration(y_raw: jax.Array, sk: jax.Array, b: jax.Array):
     """Perform one iteration of the forward step.
 
     Args:
-        yraw:
+        y_raw:
             Raw input array of shape (B, m + n, 1) where the first n columns
             are the primal variables and the last m columns are residuals.
 
@@ -320,7 +339,7 @@ def step_iteration(yraw: jax.Array, sk: jax.Array, b: jax.Array):
     """
     zk = project_pinv_vb(sk, b)
     reflect = 2 * zk - sk
-    toproj = (reflect - 2 * sigma * yraw) / (1 + 2 * sigma)
+    toproj = (reflect - 2 * sigma * y_raw) / (1 + 2 * sigma)
     tk1 = toproj[:, :n]
     tk2 = project_soc(toproj[:, n:])
     tk = jnp.concatenate((tk1, tk2), axis=1)
@@ -343,14 +362,14 @@ def step_final(s: jax.Array, b: jax.Array) -> jax.Array:
 @custom_vjp
 def project(
     s0: jax.Array,
-    yraw: jax.Array,
+    y_raw: jax.Array,
     b: jax.Array,
 ):
     """Project the raw input onto the feasible set defined by the constraints.
 
     Args:
         s0: Initial governing sequence, shape (B, m + n, 1).
-        yraw: Raw input array, shape (B, m + n, 1).
+        y_raw: Raw input array, shape (B, m + n, 1).
         b: Right-hand side of the equality constraints, shape (B, m, 1).
 
     Returns:
@@ -361,7 +380,7 @@ def project(
     sk = s0
     sk, _ = lax.scan(
         lambda sk, _: (
-            step_iteration(yraw.reshape((yraw.shape[0], yraw.shape[1], 1)), sk, b),
+            step_iteration(y_raw.reshape((y_raw.shape[0], y_raw.shape[1], 1)), sk, b),
             None,
         ),
         sk,
@@ -370,18 +389,18 @@ def project(
     )
 
     # NOTE: There is no auxiliary variable in this case
-    zk1 = step_final(sk, b).reshape(yraw.shape)
+    zk1 = step_final(sk, b).reshape(y_raw.shape)
 
     # return values and residuals
     return zk1, sk
 
 
-def _project_fwd(s0: jax.Array, yraw: jax.Array, b: jax.Array):
+def _project_fwd(s0: jax.Array, y_raw: jax.Array, b: jax.Array):
     """Forward pass of the projection function.
 
     Args:
         s0: Initial governing sequence, shape (B, m + n, 1).
-        yraw: Raw input array, shape (B, m + n, 1).
+        y_raw: Raw input array, shape (B, m + n, 1).
         b: Right-hand side of the equality constraints, shape (B, m, 1).
 
     Returns:
@@ -389,10 +408,10 @@ def _project_fwd(s0: jax.Array, yraw: jax.Array, b: jax.Array):
             - zk1 (jax.Array): Projected value, shape (B, m + n, 1).
             - sk (jax.Array): Final governing sequence, shape (B, m + n, 1).
         - tuple:
-            - (sk, yraw, b): Residuals for the backward pass.
+            - (sk, y_raw, b): Residuals for the backward pass.
     """
-    zk1, sk = project(s0, yraw, b)
-    return (zk1, sk), (sk, yraw.reshape((yraw.shape[0], yraw.shape[1], 1)), b)
+    zk1, sk = project(s0, y_raw, b)
+    return (zk1, sk), (sk, y_raw.reshape((y_raw.shape[0], y_raw.shape[1], 1)), b)
 
 
 def _project_bwd(residuals: tuple[Any, ...], cotangent: tuple[Any, ...]):
@@ -401,7 +420,7 @@ def _project_bwd(residuals: tuple[Any, ...], cotangent: tuple[Any, ...]):
     Args:
         residuals: Residuals from the forward pass, containing:
             - sk (jax.Array): Governing sequence, shape (B, m + n, 1).
-            - yraw (jax.Array): Raw input array, shape (B, m + n, 1).
+            - y_raw (jax.Array): Raw input array, shape (B, m + n, 1).
             - b (jax.Array):
                 Right-hand side of the equality constraints, shape (B, m, 1).
 
@@ -415,30 +434,30 @@ def _project_bwd(residuals: tuple[Any, ...], cotangent: tuple[Any, ...]):
         tuple:
             - None: Placeholder for the vjp wrt to sk (the DRA governing sequence).
             - thevjp (jax.Array):
-                The vjp wrt to yraw, shape (B, m + n, 1).
+                The vjp wrt to y_raw, shape (B, m + n, 1).
             - None: Placeholder for the vjp wrt to b
                 (the right-hand side of the equality constraints).
     """
-    sk, yraw, b = residuals
+    sk, y_raw, b = residuals
     cotangent_zk1, _ = cotangent
 
     # Compute the vjp of the iteration step wrt to the DRA governing sequence
-    _, iteration_vjp = vjp(lambda xx: step_iteration(yraw, xx, b), sk)
+    _, iteration_vjp = vjp(lambda xx: step_iteration(y_raw, xx, b), sk)
     # Compute the vjp of the iteration step wrt to the value to be projected
-    _, iteration_vjp2 = vjp(lambda xx: step_iteration(xx, sk, b), yraw)
+    _, iteration_vjp2 = vjp(lambda xx: step_iteration(xx, sk, b), y_raw)
     # Compute the vjp of the final step wrt to DRA governing sequence
     _, equality_vjp = vjp(lambda xx: step_final(xx, b), sk)
 
     cotangent_eq_6 = equality_vjp(cotangent_zk1)[0]
 
-    def aop(xx):
+    def a_mat_op(xx):
         return xx - iteration_vjp(xx)[0]
 
-    cotangent_eq_7 = bicgstab(aop, cotangent_eq_6, maxiter=n_iter_backward)[0]
+    cotangent_eq_7 = bicgstab(a_mat_op, cotangent_eq_6, maxiter=n_iter_backward)[0]
 
     thevjp = iteration_vjp2(cotangent_eq_7)[0]
 
-    # We only care about the vjp wrt to yraw
+    # We only care about the vjp wrt to y_raw
     # So, we return None for the vjp wrt to sk (the DRA governing sequence)
     # and None for the vjp wrt to b (the right-hand side of the equality constraints)
     return (None, thevjp, None)
@@ -462,10 +481,10 @@ def test_projection(b: jax.Array, c: jax.Array, xstar: jax.Array, sstar: jax.Arr
         sstar: Optimal dual solution, shape (B, m, 1).
     """
     n_samples = b.shape[0]
-    yraw = jrnd.uniform(key, (n_samples, n + m, 1))
+    y_raw = jrnd.uniform(key, (n_samples, n + m, 1))
 
-    x = yraw[:, :n]
-    s = yraw[:, n:]
+    x = y_raw[:, :n]
+    s = y_raw[:, n:]
     cv_eq_raw = constraint_violation_eq(x, s, b)
     cv_soc_raw = constraint_violation_soc(s)
     if jnp.all(cv_eq_raw < CONSTRAINT_TOL) and jnp.all(cv_soc_raw < CONSTRAINT_TOL):
@@ -477,7 +496,7 @@ def test_projection(b: jax.Array, c: jax.Array, xstar: jax.Array, sstar: jax.Arr
         print(f"Optimal sample: {cv_eq_opt.max()=}, {cv_soc_opt.max()=}")
 
     # Project the point
-    y, _ = project(jnp.zeros_like(yraw), yraw, b)
+    y, _ = project(jnp.zeros_like(y_raw), y_raw, b)
     x = y[:, :n]
     s = y[:, n:]
 
@@ -534,9 +553,6 @@ class HardConstrainedMLP(nn.Module):
 
 
 # %% Train the MLP
-BATCH_SIZE = 512
-n_epochs = 1000
-learning_rate = 1e-3
 key_train, key_init = jrnd.split(key)
 
 

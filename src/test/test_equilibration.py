@@ -213,15 +213,15 @@ def test_general_eq_ineq(seed, batch_size):
         inp = ProjectionInstance(
             x=x[..., None], eq=EqualityConstraintsSpecification(b=b) if var_b else None
         )
-        y_unroll = pl_unroll.call(yraw=inp, n_iter=n_iter, sigma=sigma, omega=omega)[0]
+        y_unroll = pl_unroll.call(y_raw=inp, n_iter=n_iter, sigma=sigma, omega=omega)[0]
         y_impl = pl_unroll_equil.call(
-            yraw=inp,
+            y_raw=inp,
             n_iter=n_iter,
             sigma=sigma_equil,
             omega=omega,
         )[0]
         y_impl_equil = pl_impl_equil.call(
-            yraw=inp,
+            y_raw=inp,
             n_iter=n_iter,
             sigma=sigma_equil,
             omega=omega,
@@ -256,12 +256,28 @@ def test_general_eq_ineq(seed, batch_size):
             omega=omega,
         )
 
-        def loss(x, v, inputs: LossInputs, options: LossOptions):
+        def loss(
+            x: jax.Array,
+            v: jax.Array,
+            inputs: LossInputs,
+            options: LossOptions,
+        ) -> jax.Array:
+            """Project ``x`` under one solver mode and return a scalar loss.
+
+            Args:
+                x: Point to project.
+                v: Direction vector contracted with the projected output.
+                inputs: Shared projection layers, RHS, and solver settings.
+                options: Selects the solver mode and backward-pass settings.
+
+            Returns:
+                The mean of ``proj(x) @ v`` for the selected mode.
+            """
             inp = inputs.projection_input(x)
             if options.mode == "unroll":
                 return (
                     inputs.pl_unroll.call(
-                        yraw=inp,
+                        y_raw=inp,
                         n_iter=inputs.n_iter,
                         sigma=inputs.sigma,
                         omega=inputs.omega,
@@ -271,7 +287,7 @@ def test_general_eq_ineq(seed, batch_size):
             elif options.mode == "unroll_equil":
                 return (
                     inputs.pl_unroll_equil.call(
-                        yraw=inp,
+                        y_raw=inp,
                         n_iter=inputs.n_iter,
                         sigma=inputs.sigma_equil,
                         omega=inputs.omega,
@@ -281,7 +297,7 @@ def test_general_eq_ineq(seed, batch_size):
             elif options.mode == "impl_equil":
                 return (
                     inputs.pl_impl_equil.call(
-                        yraw=inp,
+                        y_raw=inp,
                         n_iter=inputs.n_iter,
                         sigma=inputs.sigma_equil,
                         omega=inputs.omega,
@@ -290,6 +306,7 @@ def test_general_eq_ineq(seed, batch_size):
                     )[0].x[..., 0]
                     @ v
                 ).mean()
+            raise ValueError(f"Unknown loss mode: {options.mode}")
 
         grad_unroll = jax.grad(loss, argnums=0)(
             x, vec, loss_inputs, LossOptions(mode="unroll")

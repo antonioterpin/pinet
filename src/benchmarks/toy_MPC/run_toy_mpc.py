@@ -290,7 +290,7 @@ def main(
                 batch_sizes.append(x_batch.shape[0])
                 epoch_loss.append(loss)
             weighted_epoch_loss = sum(
-                el * bs for el, bs in zip(epoch_loss, batch_sizes, strict=False)
+                el * bs for el, bs in zip(epoch_loss, batch_sizes, strict=True)
             ) / sum(batch_sizes)
             trainig_losses.append(weighted_epoch_loss)
             pbar.set_description(f"Train Loss: {weighted_epoch_loss:.5f}")

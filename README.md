@@ -186,9 +186,9 @@ proj = Project(
 )
 
 x0 = jnp.array([[[10.0], [-10.0]]])             # point to project, shape (B, d, 1)
-yraw = ProjectionInstance(x=x0, nl=[nl_spec])
+y_raw = ProjectionInstance(x=x0, nl=[nl_spec])
 
-y, sK = proj.call(yraw=yraw, n_iter=500, sigma=1.0, omega=1.7)
+y, sK = proj.call(y_raw=y_raw, n_iter=500, sigma=1.0, omega=1.7)
 
 # Check the maximum violation across all constraints
 cv = proj.cv(y)
@@ -224,12 +224,12 @@ proj = Project(
 
 # Build a ProjectionInstance with the point to project and (optionally) runtime specs:
 x0 = jnp.zeros((B, d, 1))
-yraw = ProjectionInstance(x=x0)
+y_raw = ProjectionInstance(x=x0)
 # If var_b=True and you supply per-batch b at runtime, pass it via your dataclass, e.g.:
-# yraw = yraw.update(eq=yraw.eq.update(b=b))
+# y_raw = y_raw.update(eq=y_raw.eq.update(b=b))
 
 y, sK = proj.call(       # JIT-compiled projector
-    yraw=yraw,
+    y_raw=y_raw,
     n_iter=50,                    # Douglas-Rachford iterations
     n_iter_backward=100,          # Maximum number of iterations for the bicgstab algorithm
     sigma=1.0, omega=1.7,

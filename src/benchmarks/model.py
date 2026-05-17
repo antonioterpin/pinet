@@ -83,7 +83,7 @@ def setup_pinet(
     def project(x, b):
         inp = ProjectionInstance(x=x[..., None], eq=EqualityConstraintsSpecification(b=b))
         return projection_layer.call(
-            yraw=inp,
+            y_raw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_train"],
@@ -93,7 +93,7 @@ def setup_pinet(
     def project_test(x, b):
         inp = ProjectionInstance(x=x[..., None], eq=EqualityConstraintsSpecification(b=b))
         return projection_layer.call(
-            yraw=inp,
+            y_raw=inp,
             sigma=hyperparameters["sigma"],
             omega=hyperparameters["omega"],
             n_iter=hyperparameters["n_iter_test"],

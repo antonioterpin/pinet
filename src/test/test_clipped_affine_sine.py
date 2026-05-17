@@ -31,7 +31,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.softplus(x)
         x = nn.Dense(1)(x)
         x = self.project.call(
-            yraw=ProjectionInstance(x=x.reshape((x.shape[0], x.shape[1], 1))),
+            y_raw=ProjectionInstance(x=x.reshape((x.shape[0], x.shape[1], 1))),
             sigma=sigma,
             omega=omega,
             n_iter=100,
@@ -115,7 +115,7 @@ def test_clipped_sine(seed: int, c_value: float, lb: float, ub: float):
 
     # Clip y to meet the constraints via cvxpy
     projected_y = []
-    for _x, _y in zip(x, y, strict=False):
+    for _x, _y in zip(x, y, strict=True):
         # Create a scalar optimization variable.
         z = cp.Variable()
 

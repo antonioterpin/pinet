@@ -1,3 +1,10 @@
+"""Tests for the constraint parser with non-linear constraints.
+
+Covers parsing and projection when non-linear constraints (L2-norm / SOC
+types) are combined with equality, inequality, and box constraints,
+including the ``var_a_mat=True`` per-instance path.
+"""
+
 from itertools import product
 from typing import cast
 
@@ -144,7 +151,7 @@ def test_simple_problem(seed, batch_size):
         :, n_a:, dim:
     ].set(-jnp.eye(n_extra))
     b_lifted_correct = jnp.concatenate([b, jnp.zeros((1, n_extra, 1))], axis=1)
-    box_mask_correct = jnp.concatenate(
+    mask_box_correct = jnp.concatenate(
         [mask, jnp.array([True] * n_c + [False] * (n_extra - n_c), dtype=jnp.bool_)]
     )
     box_ub_correct = jnp.concatenate([ub_box, ub_ineq], axis=1)
@@ -178,7 +185,7 @@ def test_simple_problem(seed, batch_size):
     box_first = cart_lifted.constraints[0]
     assert isinstance(box_first, BoxConstraint)
     assert box_first.lb is not None and box_first.ub is not None
-    assert jnp.allclose(box_first.mask, box_mask_correct), """
+    assert jnp.allclose(box_first.mask, mask_box_correct), """
         Box mask is incorrect.
     """
     assert jnp.allclose(box_first.ub, box_ub_correct), """
@@ -209,7 +216,7 @@ def test_simple_problem(seed, batch_size):
     # Create random points to be projected
     key, subkey = jrnd.split(key)
     yproj = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-5, maxval=5)
-    yraw = ProjectionInstance(x=yproj, nl=[nlspec_1, nlspec_2])
+    y_raw = ProjectionInstance(x=yproj, nl=[nlspec_1, nlspec_2])
 
     # Build the algorithm
     n_iter = 1500
@@ -223,7 +230,7 @@ def test_simple_problem(seed, batch_size):
         x=jnp.zeros((batch_size, dim + n_extra, 1)), nl=[nlspec_1, nlspec_2]
     )
     for _ii in range(n_iter):
-        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.1, omega=1.8)
+        sk = iteration_step(sk=sk, y_raw=y_raw, sigma=0.1, omega=1.8)
     yk = final_step(sk)
 
     # Compute projection with cvxpy
@@ -273,12 +280,12 @@ def test_simple_problem(seed, batch_size):
         - f_soc_2 @ x_feas
     )
     nlspec_2_new = nlspec_2.update(a=a_soc_2_new, b=b_soc_2_new)
-    yraw_new = ProjectionInstance(x=yproj, nl=[nlspec_1, nlspec_2_new])
+    y_raw_new = ProjectionInstance(x=yproj, nl=[nlspec_1, nlspec_2_new])
     sk = ProjectionInstance(
         x=jnp.zeros((batch_size, dim + n_extra, 1)), nl=[nlspec_1, nlspec_2_new]
     )
     for _ii in range(n_iter):
-        sk = iteration_step(sk=sk, yraw=yraw_new, sigma=0.1, omega=1.8)
+        sk = iteration_step(sk=sk, y_raw=y_raw_new, sigma=0.1, omega=1.8)
     yk_new = final_step(sk)
 
     # CVXPY solution with updated SOC parameters
@@ -352,8 +359,8 @@ def test_parse_non_linear_with_no_box_constraint():
     assert isinstance(cart_lifted, CartesianConstraint)
     assert cart_lifted.box_constraint is not None
 
-    yraw = ProjectionInstance(x=x_ref, nl=[nl_spec])
-    lifted = lift_fn(yraw)
+    y_raw = ProjectionInstance(x=x_ref, nl=[nl_spec])
+    lifted = lift_fn(y_raw)
     assert lifted.x.shape[1] > dim
 
 
@@ -391,8 +398,8 @@ def test_parse_non_linear_l2_norm_projection(seed: int, batch_size: int):
 
     # Project a random batch and confirm the L2 ball constraint is satisfied.
     x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-3.0, maxval=3.0)
-    yraw = ProjectionInstance(x=x, nl=[nl_spec])
-    y_lifted = lift_fn(yraw)
+    y_raw = ProjectionInstance(x=x, nl=[nl_spec])
+    y_lifted = lift_fn(y_raw)
 
     iteration_step, final_step = build_iteration_step(
         eq_constraint=eq_lifted,
@@ -406,7 +413,7 @@ def test_parse_non_linear_l2_norm_projection(seed: int, batch_size: int):
         nl=[nl_spec],
     )
     for _ in range(300):
-        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.5, omega=1.7)
+        sk = iteration_step(sk=sk, y_raw=y_raw, sigma=0.5, omega=1.7)
 
     yk = final_step(sk)
 
@@ -493,8 +500,8 @@ def test_only_nonlinear_constraints(seed, batch_size):
 
     # Build a random batch and run the ADMM projection loop.
     x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-3, maxval=3)
-    yraw = ProjectionInstance(x=x, nl=[nl_spec])
-    y_lifted = lift_fn(yraw)
+    y_raw = ProjectionInstance(x=x, nl=[nl_spec])
+    y_lifted = lift_fn(y_raw)
 
     iteration_step, final_step = build_iteration_step(
         eq_constraint=eq_lifted,
@@ -508,7 +515,7 @@ def test_only_nonlinear_constraints(seed, batch_size):
         nl=[nl_spec],
     )
     for _ in range(200):
-        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.5, omega=1.7)
+        sk = iteration_step(sk=sk, y_raw=y_raw, sigma=0.5, omega=1.7)
 
     yk = final_step(sk)
 
@@ -568,8 +575,8 @@ def test_box_and_nonlinear_constraints(seed, batch_size):
 
     # Build a random batch
     x = jrnd.uniform(kx, shape=(batch_size, dim, 1), minval=-1.5, maxval=1.5)
-    yraw = ProjectionInstance(x=x, nl=[nl_spec])
-    y_lifted = lift_fn(yraw)
+    y_raw = ProjectionInstance(x=x, nl=[nl_spec])
+    y_lifted = lift_fn(y_raw)
 
     iteration_step, final_step = build_iteration_step(
         eq_constraint=eq_lifted,
@@ -583,7 +590,7 @@ def test_box_and_nonlinear_constraints(seed, batch_size):
         nl=[nl_spec],
     )
     for _ in range(200):
-        sk = iteration_step(sk=sk, yraw=yraw, sigma=0.5, omega=1.7)
+        sk = iteration_step(sk=sk, y_raw=y_raw, sigma=0.5, omega=1.7)
 
     yk = final_step(sk)
 
@@ -593,7 +600,7 @@ def test_box_and_nonlinear_constraints(seed, batch_size):
 
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, [1, 5]))
-def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
+def test_project_var_a_mat_with_nonlinear(seed: int, batch_size: int):
     """``var_a_mat=True`` works on the non-linear path.
 
     The lifted ``a_mat`` propagates the user-supplied per-instance
@@ -637,7 +644,7 @@ def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
     nl_constraint = NonLinearConstraint(spec=nl_spec)
 
     # Construct ``Project`` with ``var_a_mat=True`` so the per-instance
-    # ``a_mat`` is supplied at projection time via ``yraw.eq``.
+    # ``a_mat`` is supplied at projection time via ``y_raw.eq``.
     eq_constraint = EqualityConstraint(
         a_mat=a_mat, b=b_eq, method="pinv", var_a_mat=True, var_b=True
     )
@@ -648,12 +655,12 @@ def test_project_var_a_dyn_with_nonlinear(seed: int, batch_size: int):
 
     # Project an infeasible point.
     x_infeas = jrnd.uniform(kxinfeas, shape=(batch_size, dim, 1), minval=-3.0, maxval=3.0)
-    yraw = ProjectionInstance(
+    y_raw = ProjectionInstance(
         x=x_infeas,
         eq=EqualityConstraintsSpecification(a_mat=a_mat, b=b_eq),
         nl=[nl_spec],
     )
-    yk, _ = project_layer.call(yraw=yraw, n_iter=500)
+    yk, _ = project_layer.call(y_raw=y_raw, n_iter=500)
     primal = yk.x[:, :dim, :]
 
     # Equality holds.

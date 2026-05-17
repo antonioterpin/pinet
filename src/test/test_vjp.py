@@ -144,7 +144,7 @@ def test_triangle():
     def fun_layer(x, v, fpi):
         return (
             projection_layer.call(
-                yraw=ProjectionInstance(x=x[..., None]),
+                y_raw=ProjectionInstance(x=x[..., None]),
                 sigma=sigma,
                 omega=omega,
                 n_iter=100,
@@ -244,7 +244,7 @@ def test_box():
 
     def fun_layer(x, v):
         return (
-            projection_layer.call(yraw=ProjectionInstance(x=x[..., None]))[0].x[..., 0]
+            projection_layer.call(y_raw=ProjectionInstance(x=x[..., None]))[0].x[..., 0]
             @ v
         ).mean()
 
@@ -307,14 +307,14 @@ def common_vjp_checks(
         if unroll:
             return (
                 projection_layer_unroll.call(
-                    yraw=inp, n_iter=n_iter, sigma=sigma, omega=omega
+                    y_raw=inp, n_iter=n_iter, sigma=sigma, omega=omega
                 )[0].x[..., 0]
                 @ v
             ).mean()
         else:
             return (
                 projection_layer_impl.call(
-                    yraw=inp,
+                    y_raw=inp,
                     n_iter=n_iter,
                     n_iter_bwd=n_iter_bwd,
                     fpi=fpi,
@@ -382,7 +382,7 @@ def common_vjp_checks(
     # Use jax utils for checking
     def unroll_f(y):
         return projection_layer_unroll.call(
-            yraw=ProjectionInstance(x=y, nl=nlspec),
+            y_raw=ProjectionInstance(x=y, nl=nlspec),
             n_iter=n_iter,
             sigma=sigma,
             omega=omega,
@@ -390,7 +390,7 @@ def common_vjp_checks(
 
     def fpi_f(y):
         return projection_layer_impl.call(
-            yraw=ProjectionInstance(x=y, nl=nlspec),
+            y_raw=ProjectionInstance(x=y, nl=nlspec),
             n_iter=n_iter,
             n_iter_bwd=n_iter_bwd,
             fpi=True,
@@ -400,7 +400,7 @@ def common_vjp_checks(
 
     def linsys_f(y):
         return projection_layer_impl.call(
-            yraw=ProjectionInstance(x=y, nl=nlspec),
+            y_raw=ProjectionInstance(x=y, nl=nlspec),
             n_iter=n_iter,
             n_iter_bwd=n_iter_bwd,
             fpi=False,
@@ -439,10 +439,10 @@ def test_general_eq_ineq(seed, batch_size):
     bfeas = cp.Variable(n_eq)
     lfeas = cp.Variable(n_ineq)
     ufeas = cp.Variable(n_ineq)
-    a_dyn_cvx = cp.Constant(np.asarray(a_mat[0, :, :]))
+    a_mat_cvx = cp.Constant(np.asarray(a_mat[0, :, :]))
     constr_matrix_cvx = cp.Constant(np.asarray(c_mat[0, :, :]))
     feasibility_constraints: list[CvxpyConstraint] = [
-        a_dyn_cvx @ xfeas == bfeas,
+        a_mat_cvx @ xfeas == bfeas,
         lfeas <= constr_matrix_cvx @ xfeas,
         constr_matrix_cvx @ xfeas <= ufeas,
         -1 <= xfeas,
@@ -484,7 +484,7 @@ def test_general_eq_ineq(seed, batch_size):
         qp_constraints = cast(
             list[CvxpyConstraint],
             [
-                a_dyn_cvx @ yproj == np.asarray(b[0, :, 0]),
+                a_mat_cvx @ yproj == np.asarray(b[0, :, 0]),
                 np.asarray(lb[0, :, 0]) <= constr_matrix_cvx @ yproj,
                 constr_matrix_cvx @ yproj <= np.asarray(ub[0, :, 0]),
             ],
@@ -499,11 +499,11 @@ def test_general_eq_ineq(seed, batch_size):
     # Check that the projection are computed correctly
     n_iter = 200
     y_unroll = projection_layer_unroll.call(
-        yraw=ProjectionInstance(x=x[..., None]),
+        y_raw=ProjectionInstance(x=x[..., None]),
         n_iter=n_iter,
     )[0].x[..., 0]
     y_impl = projection_layer_impl.call(
-        yraw=ProjectionInstance(x=x[..., None]),
+        y_raw=ProjectionInstance(x=x[..., None]),
         n_iter=n_iter,
     )[0].x[..., 0]
     assert jnp.allclose(y_unroll, yqp, atol=1e-4, rtol=1e-4), (

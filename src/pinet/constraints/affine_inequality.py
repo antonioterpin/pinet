@@ -56,11 +56,11 @@ class AffineInequalityConstraint(Constraint):
         self.lb = lb
         self.ub = ub
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
@@ -83,16 +83,16 @@ class AffineInequalityConstraint(Constraint):
         """Return the number of constraints."""
         return self.c_mat.shape[1]
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.
         """
-        c_mat_x = self.c_mat @ yraw.x
+        c_mat_x = self.c_mat @ y_raw.x
         cv_ub = jnp.maximum(c_mat_x - self.ub, 0)
         cv_lb = jnp.maximum(self.lb - c_mat_x, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)

@@ -22,7 +22,7 @@ class BoxConstraint(Constraint):
         lb: Lower bound for each constrained coordinate.
         ub: Upper bound for each constrained coordinate.
         mask: Boolean mask selecting which dimensions are constrained.
-        scale: Scaling vector applied to variable bounds passed via ``yraw.box``.
+        scale: Scaling vector applied to variable bounds passed via ``y_raw.box``.
     """
 
     lb: BatchedRHS | None
@@ -43,7 +43,7 @@ class BoxConstraint(Constraint):
             box_spec: Specification of the box constraint.
                 For variable bounds, provide an example of the bounds.
             scale: Optional scaling vector applied to variable bounds passed via
-                ``yraw.box``. Defaults to all ones.
+                ``y_raw.box``. Defaults to all ones.
         """
         lb = box_spec.lb
         ub = box_spec.ub
@@ -72,7 +72,7 @@ class BoxConstraint(Constraint):
             else jnp.asarray(np.ones(shape=(dim,), dtype=jnp.bool_))
         )
         # Default scale is applied to per-instance bounds supplied via
-        # ``yraw.box.lb/ub``, which have shape ``(batch, n_constraints, 1)``.
+        # ``y_raw.box.lb/ub``, which have shape ``(batch, n_constraints, 1)``.
         # Using ``dim`` here would broadcast-error whenever ``mask`` is set
         # (``dim != n_constraints``).
         self.scale = scale if scale is not None else jnp.ones((1, n_constraints, 1))
@@ -80,27 +80,27 @@ class BoxConstraint(Constraint):
         self._n_constraints = n_constraints
 
     def get_params(
-        self, yraw: ProjectionInstance
+        self, y_raw: ProjectionInstance
     ) -> tuple[BatchedRHS, BatchedRHS, Mask1D]:
         """Get the parameters of the box constraint.
 
         Args:
-            yraw: ProjectionInstance to get the parameters from.
+            y_raw: ProjectionInstance to get the parameters from.
 
         Returns:
             A tuple ``(lb, ub, mask)`` with the lower/upper bounds and the mask.
         """
         lb = (
-            (yraw.box.lb * self.scale)
-            if yraw.box and yraw.box.lb is not None
+            (y_raw.box.lb * self.scale)
+            if y_raw.box and y_raw.box.lb is not None
             else self.lb
         )
         ub = (
-            (yraw.box.ub * self.scale)
-            if yraw.box and yraw.box.ub is not None
+            (y_raw.box.ub * self.scale)
+            if y_raw.box and y_raw.box.ub is not None
             else self.ub
         )
-        mask = yraw.box.mask if yraw.box and yraw.box.mask is not None else self.mask
+        mask = y_raw.box.mask if y_raw.box and y_raw.box.mask is not None else self.mask
         if lb is None:
             # An absent lower bound is treated as an unbounded interval below.
             assert ub is not None
@@ -112,36 +112,36 @@ class BoxConstraint(Constraint):
 
         return lb, ub, mask
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
             The projected point for each point in the batch.
         """
-        lb, ub, mask = self.get_params(yraw)
-        # ``yraw.x`` is annotated ``ArrayLike`` (jax.Array | np.ndarray) at the
+        lb, ub, mask = self.get_params(y_raw)
+        # ``y_raw.x`` is annotated ``ArrayLike`` (jax.Array | np.ndarray) at the
         # public API boundary; ``.at`` is a JAX-only construct, so coerce
         # before slicing.
-        x = jnp.asarray(yraw.x)
-        return yraw.update(x=x.at[:, mask, :].set(jnp.clip(x[:, mask, :], lb, ub)))
+        x = jnp.asarray(y_raw.x)
+        return y_raw.update(x=x.at[:, mask, :].set(jnp.clip(x[:, mask, :], lb, ub)))
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.
         """
-        lb, ub, mask = self.get_params(yraw)
+        lb, ub, mask = self.get_params(y_raw)
         cvs = jnp.maximum(
-            jnp.max(yraw.x[:, mask, :] - ub, axis=1, keepdims=True),
-            jnp.max(lb - yraw.x[:, mask, :], axis=1, keepdims=True),
+            jnp.max(y_raw.x[:, mask, :] - ub, axis=1, keepdims=True),
+            jnp.max(lb - y_raw.x[:, mask, :], axis=1, keepdims=True),
         )
         return jnp.maximum(cvs, 0)
 

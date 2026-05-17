@@ -139,42 +139,42 @@ class CartesianConstraint(Constraint):
         """Return all constituent constraints in order."""
         return [c for c in (self.box_constraint, *self.nl_constraints) if c is not None]
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
         Projects onto each constraint independently. Since masks don't overlap,
         each constraint operates on a disjoint subset of variables.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
 
         Returns:
             The projected input.
         """
-        if self.nl_constraints and not isinstance(yraw.nl, (list, tuple)):
+        if self.nl_constraints and not isinstance(y_raw.nl, (list, tuple)):
             raise TypeError(
-                f"yraw.nl must be a list or tuple, got {type(yraw.nl).__name__}."
+                f"y_raw.nl must be a list or tuple, got {type(y_raw.nl).__name__}."
             )
 
         if self.box_constraint is not None:
-            yraw = self.box_constraint.project(yraw)
+            y_raw = self.box_constraint.project(y_raw)
 
         if self.nl_constraints:
             # Narrowed by the isinstance check above.
-            assert yraw.nl is not None
-            for nl_constraint, nl_spec in zip(self.nl_constraints, yraw.nl, strict=True):
-                yraw = yraw.update(soc=nl_spec.to_primitive_spec())
-                yraw = nl_constraint.project(yraw)
+            assert y_raw.nl is not None
+            for nl_constraint, nl_spec in zip(self.nl_constraints, y_raw.nl, strict=True):
+                y_raw = y_raw.update(soc=nl_spec.to_primitive_spec())
+                y_raw = nl_constraint.project(y_raw)
 
-        return yraw
+        return y_raw
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Returns the maximum constraint violation across all constraints.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.
@@ -182,16 +182,16 @@ class CartesianConstraint(Constraint):
         cvs = []
 
         if self.box_constraint is not None:
-            cvs.append(self.box_constraint.cv(yraw).reshape(-1))
+            cvs.append(self.box_constraint.cv(y_raw).reshape(-1))
 
         if self.nl_constraints:
             # cv requires per-instance SOC specs to be supplied on the input.
-            assert yraw.nl is not None, (
-                "yraw.nl must be provided when non-linear constraints are present."
+            assert y_raw.nl is not None, (
+                "y_raw.nl must be provided when non-linear constraints are present."
             )
-            for constraint, nl_spec in zip(self.nl_constraints, yraw.nl, strict=True):
-                yraw = yraw.update(soc=nl_spec.to_primitive_spec())
-                cvs.append(constraint.cv(yraw).reshape(-1))
+            for constraint, nl_spec in zip(self.nl_constraints, y_raw.nl, strict=True):
+                y_raw = y_raw.update(soc=nl_spec.to_primitive_spec())
+                cvs.append(constraint.cv(y_raw).reshape(-1))
 
         # Return the maximum violation
         if len(cvs) == 1:
