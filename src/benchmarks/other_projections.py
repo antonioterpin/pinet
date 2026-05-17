@@ -66,7 +66,7 @@ def get_cvxpy_projection(
     c_mat: jax.Array,
     d: jax.Array,
     dim: int,
-) -> CvxpyLayer:
+) -> Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]]:
     """Constructs and returns a CVXPY-based projection layer callable.
 
     The projection is formulated as a quadratic minimization problem that minimizes
@@ -82,7 +82,7 @@ def get_cvxpy_projection(
         dim: Dimension of the variable x.
 
     Returns:
-        Callable[[jax.Array, jax.Array], tuple[jax.Array]]:
+        Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]]:
         A callable CVXPY layer that takes two parameters:
         an input vector (xproj) to be projected and a corresponding vector b for
         the equality constraints.

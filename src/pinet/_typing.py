@@ -16,6 +16,8 @@ Each alias below names a common shape so call sites stay short and docstrings
 no longer need to carry shape/dtype prose.
 """
 
+from typing import Any
+
 import numpy as np
 from jaxtyping import Array, Bool, Float, Real
 
@@ -24,7 +26,7 @@ from jaxtyping import Array, Bool, Float, Real
 # promotes them at the first arithmetic op. ``ArrayLike`` widens
 # jaxtyping's first-slot type so beartype accepts either backend without
 # forcing callers to ``jnp.asarray`` everywhere.
-ArrayLike = Array | np.ndarray
+ArrayLike = Array | np.ndarray[Any, np.dtype[Any]]
 
 # The ``#B`` prefix marks the batch axis as broadcast-compatible, so a
 # function that accepts both a per-instance tensor (``B=10``) and a

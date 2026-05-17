@@ -121,16 +121,19 @@ def test_general_eq_ineq(seed, batch_size):
         uboxfeas <= 1,
     ]
     for ii in range(batch_size):
-        constraints += [
-            a_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
-            == bfeas[ii * n_eq : (ii + 1) * n_eq],
-            lfeas <= c_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
-            c_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
-            lboxfeas <= xfeas[ii * dim : (ii + 1) * dim][mask],
-            xfeas[ii * dim : (ii + 1) * dim][mask] <= uboxfeas,
-            lower_feas_bound <= xfeas,
-            xfeas <= upper_feas_bound,
-        ]
+        constraints += cast(
+            list[CvxpyConstraint],
+            [
+                a_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
+                == bfeas[ii * n_eq : (ii + 1) * n_eq],
+                lfeas <= c_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
+                c_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
+                lboxfeas <= xfeas[ii * dim : (ii + 1) * dim][mask],
+                xfeas[ii * dim : (ii + 1) * dim][mask] <= uboxfeas,
+                lower_feas_bound <= xfeas,
+                xfeas <= upper_feas_bound,
+            ],
+        )
     objective = cp.Minimize(jnp.ones(shape=(dim * batch_size)) @ xfeas)
     problem = cp.Problem(objective=objective, constraints=constraints)
     problem.solve(verbose=False)
