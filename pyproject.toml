@@ -51,8 +51,14 @@ dev = [
     "ruff>=0.14.14",
     "gitlint==0.19.1",
 ]
+# GPU extras. Pick the one matching the CUDA major version of the host driver
+# (`nvidia-smi` -> "CUDA Version"). cuda13 is required for CUDA 13 drivers and
+# Blackwell-class GPUs (e.g. RTX 50-series), and needs jax>=0.7.1 (python>=3.11).
 cuda12 = [
-    "jax[cuda12_pip]>=0.6.2",
+    "jax[cuda12]>=0.6.2",
+]
+cuda13 = [
+    "jax[cuda13]>=0.7.1; python_version >= '3.11'",
 ]
 
 [project.urls]

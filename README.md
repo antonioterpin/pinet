@@ -28,9 +28,16 @@ To install &Pi;net, run:
   ```bash
   pip install "pinet-hcnn[cuda12]"
   ```
+- GPU (NVIDIA, CUDA 13 — required for Blackwell / RTX 50-series)
+  ```bash
+  pip install "pinet-hcnn[cuda13]"
+  ```
+
+  Match the extra to the CUDA major version reported by `nvidia-smi`
+  ("CUDA Version"). `cuda13` requires `jax>=0.7.1` and Python `>=3.11`.
 
 > [!WARNING]
-> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
+> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
 
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
