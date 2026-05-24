@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | yes       |
-| < 0.1   | no        |
+| 0.2.x   | yes       |
+| < 0.2   | no        |
 
 Only the latest released minor line of `pinet-hcnn` receives security
 fixes. Update this table when the release version changes.
