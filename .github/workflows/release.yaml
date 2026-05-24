@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # gh release create
+  id-token: write # PyPI OIDC trusted publishing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Scope the OIDC token to the `pypi` GitHub environment so the PyPI
+    # trusted-publisher claim can pin to it. Configure the environment +
+    # the matching trusted publisher on PyPI before the first release.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pinet-hcnn
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history -> previous-tag lookup
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          TAG_VERSION="${TAG#v}"
+          PYPROJECT_VERSION=$(
+            awk -F'"' '/^version = /{print $2; exit}' pyproject.toml
+          )
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Tag $TAG ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)"
+            exit 1
+          fi
+          echo "Tag $TAG matches pyproject.toml version $PYPROJECT_VERSION"
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Verify metadata with twine
+        run: uv run --with twine twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          PREV_TAG=$(
+            git tag --sort=-v:refname \
+              | grep -A1 "^${TAG}$" \
+              | tail -n1
+          )
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --notes-start-tag "$PREV_TAG"
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes
+          fi
