@@ -45,17 +45,8 @@ class CartesianConstraint(Constraint):
         Raises:
             ValueError: If no constraints are provided, if masks overlap,
                 or if constraint dimensions are inconsistent.
-            TypeError: If nl_constraints is not a list or tuple.
         """
-        if nl_constraints is None:
-            nls: list[SocConstraint] = []
-        elif isinstance(nl_constraints, (list, tuple)):
-            nls = list(nl_constraints)
-        else:
-            raise TypeError(
-                f"nl_constraints must be a list or tuple, "
-                f"got {type(nl_constraints).__name__}."
-            )
+        nls: list[SocConstraint] = [] if nl_constraints is None else list(nl_constraints)
 
         self.box_constraint = box_constraint
         self.nl_constraints = nls
@@ -77,8 +68,8 @@ class CartesianConstraint(Constraint):
             The shared dimension across all constraints.
 
         Raises:
-            ValueError: If no constraints are provided, if constraint types are
-                invalid, if dimensions are inconsistent, or if masks overlap.
+            ValueError: If no constraints are provided, if dimensions are
+                inconsistent, or if masks overlap.
         """
         constraints: list[Constraint] = [
             c for c in (box_constraint, *nl_constraints) if c is not None
@@ -86,18 +77,10 @@ class CartesianConstraint(Constraint):
         if not constraints:
             raise ValueError("At least one constraint must be provided.")
 
-        # Check that the constraints are boxes and socs
-        if box_constraint is not None and not isinstance(box_constraint, BoxConstraint):
-            raise ValueError(
-                f"The box_constraint must be a BoxConstraint, "
-                f"got {type(box_constraint).__name__}."
-            )
-        for constraint in nl_constraints:
-            if not isinstance(constraint, SocConstraint):
-                raise ValueError(
-                    f"Only SocConstraint is currently supported "
-                    f"in nl_constraints, got {type(constraint).__name__}."
-                )
+        # The constituent constraint types (``BoxConstraint`` for the box
+        # component, ``SocConstraint`` for the non-linear ones) are enforced by
+        # the type system at construction time via the ``PINET_RUNTIME_CHECK``
+        # beartype hook.
 
         # Validate that all constraints have the same dimension
         dim = constraints[0].dim

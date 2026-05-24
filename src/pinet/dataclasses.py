@@ -26,10 +26,6 @@ EQUILIBRATION_DEFAULT_COL_SCALING = Constants.EQUILIBRATION_DEFAULT_COL_SCALING
 EQUILIBRATION_DEFAULT_UPDATE_MODE = Constants.EQUILIBRATION_DEFAULT_UPDATE_MODE
 EQUILIBRATION_DEFAULT_SAFEGUARD = Constants.EQUILIBRATION_DEFAULT_SAFEGUARD
 
-EXPECTED_BOUND_NDIM = 3
-EXPECTED_PROJECTION_NDIM = 3
-EXPECTED_SOC_TENSOR_NDIM = 3
-
 
 class EqualityConstraintsSpecification(eqx.Module):
     """Dataclass representing inputs used in forming equality constraints.
@@ -91,57 +87,15 @@ class BoxConstraintSpecification(eqx.Module):
         """
         return replace(self, **kwargs)
 
-    def _validate_bound_shapes(self) -> None:
-        if (
-            self.lb is not None
-            and hasattr(self.lb, "ndim")
-            and self.lb.ndim != EXPECTED_BOUND_NDIM
-        ):
-            raise ValueError(
-                "Lower bound must have shape (batch_size, n_constraints, 1). "
-                f"Received shape: {getattr(self.lb, 'shape', None)}."
-            )
-        if (
-            self.ub is not None
-            and hasattr(self.ub, "ndim")
-            and self.ub.ndim != EXPECTED_BOUND_NDIM
-        ):
-            raise ValueError(
-                "Upper bound must have shape (batch_size, n_constraints, 1). "
-                f"Received shape: {getattr(self.ub, 'shape', None)}."
-            )
-
     def _validate_bound_compatibility(self) -> None:
         if self.lb is None or self.ub is None:
             return
-        if hasattr(self.lb, "shape") and hasattr(self.ub, "shape"):
-            if self.lb.shape[1:] != self.ub.shape[1:]:
-                raise ValueError(
-                    "Lower and upper bounds must have the same shape. "
-                    f"Received shapes: {self.lb.shape} and {self.ub.shape}."
-                )
-            if (
-                self.lb.shape[0] != self.ub.shape[0]
-                and self.lb.shape[0] != 1
-                and self.ub.shape[0] != 1
-            ):
-                raise ValueError(
-                    "Batch size of lower and upper bounds must be the same "
-                    "or one of them must be 1. "
-                    f"Received shapes: {self.lb.shape} and {self.ub.shape}."
-                )
-
         if not jnp.all(self.lb <= self.ub):
             raise ValueError("Lower bound must be less than or equal to the upper bound.")
 
     def _validate_mask(self) -> None:
         if self.mask is None:
             return
-        if getattr(self.mask, "dtype", None) != jnp.bool_:
-            raise TypeError("Mask must be a boolean array.")
-        if getattr(self.mask, "ndim", None) != 1:
-            raise ValueError("Mask must be a 1D array.")
-
         dim = getattr(self.lb, "shape", None) or getattr(self.ub, "shape", None)
         if dim is not None and dim[1] != int(jnp.sum(self.mask)):
             raise ValueError(
@@ -153,15 +107,20 @@ class BoxConstraintSpecification(eqx.Module):
     def validate(self) -> None:
         """Validate the box constraint specification.
 
-        Must run before tracing; the checks are not jit-traceable.
+        The ranks and dtypes of ``lb``/``ub``/``mask`` (and that bounds share
+        a shape up to broadcasting) are enforced by the type system at
+        construction time via the ``PINET_RUNTIME_CHECK`` beartype hook; only
+        the non-type-level invariants are checked here. Must run before
+        tracing; the checks are not jit-traceable.
 
         Raises:
-            ValueError: If bounds are invalid or inconsistent.
+            ValueError: If neither bound is provided, the lower bound exceeds
+                the upper bound, or the mask's active count disagrees with the
+                bounds.
         """
         if self.lb is None and self.ub is None:
             raise ValueError("At least one of lower or upper bounds must be provided.")
 
-        self._validate_bound_shapes()
         self._validate_bound_compatibility()
         self._validate_mask()
 
@@ -196,62 +155,24 @@ class SocConstraintSpecification(eqx.Module):
     def validate(self) -> None:
         """Validate the SOC constraint specification.
 
-        Must run before tracing; the checks are not jit-traceable.
+        The dtypes and ranks of the masks/offsets, that ``mask_u`` and
+        ``mask_t`` share a size, and that ``b`` is a scalar are enforced by the
+        type system at construction time via the ``PINET_RUNTIME_CHECK``
+        beartype hook; only the value-level invariants (which depend on the
+        runtime contents of the masks) are checked here. Must run before
+        tracing; the checks are not jit-traceable.
+
+        Raises:
+            ValueError: If ``mask_t`` does not select exactly one element, or
+                the second dimension of ``a`` does not match the number of
+                ``True`` values in ``mask_u``.
         """
-        if getattr(self.mask_u, "dtype", None) != jnp.bool_:
-            raise TypeError("mask_u must be a boolean array.")
-        if getattr(self.mask_t, "dtype", None) != jnp.bool_:
-            raise TypeError("mask_t must be a boolean array.")
-
-        if getattr(self.mask_u, "ndim", None) != 1:
-            raise ValueError(
-                "mask_u must be a 1D array. "
-                f"Received shape: {getattr(self.mask_u, 'shape', None)}."
-            )
-        if getattr(self.mask_t, "ndim", None) != 1:
-            raise ValueError(
-                "mask_t must be a 1D array. "
-                f"Received shape: {getattr(self.mask_t, 'shape', None)}."
-            )
-
-        if (
-            self.mask_u is not None
-            and self.mask_t is not None
-            and hasattr(self.mask_u, "shape")
-            and hasattr(self.mask_t, "shape")
-        ):
-            if self.mask_u.shape[0] != self.mask_t.shape[0]:
-                raise ValueError(
-                    "mask_u and mask_t must have the same size. "
-                    f"Received mask_u shape: {self.mask_u.shape}, "
-                    f"mask_t shape: {self.mask_t.shape}."
-                )
-
         if (
             self.mask_t is not None
             and hasattr(self.mask_t, "sum")
             and self.mask_t.sum() != 1
         ):
             raise ValueError("mask_t must select exactly one element.")
-
-        if (
-            self.a is not None
-            and hasattr(self.a, "ndim")
-            and self.a.ndim != EXPECTED_SOC_TENSOR_NDIM
-        ):
-            raise ValueError(
-                "a must have shape (batch_size, n_constraints, 1). "
-                f"Received shape: {getattr(self.a, 'shape', None)}."
-            )
-        if (
-            self.b is not None
-            and hasattr(self.b, "ndim")
-            and self.b.ndim != EXPECTED_SOC_TENSOR_NDIM
-        ):
-            raise ValueError(
-                "b must have shape (batch_size, n_constraints, 1). "
-                f"Received shape: {getattr(self.b, 'shape', None)}."
-            )
 
         if self.a is not None and self.mask_u is not None:
             dim_a = self.a.shape[1]
@@ -262,13 +183,6 @@ class SocConstraintSpecification(eqx.Module):
                     f"the number of True values in mask_u. "
                     f"Received a shape: {self.a.shape}, "
                     f"mask_u has {num_true_u} True values."
-                )
-        if self.b is not None:
-            dim_b = self.b.shape[1]
-            if dim_b != 1:
-                raise ValueError(
-                    "The second dimension of b must be 1. "
-                    f"Received b shape: {self.b.shape}."
                 )
 
     def to_nl_spec(self) -> "NonLinearSpecification":
@@ -339,51 +253,16 @@ class NonLinearSpecification(eqx.Module):
                 f"nl_type must be SOCType or L2NormType, got {self.nl_type!r}."
             )
 
-    def _validate_batch_sizes(self) -> None:
-        batch_sizes: list[int] = []
-        for tensor in (self.a_mat, self.a, self.f, self.b):
-            if tensor is not None:
-                batch_sizes.append(tensor.shape[0])
-        if batch_sizes:
-            non_one_sizes = [size for size in batch_sizes if size != 1]
-            if len(set(non_one_sizes)) > 1:
-                raise ValueError(f"Inconsistent batch sizes: {batch_sizes}")
-        if self.a_mat.shape[0] != 1:
-            raise ValueError(f"a_mat must have batch size 1, got {self.a_mat.shape[0]}")
-        if self.f is not None and self.f.shape[0] != 1:
-            raise ValueError(f"f must have batch size 1, got {self.f.shape[0]}")
-
-    def _validate_dim_consistency(self) -> None:
-        if self.a is not None and self.a_mat.shape[1] != self.a.shape[1]:
-            raise ValueError(
-                f"a_mat and a must have same constraint dimension: "
-                f"{self.a_mat.shape[1]} vs {self.a.shape[1]}"
-            )
-        if self.f is not None and self.a_mat.shape[2] != self.f.shape[2]:
-            raise ValueError(
-                f"a_mat and f must have same variable dimension: "
-                f"{self.a_mat.shape[2]} vs {self.f.shape[2]}"
-            )
-        if (
-            self.f is not None
-            and self.b is not None
-            and self.f.shape[1] != self.b.shape[1]
-        ):
-            raise ValueError(
-                f"f and b must have same constraint dimension: "
-                f"{self.f.shape[1]} vs {self.b.shape[1]}"
-            )
-        if self.b is not None and self.b.shape[1] != 1:
-            raise ValueError(
-                f"b must be scalar (shape should be (batch_size, 1, 1)): "
-                f"got {self.b.shape}"
-            )
-
     def validate(self) -> None:
-        """Validate the non-linear constraint specification."""
+        """Validate the non-linear constraint specification.
+
+        Batch sizes and the cross-tensor shape relations between ``a_mat``,
+        ``a``, ``f`` and ``b`` are enforced by the type system at construction
+        time via the ``PINET_RUNTIME_CHECK`` beartype hook; only the supported
+        ``nl_type`` invariant (which is not expressible in the type) is checked
+        here.
+        """
         self._validate_type()
-        self._validate_batch_sizes()
-        self._validate_dim_consistency()
 
     def to_primitive_spec(self) -> "SocConstraintSpecification":
         """Convert NonLinearSpecification to primitive constraint specification.
@@ -423,16 +302,12 @@ class ProjectionInstance(eqx.Module):
     def validate(self) -> None:
         """Validate the projection instance.
 
-        Must run before tracing; the checks are not jit-traceable.
-
-        Raises:
-            ValueError: If x does not have shape (batch_size, dimension, 1).
+        The rank of ``x`` (shape ``(batch_size, dimension, 1)``) is enforced by
+        the type system at construction time via the ``PINET_RUNTIME_CHECK``
+        beartype hook, so there is nothing left to validate here that is not
+        jit-traceable. Kept for API symmetry with the constraint specs and as
+        the documented pre-tracing entry point.
         """
-        if self.x.ndim != EXPECTED_PROJECTION_NDIM:
-            raise ValueError(
-                "x must have shape (batch_size, dimension, 1). "
-                f"Received shape: {self.x.shape}."
-            )
 
     def update(self, **kwargs: object) -> "ProjectionInstance":
         """Return a copy with the given fields overridden.

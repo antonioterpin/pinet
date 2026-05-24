@@ -11,7 +11,14 @@ import numpy as np
 import pytest
 from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 
-from pinet import ProjectionInstance, SocConstraint, SocConstraintSpecification
+from pinet import (
+    NonLinearSpecification,
+    ProjectionInstance,
+    SocConstraint,
+    SocConstraintSpecification,
+    SOCType,
+)
+from pinet.constraints.non_linear import NonLinearConstraint
 
 jax.config.update("jax_enable_x64", True)
 
@@ -151,3 +158,10 @@ def test_raising_errors():
 
     with pytest.raises(ValueError):
         soc_constraint.project(ProjectionInstance(x=x, soc=socspec))
+
+
+def test_nl_type_property_reports_soc():
+    """``NonLinearConstraint.nl_type`` exposes the carried non-linear type."""
+    spec = NonLinearSpecification(nl_type=SOCType, a_mat=jnp.ones((1, 2, 3)))
+    constraint = NonLinearConstraint(spec=spec)
+    assert constraint.nl_type == SOCType

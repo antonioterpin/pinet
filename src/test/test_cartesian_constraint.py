@@ -16,7 +16,6 @@ from pinet import (
     BoxConstraint,
     BoxConstraintSpecification,
     CartesianConstraint,
-    NonLinearSpecification,
     ProjectionInstance,
     SocConstraint,
     SocConstraintSpecification,
@@ -84,28 +83,21 @@ def test_non_box_soc_constraint_raises():
 
 
 def test_project_raises_when_nl_specs_not_iterable():
-    """Test project raises TypeError if y_raw.nl is not a list/tuple."""
+    """Test project raises TypeError if y_raw.nl is not a list/tuple.
+
+    ``nl=None`` is a *valid* ``ProjectionInstance`` (the type permits it), so
+    beartype does not pre-empt at construction; this deterministically reaches
+    the ``project()`` guard that requires ``nl`` to be a list/tuple when the
+    Cartesian constraint carries nonlinear (SOC) components.
+    """
     dim = 6
     soc_mask_u = jnp.array([True, True, False, False, False, False], dtype=jnp.bool_)
     soc_mask_t = jnp.array([False, False, True, False, False, False], dtype=jnp.bool_)
     soc = SocConstraint(SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t))
     cartesian = CartesianConstraint(nl_constraints=[soc])
 
-    # y_raw.nl must be list/tuple when nonlinear constraints are present.
-    # ProjectionInstance's own __init__ is beartype-checked; constructing the
-    # deliberately-malformed instance may raise a TypeCheckError before
-    # project() runs. Either error path is acceptable.
-    with pytest.raises(_TypeOrValidationError):
-        y_raw = ProjectionInstance(
-            x=jnp.zeros((1, dim, 1)),
-            nl=cast(
-                "list[NonLinearSpecification]",
-                cast(
-                    object,
-                    SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t),
-                ),
-            ),
-        )
+    y_raw = ProjectionInstance(x=jnp.zeros((1, dim, 1)), nl=None)
+    with pytest.raises(TypeError, match=r"y_raw.nl must be a list or tuple"):
         cartesian.project(y_raw)
 
 
