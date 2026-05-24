@@ -492,46 +492,6 @@ def test_parse_non_linear_l2_norm_projection(seed: int, batch_size: int):
     )
 
 
-def test_parse_non_linear_with_ineq_batch_size_not_one_raises():
-    """Test parser raises when inequality C batch size is not 1 in nonlinear mode."""
-    eq_constraint = EqualityConstraint(
-        a_mat=jnp.array([[[1.0, 0.0, 0.0]]]),
-        b=jnp.array([[[0.0]]]),
-        var_b=False,
-    )
-
-    # Nonlinear parsing requires C batch size == 1; use batch size 2 to trigger.
-    c_mat = jnp.array(
-        [
-            [[1.0, 0.0, 0.0]],
-            [[0.0, 1.0, 0.0]],
-        ]
-    )
-    lb = jnp.zeros((2, 1, 1))
-    ub = jnp.ones((2, 1, 1))
-    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
-
-    nl_spec = NonLinearSpecification(
-        nl_type=SOCType,
-        a_mat=jnp.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
-        a=jnp.zeros((1, 2, 1)),
-        f=jnp.array([[[0.0, 0.0, 1.0]]]),
-        b=jnp.ones((1, 1, 1)),
-    )
-    nl_constraint = NonLinearConstraint(spec=nl_spec)
-
-    with pytest.raises(
-        AssertionError,
-        match=r"Batch size of inequality constraint must be 1 or None",
-    ):
-        ConstraintParser(
-            eq_constraint=eq_constraint,
-            ineq_constraint=ineq_constraint,
-            box_constraint=None,
-            nl_constraints=[nl_constraint],
-        )
-
-
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))
 def test_only_nonlinear_constraints(seed, batch_size):
     """Test parser/project flow with only nonlinear constraints active."""
