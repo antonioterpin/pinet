@@ -28,7 +28,7 @@ jobs:
       # Step 3: Install uv so pre-commit hooks that shell out to
       # ``uv run <tool>`` (pydoclint, basedpyright) can find the executable.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       # Step 4: Install project dev deps via uv so ``uv run pydoclint`` and
       # ``uv run basedpyright`` resolve to the pinned versions.
