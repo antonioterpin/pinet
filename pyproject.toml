@@ -42,7 +42,7 @@ dependencies = [
 # Optional dependencies
 [project.optional-dependencies]
 dev = [
-    "snowballstemmer==2.2.0",
+    "snowballstemmer==3.0.1",
     "pre_commit==4.0.1",
     "pytest-cov",
     "tomli",
@@ -68,7 +68,7 @@ Repository = "https://github.com/antonioterpin/pinet"
 # Dependency groups
 [dependency-groups]
 dev = [
-    "snowballstemmer==2.2.0",
+    "snowballstemmer==3.0.1",
     "pre_commit==4.0.1",
     "pytest-cov",
     "tomli",
