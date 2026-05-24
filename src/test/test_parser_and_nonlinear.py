@@ -23,6 +23,7 @@ from pinet import (
     CartesianConstraint,
     ConstraintParser,
     EqualityConstraint,
+    EqualityConstraintsSpecification,
     NonLinearConstraint,
     NonLinearSpecification,
     ProjectionInstance,
@@ -362,6 +363,71 @@ def test_parse_non_linear_with_no_box_constraint():
     y_raw = ProjectionInstance(x=x_ref, nl=[nl_spec])
     lifted = lift_fn(y_raw)
     assert lifted.x.shape[1] > dim
+
+
+def test_parse_non_linear_var_b_extends_rhs():
+    """With ``var_b=True`` the non-linear lift extends the per-instance ``b``.
+
+    The lift closure must append the auxiliary-variable rows to ``y.eq.b`` so
+    the runtime RHS matches the static ``b_lifted`` built by the parser. The
+    appended block is zeros (the auxiliary equalities ``u_aux = A x`` have no
+    constant term), so the lifted ``b`` is the original RHS followed by zeros.
+    """
+    dim = 3
+    n_eq = 1
+    n_ineq = 2
+    key = jrnd.PRNGKey(1)
+
+    key, ka, kc, ks, kf, ka_soc = jrnd.split(key, 6)
+    a_mat = jrnd.uniform(ka, shape=(1, n_eq, dim), minval=-1, maxval=1)
+    x_ref = jrnd.uniform(ks, shape=(1, dim, 1), minval=-1, maxval=1)
+    b = a_mat @ x_ref
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, var_b=True)
+
+    c_mat = jrnd.uniform(kc, shape=(1, n_ineq, dim), minval=-1, maxval=1)
+    Cx = c_mat @ x_ref
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=Cx - 0.1, ub=Cx + 0.1)
+
+    a_soc_mat = jrnd.uniform(ka_soc, shape=(1, 2, dim), minval=-1, maxval=1)
+    nl_spec = NonLinearSpecification(
+        nl_type=SOCType,
+        a_mat=a_soc_mat,
+        a=jnp.zeros((1, 2, 1)),
+        f=jrnd.uniform(kf, shape=(1, 1, dim), minval=-0.5, maxval=0.5),
+        b=jnp.ones((1, 1, 1)),
+    )
+    nl_constraint = NonLinearConstraint(spec=nl_spec)
+
+    parser = ConstraintParser(
+        eq_constraint=eq_constraint,
+        ineq_constraint=ineq_constraint,
+        box_constraint=None,
+        nl_constraints=[nl_constraint],
+    )
+    eq_lifted, _, lift_fn = parser.parse()
+
+    # The per-instance equality spec carries the variable RHS ``b``.
+    y_raw = ProjectionInstance(
+        x=x_ref,
+        eq=EqualityConstraintsSpecification(b=b),
+        nl=[nl_spec],
+    )
+    lifted = lift_fn(y_raw)
+
+    # The lifted runtime RHS must match the static lifted RHS in shape: the
+    # original ``n_eq`` rows plus one row per auxiliary variable.
+    lifted_eq = lifted.eq
+    assert lifted_eq is not None
+    lifted_b = lifted_eq.b
+    assert lifted_b is not None
+    assert eq_lifted is not None
+    static_b = eq_lifted.b
+    assert static_b is not None
+    assert lifted_b.shape == static_b.shape
+    n_aux = static_b.shape[1] - n_eq
+    assert n_aux > 0
+    assert jnp.allclose(lifted_b[:, :n_eq, :], b)
+    assert jnp.allclose(lifted_b[:, n_eq:, :], 0.0)
 
 
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZES))

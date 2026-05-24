@@ -500,13 +500,19 @@ class ConstraintParser:
                 # Variable equality requires the per-input spec to be present.
                 assert y.eq is not None
                 assert y.eq.b is not None
+                # Append one zero row per auxiliary variable so the runtime RHS
+                # matches the static ``b_lifted`` (built above with ``axis=1``
+                # and a ``(batch, n_aux, 1)`` zero block); ``a_lifted.shape[2] -
+                # self.dim`` equals that auxiliary-variable count ``n_aux``.
+                n_aux = a_lifted.shape[2] - self.dim
                 y = y.update(
                     eq=y.eq.update(
                         b=jnp.concatenate(
                             [
                                 y.eq.b,
-                                jnp.zeros((y.x.shape[0], a_lifted.shape[2] - self.dim)),
-                            ]
+                                jnp.zeros((y.x.shape[0], n_aux, 1)),
+                            ],
+                            axis=1,
                         )
                     )
                 )
