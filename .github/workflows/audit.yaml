@@ -1,0 +1,34 @@
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 7 * * 1' # Monday 07:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+
+      - name: Export runtime dependency tree
+        run: |
+          uv export --no-hashes --no-dev \
+            --format requirements-txt \
+            > /tmp/runtime-requirements.txt
+
+      - name: Run pip-audit
+        run: uvx pip-audit --requirement /tmp/runtime-requirements.txt

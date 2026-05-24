@@ -1,0 +1,35 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 0' # Sunday 05:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      # The heavier end-to-end benchmark smoke tests are marked
+      # ``@pytest.mark.benchmark`` and opted out of by default via
+      # ``pytest.ini`` (``-m "not benchmark"``). Run them explicitly here to
+      # catch bitrot in the benchmark code paths (data loaders, model setup,
+      # a few projection/training steps). Tests skip gracefully when the
+      # in-repo datasets are absent, so this stays green on a clean runner.
+      - name: Run benchmarks
+        run: uv run pytest -m benchmark
