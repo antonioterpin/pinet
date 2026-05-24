@@ -1,144 +1,128 @@
 # Contributing
 
-
+- [Development setup](#development-setup)
 - [Development workflow](#development-workflow)
 - [Testing a feature](#testing-a-feature)
+- [Quality gates](#quality-gates)
 - [Preparing for a PR](#preparing-for-a-pr)
-We will use [conda](https://conda.io/en/latest/user-guide/install/) to handle the virtual environment for development.
+
+All project rules, standards, and step-by-step workflows live in
+[`docs/`](docs/) — start at [`docs/index.md`](docs/index.md). This file
+covers human-facing setup and the contribution workflow only.
+
+## Development setup
+
+We use [`uv`](https://docs.astral.sh/uv/) to manage the virtual environment
+and dependencies. [Install `uv`](https://docs.astral.sh/uv/getting-started/installation/),
+then sync the environment from the lockfile:
+
 ```sh
-conda create -n pinet python=3.10
-conda activate pinet
+# Runtime + dev dependencies (pre-commit, pytest, basedpyright, ruff, ...)
+uv sync --extra dev
+
+# Add the CUDA 12 wheels as well if you have a GPU
+uv sync --extra dev --extra cuda12
 ```
 
-To install the requirements, run:
-```sh
-pip install pip --upgrade
-pip install -e .[dev,cuda12]
-```
-To not install cuda related things, just omit it.
+`uv run <command>` runs a command inside the managed environment; never
+assume a global install. Add dependencies with `uv add <package>` (runtime)
+or `uv add --dev <package>` (dev only) — do not hand-edit `pyproject.toml`,
+and commit the updated `uv.lock`.
 
-**Note**: The above command works with bash. For, e.g., zsh interpreter you need the quotes:
-```sh
-pip install pip --upgrade
-pip install -e ".[dev]"
-```
-To not install cuda related things, just omit it.
+Install the git hooks (pre-commit, pre-push, and commit-msg are all
+configured):
 
-The `Coding style validation` action will fail if the pre-commit checks do not pass. To make sure that these are checked automatically on push, run:
 ```sh
-pre-commit install --hook-type pre-push
+uv run pre-commit install --install-hooks
 ```
-To run the pre-commit checks on specific files:
-```bash
-pre-commit run --files <files>
-```
-If for some reason you really want to ignore them during commit/push, add `--no-verify`.
 
-To ease writing commit messages that conform to the [standard](https://www.conventionalcommits.org/en/v1.0.0/#summary), you can configure the template with:
-```bash
+To configure the Conventional Commits message template:
+
+```sh
 git config commit.template .gitmessage
 ```
-To fill in the template, run
-```bash
-git commit
+
+## Development workflow
+
+We follow a [Git feature-branch](https://www.atlassian.com/git/tutorials/comparing-workflows/feature-branch-workflow)
+workflow with test-driven development:
+
+1. Open an issue describing the goal and the tests that must pass for it to
+   be considered done.
+2. Branch from `dev`:
+   ```sh
+   git checkout dev
+   git checkout -b <type>-<short-description>
+   ```
+3. Write the tests first (see [Testing a feature](#testing-a-feature) and
+   [docs/standards/testing.md](docs/standards/testing.md)).
+4. Implement until the tests pass and all [quality gates](#quality-gates)
+   are green.
+5. Open a PR to `dev` (squashed to a single Conventional-Commits commit).
+6. Delete the branch once merged.
+
+- `main` and `dev` are protected and require a PR.
+- CI runs the [code-style](.github/workflows/code-style.yaml),
+  [commit-lint](.github/workflows/commitlint.yaml), and
+  [tests](.github/workflows/test.yaml) workflows on every push, so the state
+  of each feature is visible without polling the author.
+- A PR to `main` is opened only for milestones (a `dev → main` release).
+
+Pick the workflow that matches your task from
+[`docs/workflows/`](docs/workflows/) (feature, bugfix, refactor,
+api-validation, docs); first-timers should start with
+[`docs/workflows/orientation.md`](docs/workflows/orientation.md).
+
+## Testing a feature
+
+Add a `test_<area>.py` file under `src/test/` (flat layout) with a
+module-level docstring describing the behavior under test. See
+[docs/standards/testing.md](docs/standards/testing.md) for the full policy.
+
+Run the suite:
+
+```sh
+uv run pytest
+
+# A single file
+uv run pytest src/test/test_box.py
+
+# With coverage
+uv run pytest --cov=src/pinet --cov-report=term-missing
 ```
-When you have edited the commit, press `Esc` and then type `:wq` to save. In `Visual Studio Code`, you should setup the editor with
-```bash
-git config core.editor "code --wait"
-```
-You may need to [setup the `code` command](https://code.visualstudio.com/docs/setup/mac).
-The `Commit style validation` action will fail if you do not adhere to the recommended style.
 
-Tip: When something fails, fix the issue and use:
-```bash
-git commit --amend
-git push --force
-```
+## Quality gates
 
-### Development workflow
-We follow a [Git feature branch](https://www.atlassian.com/git/tutorials/comparing-workflows/feature-branch-workflow) workflow with test-driven-development. In particular:
+All of these must pass before a PR (the pre-commit/pre-push hooks run them
+automatically; you can also run them by hand):
 
-- The basic workflow is as follows:
-  1. Open an issue for the feature to implement, and describe in detail the goal of the feature. Describe the tests that should pass for the feature to be considered implemented.
-  2. Open a branch from `dev` for the feature:
-    ```bash
-    git checkout dev
-    git checkout -b feature-<issue-number>
-    ```
-  3. Add the tests; see [Testing](#testing-a-feature).
-  4. Implement the feature and make sure the tests pass.
-  5. Open a PR to the `dev` branch. Note that the PR requires to `squash` the commit. See [Preparing for a PR](#preparing-for-a-pr).
-  6. Close the branch.
+```sh
+# Lint and format
+uv run pre-commit run --all-files
 
-- `main` and `dev` branches are protected from push, and require a PR.
-- We run github actions, [code-style](https://github.com/antonioterpin/pinet/blob/main/.github/workflows/code-style.yaml) and [tests](https://github.com/antonioterpin/pinet/blob/main/.github/workflows/tests.yaml) to check the test status on push on any branch. The rationale is that we want to know the state of each feature without polling the developer.
-- We open a PR to `main` only for milestones.
+# Type check (basedpyright; strict on both src/ and tests/)
+uv run pre-commit run --hook-stage push --all-files
 
-### Testing a feature
-To test a new feature, simply add a `test_<feature_to_test>` inside the folder `src/test`. For this, refer to the [`pytest` documentation](https://docs.pytest.org/en/stable/).
-
-To run the tests,
-```bash
-PYTHONPATH=src pytest
+# Tests
+uv run pytest
 ```
 
-### Preparing for a PR
-Before opening a PR to `dev`, you need to `squash` your commits into a single one. First, review your commit history to identify how many commits need to be squashed:
-```bash
-git log --oneline
-```
-For example, you may get
-```bash
-abc123 Feature added A
-def456 Fix for bug in feature A
-ghi789 Update documentation for feature A
-```
-Suppose you want to squash the three above into a single commit, `Implement feature <issue-number>`. You can rebase interactively to squash the commits:
-```bash
+If a hook keeps you from committing or pushing and you understand why it is
+safe to bypass it, add `--no-verify` — but CI will still enforce the gate.
+
+## Preparing for a PR
+
+Squash your branch into a single, well-formed Conventional-Commits commit
+before opening the PR so reviewers see one concise change:
+
+```sh
 git rebase -i HEAD~<number-of-commits>
 ```
-For example, if you want to squash the last 3 commits:
-```bash
-git rebase -i HEAD~3
-```
-An editor will open, showing a list of commits:
-```bash
-pick abc123 Feature added A
-pick def456 Fix for bug in feature A
-pick ghi789 Update documentation for feature A
-```
-- Keep the first commit as `pick`.
-- Change `pick` to `squash` (or `s`) for the subsequent commits:
-```bash
-pick abc123 Feature added A
-squash def456 Fix for bug in feature A
-squash ghi789 Update documentation for feature A
-```
-Save and close the editor.
-Git will prompt you to edit the combined commit message. You’ll see:
-```bash
-# This is a combination of 3 commits.
-# The first commit's message is:
-Feature added A
 
-# The following commit messages will also be included:
-Fix for bug in feature A
-Update documentation for feature A
-```
-Edit it into a single meaningful message, like:
-```bash
-Add feature A with bug fixes and documentation updates
-```
-Save and close the editor; Git will squash the commits. If there are conflicts during the rebase, resolve them and continue:
-```bash
-git rebase --continue
-```
-Verify the commit history:
-```bash
-git log --oneline
-```
-You should see one clean commit instead of multiple. If you’ve already pushed the branch to a remote repository, you need to force-push after squashing:
-```bash
-git push --force
-```
-Now that the feature branch has a clean history, create the PR from your feature branch to the main branch. The reviewers will see a single, concise commit summarizing your changes. See the [guidelines for commit messages](https://www.conventionalcommits.org/en/v1.0.0/#summary).
+Keep the first commit as `pick`, mark the rest `squash` (or `s`), then edit
+the combined message to follow the
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#summary)
+standard (see `.gitmessage`). Resolve any conflicts and
+`git rebase --continue`. If the branch was already pushed, force-push the
+squashed history (`git push --force-with-lease`). Then open the PR from your
+branch to `dev`.

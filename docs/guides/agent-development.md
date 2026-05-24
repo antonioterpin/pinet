@@ -1,10 +1,10 @@
 # Agent-driven development guide
 
-This guide explains how to use the PiNet documentation and workflows with different agentic systems (Claude Code, GitHub Copilot, custom agents, etc.).
+This guide explains how to use the Pinet documentation and workflows with different agentic systems (Claude Code, GitHub Copilot, custom agents, etc.).
 
 ## Overview
 
-PiNet is optimized for agent-driven development. All rules, workflows, and procedures are centralized in the `docs/` folder, and compatibility layers in `.agent/`, `.github/`, and `.claude/` reference them.
+Pinet is optimized for agent-driven development. All rules, workflows, and procedures are centralized in the `docs/` folder, and compatibility layers in `.agent/`, `.github/`, and `.claude/` reference them.
 
 ## Infrastructure at a glance
 
@@ -113,7 +113,7 @@ The `.agent/` folder is already configured for Antigravity. Just use slash comma
 
 ### Integration pattern
 
-If you're building a custom agent for PiNet:
+If you're building a custom agent for Pinet:
 
 1. **Read `.claude/CLAUDE.md`** or **`.github/copilot-instructions.md`** to understand the project
 2. **Reference `docs/index.md`** as your documentation hub
@@ -125,7 +125,7 @@ If you're building a custom agent for PiNet:
 ```markdown
 # Your Custom Agent Configuration
 
-Follow PiNet project rules in docs/:
+Follow Pinet project rules in docs/:
 - Standards: docs/standards/
 - Workflows: docs/workflows/
 

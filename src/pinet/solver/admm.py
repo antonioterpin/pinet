@@ -21,7 +21,7 @@ PROJECTION_DEFAULT_OMEGA = Constants.PROJECTION_DEFAULT_OMEGA
 
 
 def initialize(
-    yraw: ProjectionInstance,
+    y_raw: ProjectionInstance,
     ineq_constraint: AffineInequalityConstraint | None,
     box_constraint: BoxConstraint | None,
     dim: int,
@@ -32,7 +32,7 @@ def initialize(
     """Initialize the ADMM solver state.
 
     Args:
-        yraw: Point to be projected.
+        y_raw: Point to be projected.
         ineq_constraint: Inequality constraint.
         box_constraint: Box constraint.
         dim: Dimension of the original problem.
@@ -46,7 +46,7 @@ def initialize(
         Initial state for the ADMM solver.
     """
     # Preprocess
-    eq_spec = yraw.eq
+    eq_spec = y_raw.eq
     # ``a_mat`` is only valid alongside ``b`` (enforced by the spec
     # validators), so checking ``b`` covers both per-instance overrides.
     if eq_spec is not None and eq_spec.b is not None:
@@ -79,10 +79,10 @@ def initialize(
             assert lifted_eq_constraint is not None
             updates["a_mat"] = lifted_eq_constraint.a_mat
             updates["a_mat_pinv"] = lifted_eq_constraint.a_mat_pinv
-        yraw = yraw.update(eq=eq_spec.update(**updates))
+        y_raw = y_raw.update(eq=eq_spec.update(**updates))
 
     # Return updated value
-    return yraw.update(x=jnp.zeros((yraw.x.shape[0], dim_lifted, 1)))
+    return y_raw.update(x=jnp.zeros((y_raw.x.shape[0], dim_lifted, 1)))
 
 
 def build_iteration_step(
@@ -113,7 +113,7 @@ def build_iteration_step(
 
     def iteration_step(
         sk: ProjectionInstance,
-        yraw: ProjectionInstance,
+        y_raw: ProjectionInstance,
         sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
         omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
     ) -> ProjectionInstance:
@@ -121,7 +121,7 @@ def build_iteration_step(
 
         Args:
             sk: State iterate for the ADMM solver.
-            yraw: Point to be projected.
+            y_raw: Point to be projected.
             sigma: ADMM parameter.
             omega: ADMM parameter.
 
@@ -133,7 +133,7 @@ def build_iteration_step(
         reflect = 2 * zk.x - sk.x
         tobox = jnp.concatenate(
             (
-                (2 * sigma * scale * yraw.x + reflect[:, :dim, :])
+                (2 * sigma * scale * y_raw.x + reflect[:, :dim, :])
                 / (1 + 2 * sigma * scale**2),
                 reflect[:, dim:, :],
             ),

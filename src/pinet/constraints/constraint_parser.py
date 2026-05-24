@@ -186,7 +186,7 @@ class ConstraintParser:
             ),
             (mb_ac // ineq_constraint.c_mat.shape[0], 1, 1),
         )
-        a_dyn_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
+        a_mat_lifted = jnp.concatenate([first_row_batched, second_row_batched], axis=1)
         b_lifted = jnp.concatenate(
             [
                 eq_constraint.b,
@@ -195,7 +195,7 @@ class ConstraintParser:
             axis=1,
         )
         eq_lifted = EqualityConstraint(
-            a_mat=a_dyn_lifted,
+            a_mat=a_mat_lifted,
             b=b_lifted,
             method=method,
             var_b=eq_constraint.var_b,
@@ -204,14 +204,14 @@ class ConstraintParser:
 
         if self.box_constraint is None:
             # We only project the lifted part.
-            box_mask = jnp.concatenate(
+            mask_box = jnp.concatenate(
                 [jnp.zeros(self.dim, dtype=bool), jnp.ones(self.n_ineq, dtype=bool)]
             )
             box_lifted = BoxConstraint(
                 BoxConstraintSpecification(
                     lb=ineq_constraint.lb,
                     ub=ineq_constraint.ub,
-                    mask=box_mask,
+                    mask=mask_box,
                 )
             )
         else:
@@ -222,7 +222,7 @@ class ConstraintParser:
             assert self.box_constraint.lb is not None
             # The original upper bounds are needed to concatenate lifted bounds.
             assert self.box_constraint.ub is not None
-            box_mask = jnp.concatenate(
+            mask_box = jnp.concatenate(
                 [
                     self.box_constraint.mask,
                     jnp.ones(self.n_ineq, dtype=bool),
@@ -268,7 +268,7 @@ class ConstraintParser:
                 BoxConstraintSpecification(
                     lb=lifted_lb,
                     ub=lifted_ub,
-                    mask=box_mask,
+                    mask=mask_box,
                 )
             )
 
@@ -382,7 +382,7 @@ class ConstraintParser:
         )
         # Define lifted equality constraints. ``var_a_mat`` propagates from the
         # input: when the user supplies a per-instance ``a_mat`` via
-        # ``yraw.eq.a_mat``, ``solver.admm.initialize`` re-runs
+        # ``y_raw.eq.a_mat``, ``solver.admm.initialize`` re-runs
         # ``parse_non_linear`` with the new value and produces a fresh lifted
         # ``a_mat`` / ``a_mat_pinv`` whose top block reflects that input.
         eq_lifted = EqualityConstraint(
@@ -403,30 +403,30 @@ class ConstraintParser:
                 # Explicit box with a mask: use its masks and bounds directly.
                 assert self.box_constraint.lb is not None
                 assert self.box_constraint.ub is not None
-                box_mask_init = self.box_constraint.mask
+                mask_box_init = self.box_constraint.mask
                 box_lb_init = self.box_constraint.lb
                 box_ub_init = self.box_constraint.ub
             else:
-                box_mask_init = jnp.zeros(self.dim, dtype=jnp.bool_)
+                mask_box_init = jnp.zeros(self.dim, dtype=jnp.bool_)
                 box_lb_init = jnp.full((1, 0, 1), -jnp.inf)
                 box_ub_init = jnp.full((1, 0, 1), jnp.inf)
             if self.ineq_constraint is not None:
-                box_mask_ineq = jnp.ones(
+                mask_box_ineq = jnp.ones(
                     self.ineq_constraint.n_constraints, dtype=jnp.bool_
                 )
                 box_lb_ineq = self.ineq_constraint.lb
                 box_ub_ineq = self.ineq_constraint.ub
                 n_curr += self.ineq_constraint.n_constraints
             else:
-                box_mask_ineq = jnp.zeros(shape=(0,), dtype=jnp.bool_)
+                mask_box_ineq = jnp.zeros(shape=(0,), dtype=jnp.bool_)
                 box_lb_ineq = jnp.full((1, 0, 1), -jnp.inf)
                 box_ub_ineq = jnp.full((1, 0, 1), jnp.inf)
-            box_mask_other = jnp.array(
-                [False] * (n_tot - box_mask_init.size - box_mask_ineq.size),
+            mask_box_other = jnp.array(
+                [False] * (n_tot - mask_box_init.size - mask_box_ineq.size),
                 dtype=jnp.bool_,
             )
-            box_mask_lifted = jnp.concatenate(
-                [box_mask_init, box_mask_ineq, box_mask_other], axis=0
+            mask_box_lifted = jnp.concatenate(
+                [mask_box_init, mask_box_ineq, mask_box_other], axis=0
             )
             box_lb_lifted = jnp.concatenate([box_lb_init, box_lb_ineq], axis=1)
             box_ub_lifted = jnp.concatenate([box_ub_init, box_ub_ineq], axis=1)
@@ -434,7 +434,7 @@ class ConstraintParser:
                 BoxConstraintSpecification(
                     lb=box_lb_lifted,
                     ub=box_ub_lifted,
-                    mask=box_mask_lifted,
+                    mask=mask_box_lifted,
                 )
             )
         # Non-linear constraints. SOCType and L2NormType both lower to the

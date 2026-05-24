@@ -280,7 +280,7 @@ def generate_time_data(id: str, config: str) -> None:
     for dict, name in zip(
         [single_inference_dict, inference_dict],
         ["single_inference", "inference"],
-        strict=False,
+        strict=True,
     ):
         all_stats = {}
         for method, (color, method_name) in methods_mapping.items():

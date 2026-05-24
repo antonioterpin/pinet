@@ -28,9 +28,16 @@ To install &Pi;net, run:
   ```bash
   pip install "pinet-hcnn[cuda12]"
   ```
+- GPU (NVIDIA, CUDA 13 — required for Blackwell / RTX 50-series)
+  ```bash
+  pip install "pinet-hcnn[cuda13]"
+  ```
+
+  Match the extra to the CUDA major version reported by `nvidia-smi`
+  ("CUDA Version"). `cuda13` requires `jax>=0.7.1` and Python `>=3.11`.
 
 > [!WARNING]
-> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
+> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
 
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
@@ -186,9 +193,9 @@ proj = Project(
 )
 
 x0 = jnp.array([[[10.0], [-10.0]]])             # point to project, shape (B, d, 1)
-yraw = ProjectionInstance(x=x0, nl=[nl_spec])
+y_raw = ProjectionInstance(x=x0, nl=[nl_spec])
 
-y, sK = proj.call(yraw=yraw, n_iter=500, sigma=1.0, omega=1.7)
+y, sK = proj.call(y_raw=y_raw, n_iter=500, sigma=1.0, omega=1.7)
 
 # Check the maximum violation across all constraints
 cv = proj.cv(y)
@@ -224,12 +231,12 @@ proj = Project(
 
 # Build a ProjectionInstance with the point to project and (optionally) runtime specs:
 x0 = jnp.zeros((B, d, 1))
-yraw = ProjectionInstance(x=x0)
+y_raw = ProjectionInstance(x=x0)
 # If var_b=True and you supply per-batch b at runtime, pass it via your dataclass, e.g.:
-# yraw = yraw.update(eq=yraw.eq.update(b=b))
+# y_raw = y_raw.update(eq=y_raw.eq.update(b=b))
 
 y, sK = proj.call(       # JIT-compiled projector
-    yraw=yraw,
+    y_raw=y_raw,
     n_iter=50,                    # Douglas-Rachford iterations
     n_iter_backward=100,          # Maximum number of iterations for the bicgstab algorithm
     sigma=1.0, omega=1.7,

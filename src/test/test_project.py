@@ -32,7 +32,7 @@ BATCH_SIZE = [1, 5]
 
 # TODO: Add another test where var_a_mat, var_b are false.
 @pytest.mark.parametrize("seed, batch_size", product(SEEDS, BATCH_SIZE))
-def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
+def test_project_eq_ineq_var_a_mat_varb(seed, batch_size):
     dim = 100
     n_eq = 40
     n_ineq = 50
@@ -61,7 +61,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     eq_constraint = EqualityConstraint(a_mat, b, method="pinv", var_b=True)
     projection_layer = Project(eq_constraint=eq_constraint)
     yprojiter = projection_layer.call(
-        yraw=ProjectionInstance(
+        y_raw=ProjectionInstance(
             x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b)
         )
     )[0].x
@@ -73,7 +73,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     # Generate new RHS
     b_new = a_mat @ jax.random.normal(key[3], (batch_size, dim, 1))
     yprojiter = projection_layer.call(
-        yraw=ProjectionInstance(
+        y_raw=ProjectionInstance(
             x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b_new)
         )
     )[0].x
@@ -133,7 +133,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     )
 
     xprojiter_novarb = projection_layer_novarb.call(
-        yraw=ProjectionInstance(x=xinfeas[..., None]),
+        y_raw=ProjectionInstance(x=xinfeas[..., None]),
         n_iter=500,
     )[0].x
     # Check projection layer with var_b
@@ -146,7 +146,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     inp_varb = ProjectionInstance(
         x=xinfeas[..., None], eq=EqualityConstraintsSpecification(b=b)
     )
-    xprojiter = projection_layer.call(yraw=inp_varb, n_iter=500)[0].x
+    xprojiter = projection_layer.call(y_raw=inp_varb, n_iter=500)[0].x
 
     # Compute projections with QP
     yqp = jnp.zeros(shape=(batch_size, dim))
@@ -235,30 +235,30 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         "Projection input for the variable-b case should contain equality data."
     )
     inp_varb_new = inp_varb.update(eq=inp_varb.eq.update(b=b_new))
-    xprojiter = projection_layer.call(yraw=inp_varb_new, n_iter=500)[0].x
+    xprojiter = projection_layer.call(y_raw=inp_varb_new, n_iter=500)[0].x
     assert jnp.allclose(xprojiter[..., 0], yqp, atol=1e-3, rtol=1e-3), (
         "Project should match the QP solution after updating the equality RHS. "
         f"Expected {yqp}, got {xprojiter[..., 0]}."
     )
     # %%
     # Generate new LHS and RHS
-    a_dyn_new = jax.random.normal(key[6], (batch_size, n_eq, dim))
-    b_new = a_dyn_new @ jax.random.normal(key[7], (batch_size, dim, 1))
+    a_mat_new = jax.random.normal(key[6], (batch_size, n_eq, dim))
+    b_new = a_mat_new @ jax.random.normal(key[7], (batch_size, dim, 1))
     eq_constraint = EqualityConstraint(
-        a_mat=a_dyn_new, b=b_new, method=method, var_a_mat=True
+        a_mat=a_mat_new, b=b_new, method=method, var_a_mat=True
     )
     projection_layer = Project(eq_constraint=eq_constraint)
     inp = ProjectionInstance(
         x=xinfeas[..., None],
-        eq=EqualityConstraintsSpecification(a_mat=a_dyn_new, b=b_new),
+        eq=EqualityConstraintsSpecification(a_mat=a_mat_new, b=b_new),
     )
-    xprojiter = projection_layer.call(yraw=inp)[0].x
+    xprojiter = projection_layer.call(y_raw=inp)[0].x
     # New cvxpy problem
     yqp = jnp.zeros(shape=(batch_size, dim))
     for ii in range(batch_size):
         yprojcv = cp.Variable(dim)
         constraints_new = cast(
-            list[CvxConstraint], [a_dyn_new[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
+            list[CvxConstraint], [a_mat_new[ii, :, :] @ yprojcv == b_new[ii, :, 0]]
         )
         objective_new = cp.Minimize(cp.sum_squares(yprojcv - xinfeas[ii, :]))
         problem_new = cp.Problem(objective_new, constraints_new)
@@ -276,7 +276,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
         constraints = cast(
             list[CvxConstraint],
             [
-                a_dyn_new[ii, :, :] @ yproj == b_new[ii, :, 0],
+                a_mat_new[ii, :, :] @ yproj == b_new[ii, :, 0],
                 lb[ii, :, 0] <= c_mat[ii, :, :] @ yproj,
                 c_mat[ii, :, :] @ yproj <= ub[ii, :, 0],
             ],
@@ -296,9 +296,9 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
     )
     inp = ProjectionInstance(
         x=xinfeas[..., None],
-        eq=EqualityConstraintsSpecification(b=b_new, a_mat=a_dyn_new),
+        eq=EqualityConstraintsSpecification(b=b_new, a_mat=a_mat_new),
     )
-    xprojiter = projection_layer.call(yraw=inp, n_iter=500)[0].x
+    xprojiter = projection_layer.call(y_raw=inp, n_iter=500)[0].x
 
     assert jnp.allclose(xprojiter.reshape(yqp.shape), yqp, atol=1e-3, rtol=1e-3), (
         "Project should match the QP solution when both equality and inequality "
@@ -308,7 +308,7 @@ def test_project_eq_ineq_var_a_dyn_varb(seed, batch_size):
 
 def test_call_default_n_iter_projects_correctly():
     """Regression test for PR #94: default n_iter was 0,
-       causing call() to return yraw unchanged.
+       causing call() to return y_raw unchanged.
 
     With n_iter=0 the scan was skipped and the raw input was returned without
     projecting. The fix sets the default to 100 and adds an assertion, so calling call()
@@ -330,7 +330,7 @@ def test_call_default_n_iter_projects_correctly():
     layer = Project(eq_constraint=eq)
 
     # Call without specifying n_iter — uses the default (100 after the fix, 0 before)
-    result = layer.call(yraw=ProjectionInstance(x=xinfeas))[0].x
+    result = layer.call(y_raw=ProjectionInstance(x=xinfeas))[0].x
 
     # The projected point must satisfy the equality constraint
     residual = jnp.linalg.norm(a_mat @ result - b)
@@ -361,7 +361,7 @@ def test_call_n_iter_zero_raises():
     xinfeas = jax.random.normal(kx, (batch, dim, 1))
 
     with pytest.raises(AssertionError, match=r"Number of iterations must be positive"):
-        layer.call(yraw=ProjectionInstance(x=xinfeas), n_iter=0)
+        layer.call(y_raw=ProjectionInstance(x=xinfeas), n_iter=0)
 
 
 @pytest.mark.parametrize("bad_reduction", ["median", 1.5, 0.0, -0.2, 2])
@@ -369,9 +369,9 @@ def test_call_and_check_invalid_reduction_raises(bad_reduction):
     # Minimal feasible setup: a_mat x = b with b constructed from a random x0
     dim, n_eq, batch = 5, 2, 1
     key = jax.random.PRNGKey(0)
-    k_a_dyn, kx0, kx = jax.random.split(key, 3)
+    ka_mat, kx0, kx = jax.random.split(key, 3)
 
-    a_mat = jax.random.normal(k_a_dyn, (batch, n_eq, dim))
+    a_mat = jax.random.normal(ka_mat, (batch, n_eq, dim))
     x0 = jax.random.normal(kx0, (batch, dim, 1))
     b = a_mat @ x0
 
@@ -414,10 +414,10 @@ def test_project_cv_linear_constraints(seed):
     )
 
     xinfeas = jnp.ones((1, dim, 1)) * 3.0
-    yraw = ProjectionInstance(x=xinfeas)
+    y_raw = ProjectionInstance(x=xinfeas)
 
-    cv_layer = layer.cv(yraw)
-    y_lifted = layer.lift(yraw)
+    cv_layer = layer.cv(y_raw)
+    y_lifted = layer.lift(y_raw)
     # The non-simple polytope path always populates these lifted attributes.
     assert layer.lifted_eq_constraint is not None
     assert layer.lifted_primitive_constraint is not None
@@ -475,10 +475,10 @@ def test_project_cv_nonlinear_constraints(seed):
     )
 
     xinfeas = jnp.ones((1, dim, 1)) * 2.0
-    yraw = ProjectionInstance(x=xinfeas, nl=[nl_spec])
+    y_raw = ProjectionInstance(x=xinfeas, nl=[nl_spec])
 
-    cv_layer = layer.cv(yraw)
-    y_lifted = layer.lift(yraw)
+    cv_layer = layer.cv(y_raw)
+    y_lifted = layer.lift(y_raw)
     # The non-linear path always populates these lifted attributes.
     assert layer.lifted_eq_constraint is not None
     assert layer.lifted_primitive_constraint is not None
@@ -586,13 +586,13 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
     # Generate points to be projected
     key, subkey = jrnd.split(key)
     yproj = jrnd.uniform(subkey, shape=(batch_size, dim, 1), minval=-5, maxval=5)
-    yraw = ProjectionInstance(x=yproj, nl=[nl_spec_1, nl_spec_2])
+    y_raw = ProjectionInstance(x=yproj, nl=[nl_spec_1, nl_spec_2])
 
     # Run projection
     n_iter = 5000
     sigma = 5.0
     omega = 1.7
-    yk, sk = projection_layer.call(yraw=yraw, n_iter=n_iter, sigma=sigma, omega=omega)
+    yk, sk = projection_layer.call(y_raw=y_raw, n_iter=n_iter, sigma=sigma, omega=omega)
 
     # Compute projection with cvxpy
     y_cvxpy = cp.Variable(dim)
@@ -684,9 +684,9 @@ def test_project_box_ineq_eq_soc(seed, batch_size):
         f=f_soc_2,
         b=b_soc_2_new,
     )
-    yraw_new = yraw.update(nl=[nl_spec_1_new, nl_spec_2_new])
+    y_raw_new = y_raw.update(nl=[nl_spec_1_new, nl_spec_2_new])
     yk_new, sk_new = projection_layer.call(
-        yraw=yraw_new, n_iter=n_iter, sigma=sigma, omega=omega
+        y_raw=y_raw_new, n_iter=n_iter, sigma=sigma, omega=omega
     )
 
     y_opt_new = jnp.zeros((batch_size, dim, 1))

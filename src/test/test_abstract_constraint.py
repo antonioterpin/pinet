@@ -23,17 +23,17 @@ from pinet.constraints.non_linear_types import SOCType
 def test_constraint_base_project_raises() -> None:
     """``Constraint.project`` must fail with a named NotImplementedError."""
     c = Constraint()
-    yraw = ProjectionInstance(x=jnp.zeros((1, 1, 1)))
+    y_raw = ProjectionInstance(x=jnp.zeros((1, 1, 1)))
     with pytest.raises(NotImplementedError, match=r"Constraint\.project"):
-        c.project(yraw)
+        c.project(y_raw)
 
 
 def test_constraint_base_cv_raises() -> None:
     """``Constraint.cv`` must fail with a named NotImplementedError."""
     c = Constraint()
-    yraw = ProjectionInstance(x=jnp.zeros((1, 1, 1)))
+    y_raw = ProjectionInstance(x=jnp.zeros((1, 1, 1)))
     with pytest.raises(NotImplementedError, match=r"Constraint\.cv"):
-        c.cv(yraw)
+        c.cv(y_raw)
 
 
 def test_constraint_base_dim_raises() -> None:
@@ -50,8 +50,9 @@ def test_constraint_base_n_constraints_raises() -> None:
         _ = c.n_constraints
 
 
-def _make_nl_parameter_carrier() -> NonLinearConstraint:
-    """Build a minimal valid ``NonLinearConstraint`` parameter carrier."""
+@pytest.fixture
+def nl_parameter_carrier() -> NonLinearConstraint:
+    """Provide a minimal valid ``NonLinearConstraint`` parameter carrier."""
     spec = NonLinearSpecification(
         nl_type=SOCType,
         a_mat=jnp.zeros((1, 1, 2)),
@@ -62,26 +63,29 @@ def _make_nl_parameter_carrier() -> NonLinearConstraint:
     return NonLinearConstraint(spec)
 
 
-def test_nonlinear_constraint_n_constraints_is_one() -> None:
+def test_nonlinear_constraint_n_constraints_is_one(
+    nl_parameter_carrier: NonLinearConstraint,
+) -> None:
     """Direct instantiation of ``NonLinearConstraint`` reports a single constraint."""
-    nl = _make_nl_parameter_carrier()
-    assert nl.n_constraints == 1
+    assert nl_parameter_carrier.n_constraints == 1
 
 
-def test_nonlinear_constraint_project_raises() -> None:
+def test_nonlinear_constraint_project_raises(
+    nl_parameter_carrier: NonLinearConstraint,
+) -> None:
     """``NonLinearConstraint.project`` signals the subclass contract."""
-    nl = _make_nl_parameter_carrier()
-    yraw = ProjectionInstance(x=jnp.zeros((1, 2, 1)))
+    y_raw = ProjectionInstance(x=jnp.zeros((1, 2, 1)))
     with pytest.raises(NotImplementedError, match=r"parameter carrier"):
-        nl.project(yraw)
+        nl_parameter_carrier.project(y_raw)
 
 
-def test_nonlinear_constraint_cv_raises() -> None:
+def test_nonlinear_constraint_cv_raises(
+    nl_parameter_carrier: NonLinearConstraint,
+) -> None:
     """``NonLinearConstraint.cv`` signals the subclass contract."""
-    nl = _make_nl_parameter_carrier()
-    yraw = ProjectionInstance(x=jnp.zeros((1, 2, 1)))
+    y_raw = ProjectionInstance(x=jnp.zeros((1, 2, 1)))
     with pytest.raises(NotImplementedError, match=r"parameter carrier"):
-        nl.cv(yraw)
+        nl_parameter_carrier.cv(y_raw)
 
 
 def test_equality_project_pinv_recomputes_when_pinv_missing() -> None:
@@ -96,11 +100,11 @@ def test_equality_project_pinv_recomputes_when_pinv_missing() -> None:
     eq = EqualityConstraint(a_mat=a_mat, b=b, method="pinv", var_a_mat=True)
 
     x = jnp.array([[[1.0], [2.0], [3.0]]])
-    yraw = ProjectionInstance(
+    y_raw = ProjectionInstance(
         x=x,
         eq=EqualityConstraintsSpecification(a_mat=a_mat, b=b, a_mat_pinv=None),
     )
-    out = eq.project_pinv(yraw)
+    out = eq.project_pinv(y_raw)
     # The first two coordinates must match b exactly after projection.
     assert jnp.allclose(out.x[0, 0, 0], 0.3)
     assert jnp.allclose(out.x[0, 1, 0], -0.4)

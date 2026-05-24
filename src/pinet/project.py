@@ -92,7 +92,7 @@ class Project:
             )
             if c is not None
         ]
-        # The projection layer is meaningful only if at least one constraint is active.
+        # The projection layer is meaningful only if at least one constraint is present.
         assert len(constraints) > 0, "At least one constraint must be provided."
         self.dim = constraints[0].dim
 
@@ -104,7 +104,7 @@ class Project:
         self.is_single_simple_constraint = is_single_simple_constraint
 
         self.dim_lifted = self.dim
-        self.step_iteration = lambda s_prev, yraw, sigma, omega: s_prev
+        self.step_iteration = lambda s_prev, y_raw, sigma, omega: s_prev
         self.step_final = self._project_single
         self.single_constraint = constraints[0]
         self.d_r = jnp.ones((1, self.single_constraint.n_constraints, 1))
@@ -220,13 +220,15 @@ class Project:
                 )
 
         if is_single_simple_constraint:
-            # For a single simple constraint the projection is a closed-form
-            # one-step operation: proj(x) = x - A^+ (A x - b),
-            # where A is ``a_mat``, A^+ is ``a_mat_pinv``, and b is ``b``.
-            # The ADMM initializer zeros out yraw.x, causing _project_single
+            # A single simple constraint -- exactly one of an equality or a box
+            # constraint -- has a closed-form projection that _project_single
+            # applies directly: proj(x) = x - A^+ (A x - b) for the equality
+            # case (A is ``a_mat``, A^+ is ``a_mat_pinv``, b is ``b``), or a
+            # clamp for the box case.
+            # The ADMM initializer zeros out y_raw.x, causing _project_single
             # to project the origin rather than the actual input point.
-            # Override initialize so yraw.x is preserved end-to-end.
-            self.initialize = lambda yraw: yraw
+            # Override initialize so y_raw.x is preserved end-to-end.
+            self.initialize = lambda y_raw: y_raw
 
         project_fn = (
             _project_general
@@ -256,17 +258,17 @@ class Project:
         # jit correctly the call method
         self.call = self._project
 
-    def initialize(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def initialize(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Returns a zero initial value for the governing sequence.
 
         Args:
-            yraw: Point to be projected data.
+            y_raw: Point to be projected data.
 
         Returns:
             ProjectionInstance: Initial value for the governing sequence.
         """
         return initialize(
-            yraw=yraw,
+            y_raw=y_raw,
             ineq_constraint=self.ineq_constraint,
             box_constraint=self.box_constraint,
             dim=self.dim,
@@ -341,18 +343,18 @@ class Project:
                 )
 
         def project_and_check(
-            yraw: ProjectionInstance,
+            y_raw: ProjectionInstance,
         ) -> tuple[ProjectionInstance, jax.Array, int]:
             # Executed iterations
             iter_exec = 0
             terminate = False
             # Call the projection function with all given arguments.
-            y0 = self.initialize(yraw)
-            xproj = yraw
+            y0 = self.initialize(y_raw)
+            xproj = y_raw
             while not (terminate or iter_exec >= max_iter):
                 xproj, y = self.call(
                     s0=y0,
-                    yraw=yraw,
+                    y_raw=y_raw,
                     sigma=sigma,
                     omega=omega,
                     n_iter=check_every,
@@ -365,21 +367,21 @@ class Project:
 
         return project_and_check
 
-    def _project_single(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def _project_single(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project a batch of points with single constraint.
 
         Args:
-            yraw: Point to be projected.
+            y_raw: Point to be projected.
                 Shape (batch_size, dimension, 1).
 
         Returns:
             ProjectionInstance: The projected point for each point in the batch.
         """
-        if yraw.eq and yraw.eq.a_mat is not None:
-            a_mat_pinv = jnp.linalg.pinv(yraw.eq.a_mat)
-            yraw = yraw.update(eq=yraw.eq.update(a_mat_pinv=a_mat_pinv))
+        if y_raw.eq and y_raw.eq.a_mat is not None:
+            a_mat_pinv = jnp.linalg.pinv(y_raw.eq.a_mat)
+            y_raw = y_raw.update(eq=y_raw.eq.update(a_mat_pinv=a_mat_pinv))
 
-        return self.single_constraint.project(yraw)
+        return self.single_constraint.project(y_raw)
 
 
 # Project general
@@ -393,7 +395,7 @@ def _project_general(
     dim_lifted: int,
     d_r: RowScaling,
     d_c: ColScaling,
-    yraw: ProjectionInstance,
+    y_raw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
     omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
@@ -408,7 +410,7 @@ def _project_general(
         dim_lifted: Dimension of the lifted space.
         d_r: Scaling factor for the rows.
         d_c: Scaling factor for the columns.
-        yraw: Point to be projected.
+        y_raw: Point to be projected.
         s0: Initial value for the governing sequence.
         sigma: ADMM parameter.
         omega: ADMM parameter.
@@ -419,10 +421,10 @@ def _project_general(
     """
     assert n_iter > 0, "Number of iterations must be positive."
 
-    s0 = initialize_fn(yraw) if s0 is None else s0
+    s0 = initialize_fn(y_raw) if s0 is None else s0
     sk, _ = jax.lax.scan(
         lambda s_prev, _: (
-            step_iteration(s_prev, yraw, sigma, omega),
+            step_iteration(s_prev, y_raw, sigma, omega),
             None,
         ),
         s0,
@@ -430,11 +432,11 @@ def _project_general(
         length=n_iter,
     )
 
-    y = step_final(sk).x[:, : yraw.x.shape[1], :]
-    y_scaled = y * d_c[:, : yraw.x.shape[1], :]
+    y = step_final(sk).x[:, : y_raw.x.shape[1], :]
+    y_scaled = y * d_c[:, : y_raw.x.shape[1], :]
 
     # Unscale the output
-    return yraw.update(x=y_scaled), sk
+    return y_raw.update(x=y_scaled), sk
 
 
 @partial(
@@ -459,7 +461,7 @@ def _project_general_custom(
     dim_lifted: int,
     d_r: RowScaling,
     d_c: ColScaling,
-    yraw: ProjectionInstance,
+    y_raw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
     omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
@@ -475,7 +477,7 @@ def _project_general_custom(
         d_r=d_r,
         d_c=d_c,
         s0=s0,
-        yraw=yraw,
+        y_raw=y_raw,
         sigma=sigma,
         omega=omega,
         n_iter=n_iter,
@@ -492,7 +494,7 @@ def _project_general_fwd(
     dim_lifted: int,
     d_r: RowScaling,
     d_c: ColScaling,
-    yraw: ProjectionInstance,
+    y_raw: ProjectionInstance,
     s0: ProjectionInstance | None = None,
     sigma: ScalarLike = PROJECTION_DEFAULT_SIGMA,
     omega: ScalarLike = PROJECTION_DEFAULT_OMEGA,
@@ -522,7 +524,7 @@ def _project_general_fwd(
             d_r=d_r,
             d_c=d_c,
             s0=s0,
-            yraw=yraw,
+            y_raw=y_raw,
             sigma=sigma,
             omega=omega,
             n_iter=n_iter,
@@ -530,7 +532,7 @@ def _project_general_fwd(
     )
     y, s_k = custom_result
 
-    return (y, s_k), (s_k, yraw, d_r, d_c, sigma, omega)
+    return (y, s_k), (s_k, y_raw, d_r, d_c, sigma, omega)
 
 
 def _project_general_bwd(
@@ -580,18 +582,18 @@ def _project_general_bwd(
     Returns:
         tuple: The computed cotangent for the projection.
     """
-    s_k, yraw, _, d_c, sigma, omega = residuals
+    s_k, y_raw, _, d_c, sigma, omega = residuals
     cotangent_zk1, _ = cotangent
 
     _, iteration_vjp = jax.vjp(
-        lambda xx: step_iteration(xx, yraw, sigma, omega),
+        lambda xx: step_iteration(xx, y_raw, sigma, omega),
         s_k,
     )
-    _, iteration_vjp2 = jax.vjp(lambda xx: step_iteration(s_k, xx, sigma, omega), yraw)
+    _, iteration_vjp2 = jax.vjp(lambda xx: step_iteration(s_k, xx, sigma, omega), y_raw)
     _, equality_vjp = jax.vjp(step_final, s_k)
 
     # Rescale the gradient
-    cotangent_zk1 = cotangent_zk1.x * d_c[:, : yraw.x.shape[1], :]
+    cotangent_zk1 = cotangent_zk1.x * d_c[:, : y_raw.x.shape[1], :]
 
     # Compute VJP of cotangent with projection before auxiliary
     cotangent_eq_6 = equality_vjp(

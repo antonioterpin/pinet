@@ -89,7 +89,7 @@ def create_dataloaders(
     )
 
     def collate_fn(batch):
-        x_data, obj = zip(*batch, strict=False)
+        x_data, obj = zip(*batch, strict=True)
         return jnp.array(x_data), jnp.array(obj)
 
     train_loader = DataLoader(
@@ -231,7 +231,7 @@ def dc3_dataloader(
     dataset = DC3Dataset(filepath, use_convex)
 
     def collate_fn(batch):
-        x_data, obj = zip(*batch, strict=False)
+        x_data, obj = zip(*batch, strict=True)
         return jnp.array(x_data), jnp.array(obj)
 
     loader = DataLoader(

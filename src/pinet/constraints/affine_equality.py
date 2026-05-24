@@ -108,11 +108,11 @@ class EqualityConstraint(Constraint):
         a_mat_pinv = inp.eq.a_mat_pinv if inp.eq and self.var_a_mat else self.a_mat_pinv
         return b, a_mat, a_mat_pinv
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project onto equality constraints.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
@@ -123,19 +123,19 @@ class EqualityConstraint(Constraint):
         """
         if self.method is None:
             raise NotImplementedError("No projection method set.")
-        return self.project_pinv(yraw)
+        return self.project_pinv(y_raw)
 
-    def project_pinv(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project_pinv(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project onto equality constraints using pseudo-inverse.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
             The projected point for each point in the batch.
         """
-        b, a_mat, a_mat_pinv = self.get_params(yraw)
+        b, a_mat, a_mat_pinv = self.get_params(y_raw)
         # a_mat must be available to apply the projection.
         assert a_mat is not None, (
             "a_mat must be provided in EqualityConstraintsSpecification "
@@ -144,7 +144,7 @@ class EqualityConstraint(Constraint):
         if a_mat_pinv is None:
             a_mat_pinv = jnp.linalg.pinv(a_mat)
 
-        return yraw.update(x=yraw.x - a_mat_pinv @ (a_mat @ yraw.x - b))
+        return y_raw.update(x=y_raw.x - a_mat_pinv @ (a_mat @ y_raw.x - b))
 
     @property
     def dim(self) -> int:
@@ -156,17 +156,17 @@ class EqualityConstraint(Constraint):
         """Return the number of constraints."""
         return self.a_mat.shape[1]
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.
         """
-        b, a_mat, _ = self.get_params(yraw)
+        b, a_mat, _ = self.get_params(y_raw)
         # a_mat must be available to compute the violation.
         assert a_mat is not None
 
-        return jnp.linalg.norm(a_mat @ yraw.x - b, ord=jnp.inf, axis=1, keepdims=True)
+        return jnp.linalg.norm(a_mat @ y_raw.x - b, ord=jnp.inf, axis=1, keepdims=True)

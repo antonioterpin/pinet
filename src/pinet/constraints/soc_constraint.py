@@ -89,17 +89,17 @@ class SocConstraint(Constraint):
         t = inp.x[:, mask_t, :] + b
         return mask_u, u, mask_t, t, a, b
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project onto SOC constraints.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
             The projected point for each point in the batch.
         """
-        mask_u, u, mask_t, t, a, b = self.unpack_instance(yraw)
+        mask_u, u, mask_t, t, a, b = self.unpack_instance(y_raw)
         norm_u = jnp.linalg.norm(u, axis=1, keepdims=True)
         z: jax.Array = jnp.concatenate([u, t], axis=1)
 
@@ -116,27 +116,27 @@ class SocConstraint(Constraint):
         final_proj: jax.Array = jnp.where(when1, proj1, inner)
 
         # Coerce to jax.Array before using ``.at`` (jax-only).
-        x = jnp.asarray(yraw.x)
-        return yraw.update(
+        x = jnp.asarray(y_raw.x)
+        return y_raw.update(
             x=x.at[:, mask_u, :]
             .set(final_proj[:, :-1, :] - a)
             .at[:, mask_t, :]
             .set(final_proj[:, -1:, :] - b)
         )
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         The SOC constraint is: ||u + a||_2 <= t + b. The violation is
         ``max(0, ||u + a||_2 - (t + b))``.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.
         """
-        _mask_u, u, _mask_t, t, _a, _b = self.unpack_instance(yraw)
+        _mask_u, u, _mask_t, t, _a, _b = self.unpack_instance(y_raw)
         norm_u = jnp.linalg.norm(u, axis=1, keepdims=True)
 
         # Constraint violation: ||u||_2 - t (where u and t already include a and b)

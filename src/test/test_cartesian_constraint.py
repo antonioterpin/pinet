@@ -58,10 +58,10 @@ def test_non_box_soc_constraint_raises():
     class DummyConstraint(Constraint):
         _dim: int = 5
 
-        def project(self, yraw):
-            return yraw
+        def project(self, y_raw):
+            return y_raw
 
-        def cv(self, yraw):
+        def cv(self, y_raw):
             return jnp.zeros((1, 1, 1))
 
         @property
@@ -84,19 +84,19 @@ def test_non_box_soc_constraint_raises():
 
 
 def test_project_raises_when_nl_specs_not_iterable():
-    """Test project raises TypeError if yraw.nl is not a list/tuple."""
+    """Test project raises TypeError if y_raw.nl is not a list/tuple."""
     dim = 6
     soc_mask_u = jnp.array([True, True, False, False, False, False], dtype=jnp.bool_)
     soc_mask_t = jnp.array([False, False, True, False, False, False], dtype=jnp.bool_)
     soc = SocConstraint(SocConstraintSpecification(mask_u=soc_mask_u, mask_t=soc_mask_t))
     cartesian = CartesianConstraint(nl_constraints=[soc])
 
-    # yraw.nl must be list/tuple when nonlinear constraints are present.
+    # y_raw.nl must be list/tuple when nonlinear constraints are present.
     # ProjectionInstance's own __init__ is beartype-checked; constructing the
     # deliberately-malformed instance may raise a TypeCheckError before
     # project() runs. Either error path is acceptable.
     with pytest.raises(_TypeOrValidationError):
-        yraw = ProjectionInstance(
+        y_raw = ProjectionInstance(
             x=jnp.zeros((1, dim, 1)),
             nl=cast(
                 "list[NonLinearSpecification]",
@@ -106,18 +106,18 @@ def test_project_raises_when_nl_specs_not_iterable():
                 ),
             ),
         )
-        cartesian.project(yraw)
+        cartesian.project(y_raw)
 
 
 def test_wrong_dimensions_box_and_soc_raise():
     """Test that Box and SOC constraints with different dimensions raise ValueError."""
     # Create box constraint with dimension 5
-    box_mask = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
+    mask_box = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
             lb=jnp.array([[[-1.0], [-1.0]]]),
             ub=jnp.array([[[1.0], [1.0]]]),
-            mask=box_mask,
+            mask=mask_box,
         )
     )
 
@@ -133,12 +133,12 @@ def test_wrong_dimensions_box_and_soc_raise():
 def test_overlapping_box_and_soc_masks_raise():
     """Test that overlapping masks between Box and SOC constraints raise ValueError."""
     # Create box constraint on dimensions 0-1
-    box_mask = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
+    mask_box = jnp.array([True, True, False, False, False], dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
             lb=jnp.array([[[-1.0], [-1.0]]]),
             ub=jnp.array([[[1.0], [1.0]]]),
-            mask=box_mask,
+            mask=mask_box,
         )
     )
 
@@ -203,12 +203,12 @@ def test_random_example_with_two_boxes_two_socs(seed: int, batch_size: int):
 
     # Create non-overlapping masks for 100 dimensions
     # Box 1: dimensions 0-24
-    box_mask_1 = jnp.zeros(DIM, dtype=jnp.bool_)
-    box_mask_1 = box_mask_1.at[0:25].set(True)
+    mask_box_1 = jnp.zeros(DIM, dtype=jnp.bool_)
+    mask_box_1 = mask_box_1.at[0:25].set(True)
 
     # Box 2: dimensions 25-49
-    box_mask_2 = jnp.zeros(DIM, dtype=jnp.bool_)
-    box_mask_2 = box_mask_2.at[25:50].set(True)
+    mask_box_2 = jnp.zeros(DIM, dtype=jnp.bool_)
+    mask_box_2 = mask_box_2.at[25:50].set(True)
 
     # SOC 1: dimensions 50-74 (u) and 75 (t)
     soc_mask_u_1 = jnp.zeros(DIM, dtype=jnp.bool_)
@@ -227,7 +227,7 @@ def test_random_example_with_two_boxes_two_socs(seed: int, batch_size: int):
         BoxConstraintSpecification(
             lb=jnp.array([-box_1_bound] * 25 + [-box_2_bound] * 25).reshape(1, -1, 1),
             ub=jnp.array([box_1_bound] * 25 + [box_2_bound] * 25).reshape(1, -1, 1),
-            mask=jnp.logical_or(box_mask_1, box_mask_2),
+            mask=jnp.logical_or(mask_box_1, mask_box_2),
         )
     )
 
@@ -322,12 +322,12 @@ def test_projection_equivalence(seed, batch_size):
     dim = 10
 
     # Create non-overlapping constraints
-    box_mask = jnp.array([True] * 4 + [False] * 6, dtype=jnp.bool_)
+    mask_box = jnp.array([True] * 4 + [False] * 6, dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
             lb=jnp.array([[[-1.0]] * 4]),
             ub=jnp.array([[[1.0]] * 4]),
-            mask=box_mask,
+            mask=mask_box,
         )
     )
 
@@ -361,12 +361,12 @@ def test_projection_equivalence(seed, batch_size):
 def test_cv():
     """Test that cv returns the maximum violation across all constraints."""
     # Box constraint on dimensions 0-2: [-1, 1]
-    box_mask = jnp.array([True] * 3 + [False] * 7, dtype=jnp.bool_)
+    mask_box = jnp.array([True] * 3 + [False] * 7, dtype=jnp.bool_)
     box = BoxConstraint(
         BoxConstraintSpecification(
             lb=jnp.array([[[-1.0]] * 3]),
             ub=jnp.array([[[1.0]] * 3]),
-            mask=box_mask,
+            mask=mask_box,
         )
     )
 
@@ -442,12 +442,12 @@ def test_projection_with_only_box_constraint(seed: int, batch_size: int):
     key = jrnd.PRNGKey(seed)
     dim = 10
 
-    box_mask = jnp.array(
+    mask_box = jnp.array(
         [True, True, True, True, False, False, False, False, False, False]
     )
     lb = jnp.array([[[-1.0], [-0.5], [-2.0], [-1.5]]])
     ub = jnp.array([[[1.0], [0.5], [2.0], [1.5]]])
-    box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub, mask=box_mask))
+    box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub, mask=mask_box))
 
     cartesian = CartesianConstraint(box_constraint=box, nl_constraints=None)
 

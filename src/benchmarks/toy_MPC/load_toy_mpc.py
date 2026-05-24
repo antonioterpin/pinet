@@ -93,7 +93,7 @@ def create_dataloaders(
     )
 
     def collate_fn(batch):
-        x0sets, obj = zip(*batch, strict=False)
+        x0sets, obj = zip(*batch, strict=True)
         return jnp.array(x0sets), jnp.array(obj)
 
     train_loader = DataLoader(

@@ -114,7 +114,7 @@ def test_soc_a_b_parametrized(seed, batch_size):
     mask_t = jnp.zeros((DIM), dtype=jnp.bool_).at[active_dims].set(True)
     socspec = SocConstraintSpecification(mask_u=mask_u, mask_t=mask_t)
     soc_constraint = SocConstraint(socspec=socspec)
-    project_soc = jax.jit(lambda yraw: soc_constraint.project(yraw=yraw).x)
+    project_soc = jax.jit(lambda y_raw: soc_constraint.project(y_raw=y_raw).x)
     z = project_soc(ProjectionInstance(x=x))
 
     assert jnp.allclose(ysocp, z)

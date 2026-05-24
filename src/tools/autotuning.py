@@ -276,10 +276,10 @@ def project(
     Returns:
         Projected instance and updated solver state.
     """
-    yraw = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
+    y_raw = ProjectionInstance(x=x, eq=EqualityConstraintsSpecification(b=b))
     return projection_layer.call(
         s0=init,
-        yraw=yraw,
+        y_raw=y_raw,
         sigma=sigma,
         omega=omega,
         n_iter=n_iter,

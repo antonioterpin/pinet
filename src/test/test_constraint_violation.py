@@ -110,17 +110,17 @@ def test_inequality_cv():
         ],
         axis=0,
     )
-    yraw = ProjectionInstance(x=x)
+    y_raw = ProjectionInstance(x=x)
 
     gt_cv = jnp.array([3.0, 5.0, 1.0, 3.0]).reshape(-1, 1, 1)
-    ineq_cv = ineq_constraint.cv(yraw)
+    ineq_cv = ineq_constraint.cv(y_raw)
     assert jnp.allclose(ineq_cv, gt_cv), f"Expected {gt_cv}, but got {ineq_cv}."
 
     # Check that the projection has zero cv
     # The inequality constraint does not implement project.
     projection_layer = Project(ineq_constraint=ineq_constraint)
     x_proj = projection_layer.call(
-        yraw=yraw,
+        y_raw=y_raw,
         n_iter=100,
     )[0]
     ineq_cv_proj = ineq_constraint.cv(x_proj)
@@ -135,7 +135,7 @@ def test_inequality_cv():
     lb = jax.random.normal(key[1], shape=(1, m, 1))
     ub = lb + jnp.abs(jax.random.normal(key[2], shape=(1, m, 1)))
     x = jax.random.normal(key[3], shape=(batch_size, n, 1))
-    yraw = ProjectionInstance(x=x)
+    y_raw = ProjectionInstance(x=x)
     ineq_constraint = AffineInequalityConstraint(c_mat, lb, ub)
 
     # Ground truth
@@ -144,13 +144,13 @@ def test_inequality_cv():
         axis=1,
         keepdims=True,
     )
-    ineq_cv = ineq_constraint.cv(yraw)
+    ineq_cv = ineq_constraint.cv(y_raw)
     assert jnp.allclose(ineq_cv, gt_cv), f"Expected {gt_cv}, but got {ineq_cv}."
 
     # Check that the projection has zero cv
     projection_layer = Project(ineq_constraint=ineq_constraint)
     x_proj = projection_layer.call(
-        yraw=yraw,
+        y_raw=y_raw,
         n_iter=100,
     )[0]
     ineq_cv_proj = ineq_constraint.cv(x_proj)
@@ -184,14 +184,14 @@ def test_inequality_box_cv():
         ],
         axis=0,
     )
-    yraw = ProjectionInstance(x=x)
+    y_raw = ProjectionInstance(x=x)
     gt_cv = jnp.array([2.0, 1.5, 0.5 * 2.5 + 1.0 * 1.0 - 1.0]).reshape(-1, 1, 1)
-    cv = projection_layer.cv(y=yraw)
+    cv = projection_layer.cv(y=y_raw)
     assert jnp.allclose(cv, gt_cv), f"Expected {gt_cv}, but got {cv}."
 
     # Check that the projection has zero cv
     x_proj = projection_layer.call(
-        yraw=yraw,
+        y_raw=y_raw,
         n_iter=100,
     )[0]
     cv_proj = projection_layer.cv(x_proj)
@@ -224,7 +224,7 @@ def test_equality_only_cv():
 
     # After projection, cv must be zero.
     # Equality-only is a single-shot projection; one iteration is sufficient.
-    x_proj = projection_layer.call(yraw=y, n_iter=1)[0]
+    x_proj = projection_layer.call(y_raw=y, n_iter=1)[0]
     cv_proj = projection_layer.cv(x_proj)
     assert jnp.allclose(cv_proj, 0.0, atol=1e-6), f"Expected 0.0, but got {cv_proj}."
 
@@ -331,7 +331,7 @@ def test_equality_inequality_box_cv(method, seed, batch_size):
         inp = ProjectionInstance(
             x=x[..., None], eq=EqualityConstraintsSpecification(b=b[ii : ii + 1])
         )
-        x_proj = projection_layer.call(yraw=inp, n_iter=1000)[0]
+        x_proj = projection_layer.call(y_raw=inp, n_iter=1000)[0]
         cv_proj = projection_layer.cv(
             ProjectionInstance(
                 x=x_proj.x[ii : ii + 1],

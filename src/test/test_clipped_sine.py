@@ -27,7 +27,7 @@ class HardConstrainedMLP(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(1)(x)
         project = Project(box_constraint=self.box_constraint)
-        x = project.call(yraw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
+        x = project.call(y_raw=ProjectionInstance(x=x[..., None]))[0].x.squeeze(-1)
         return x
 
 

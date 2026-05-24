@@ -15,11 +15,11 @@ class Constraint(eqx.Module):
     ``ABCMeta`` as its metaclass.
     """
 
-    def project(self, yraw: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project the input to the feasible region.
 
         Args:
-            yraw: ProjectionInstance to project.
+            y_raw: ProjectionInstance to project.
 
         Returns:
             The projected input.
@@ -31,11 +31,11 @@ class Constraint(eqx.Module):
             f"{type(self).__name__}.project must be implemented by a subclass."
         )
 
-    def cv(self, yraw: ProjectionInstance) -> BatchedScalar:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
-            yraw: ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
             The constraint violation for each point in the batch.
