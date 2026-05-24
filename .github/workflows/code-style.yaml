@@ -21,7 +21,7 @@ jobs:
       # way on CI. The test workflow still runs 3.10 to verify the library's
       # declared minimum Python.
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
