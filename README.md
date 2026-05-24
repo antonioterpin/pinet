@@ -28,9 +28,16 @@ To install &Pi;net, run:
   ```bash
   pip install "pinet-hcnn[cuda12]"
   ```
+- GPU (NVIDIA, CUDA 13 — required for Blackwell / RTX 50-series)
+  ```bash
+  pip install "pinet-hcnn[cuda13]"
+  ```
+
+  Match the extra to the CUDA major version reported by `nvidia-smi`
+  ("CUDA Version"). `cuda13` requires `jax>=0.7.1` and Python `>=3.11`.
 
 > [!WARNING]
-> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda12 and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
+> **CUDA dependencies**: If you have issues with CUDA drivers, please follow the official instructions for [cuda and cudnn](https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_local) (Note: wheels only available on linux). If you have issues with conflicting CUDA libraries, check also [this issue](https://github.com/jax-ml/jax/issues/17497)... or use our Docker container 🤗.
 
 We also provide a working [Docker](https://docs.docker.com/) image to reproduce the results of the paper and to build on top.
 ```bash
@@ -69,11 +76,11 @@ A = jnp.zeros((1, n_eq, d))         # (1, n_eq, d)  # broadcast across batch
 b = jnp.zeros((B, n_eq, 1))         # (B, n_eq, 1)
 
 eq = EqualityConstraint(
-    A=A,
+    a_mat=A,
     b=b,
     method=None,                    # let Project decide / lift later
     var_b=True,                     # b provided per-batch at runtime
-    var_A=False,                    # A constant (broadcasted)
+    var_a_mat=False,                # A constant (broadcasted)
 )
 ```
 
@@ -92,7 +99,7 @@ C  = jnp.zeros((1, n_ineq, d))      # (1, n_ineq, d)
 lb = jnp.full((B, n_ineq, 1), -1.0) # (B, n_ineq, 1)
 ub = jnp.full((B, n_ineq, 1),  1.0) # (B, n_ineq, 1)
 
-ineq = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+ineq = AffineInequalityConstraint(c_mat=C, lb=lb, ub=ub)
 ```
 
 > [!WARNING]
@@ -112,6 +119,95 @@ mask = np.ones(d, dtype=bool)       # apply to all dims (use False to skip dims)
 box = BoxConstraint(BoxConstraintSpecification(lb=lb_x, ub=ub_x, mask=mask))
 # box.project(...) clips x[:, mask, :] into [lb_x, ub_x].
 ```
+
+## NonLinearConstraint — generic non-linear constraints
+
+`NonLinearConstraint` is the generic interface for constraints of the form
+`g(A @ y + a) <= f @ y + b`, where the non-linearity is specified through
+`nl_type`. The user defines the constraint once through a
+`NonLinearSpecification`, then passes both the constraint object and the
+corresponding runtime specification to `Project`.
+
+Internally, the constraint parser lifts the problem into the intersection of:
+- an affine equality constraint, and
+- primitive constraints we can project onto efficiently, such as second-order cones.
+
+At the moment, the public non-linear path supports `SOCType`. As with the other
+constraints, `A` and `f` define the fixed structure of the constraint, while
+`a` and `b` may vary across the batch.
+
+```python
+import jax.numpy as jnp
+from pinet import NonLinearConstraint, NonLinearSpecification, SOCType
+
+# Example: ||A @ y + a||_2 <= f @ y + b
+B = 5
+A_nl = jnp.array([[[1.0, 0.0], [0.0, 1.0]]])  # (1, 2, d)
+a_nl = jnp.zeros((B, 2, 1))                    # (B, 2, 1)
+f_nl = jnp.array([[[1.0, 0.0]]])              # (1, 1, d)
+b_nl = jnp.full((B, 1, 1), 0.5)               # (B, 1, 1)
+
+nl_spec = NonLinearSpecification(
+    nl_type=SOCType,
+    a_mat=A_nl,
+    a=a_nl,
+    f=f_nl,
+    b=b_nl,
+)
+nl = NonLinearConstraint(spec=nl_spec)
+```
+
+Small working example with `Project`:
+
+```python
+import jax.numpy as jnp
+from pinet import AffineInequalityConstraint, NonLinearConstraint
+from pinet import NonLinearSpecification, ProjectionInstance, Project, SOCType
+
+B, d = 1, 2
+
+# Simple affine inequality: -2 <= y_i <= 2
+C = jnp.eye(d).reshape(1, d, d)               # (1, d, d)
+lb = jnp.full((B, d, 1), -2.0)                # (B, d, 1)
+ub = jnp.full((B, d, 1),  2.0)                # (B, d, 1)
+ineq = AffineInequalityConstraint(c_mat=C, lb=lb, ub=ub)
+
+# Non-linear constraint: ||y||_2 <= y_0 + 0.5
+A_nl = jnp.array([[[1.0, 0.0], [0.0, 1.0]]])  # (1, 2, d)
+a_nl = jnp.zeros((B, 2, 1))                    # (B, 2, 1)
+f_nl = jnp.array([[[1.0, 0.0]]])              # (1, 1, d)
+b_nl = jnp.full((B, 1, 1), 0.5)               # (B, 1, 1)
+
+nl_spec = NonLinearSpecification(
+    nl_type=SOCType,
+    a_mat=A_nl,
+    a=a_nl,
+    f=f_nl,
+    b=b_nl,
+)
+nl = NonLinearConstraint(spec=nl_spec)
+
+proj = Project(
+    ineq_constraint=ineq,
+    nl_constraints=[nl],
+)
+
+x0 = jnp.array([[[10.0], [-10.0]]])             # point to project, shape (B, d, 1)
+y_raw = ProjectionInstance(x=x0, nl=[nl_spec])
+
+y, sK = proj.call(y_raw=y_raw, n_iter=500, sigma=1.0, omega=1.7)
+
+# Check the maximum violation across all constraints
+cv = proj.cv(y)
+```
+
+To add a new non-linear constraint type, you need to:
+- define a new `NonLinearConstraintType`;
+- implement a primitive constraint with a `project()` and `cv()` method;
+- extend the constraint parser so it lifts the generic non-linear form to that primitive constraint;
+- update `NonLinearSpecification.to_primitive_spec()` to convert the generic runtime specification into the primitive one.
+
+In other words, users only work with `NonLinearConstraint`, while developers need to provide the corresponding lifted representation and primitive projector.
 
 ## Combine constraints with `Project` (Douglas–Rachford)
 
@@ -135,12 +231,12 @@ proj = Project(
 
 # Build a ProjectionInstance with the point to project and (optionally) runtime specs:
 x0 = jnp.zeros((B, d, 1))
-yraw = ProjectionInstance(x=x0)
+y_raw = ProjectionInstance(x=x0)
 # If var_b=True and you supply per-batch b at runtime, pass it via your dataclass, e.g.:
-# yraw = yraw.update(eq=yraw.eq.update(b=b))
+# y_raw = y_raw.update(eq=y_raw.eq.update(b=b))
 
 y, sK = proj.call(       # JIT-compiled projector
-    yraw=yraw,
+    y_raw=y_raw,
     n_iter=50,                    # Douglas-Rachford iterations
     n_iter_backward=100,          # Maximum number of iterations for the bicgstab algorithm
     sigma=1.0, omega=1.7,
@@ -173,20 +269,20 @@ from flax import linen as nn
 from pinet import BoxConstraint, BoxConstraintSpecification, EqualityConstraint
 from src.benchmarks.model import build_model_and_train_step, setup_pinet
 
-def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
+def setup_model(rng_key, hyperparameters, a_mat, x_data, b, lb, ub, batched_objective):
     activation = getattr(nn, hyperparameters["activation"])
     if activation is None:
         raise ValueError(f"Unknown activation: {hyperparameters['activation']}")
 
-    # Constraints (b varies at runtime; A is constant & broadcasted)
-    eq  = EqualityConstraint(A=A, b=b, method=None, var_b=True)
+    # Constraints (b varies at runtime; a_mat is constant & broadcasted)
+    eq  = EqualityConstraint(a_mat=a_mat, b=b, method=None, var_b=True)
     box = BoxConstraint(BoxConstraintSpecification(lb=lb, ub=ub))
     project, project_test, _ = setup_pinet(eq_constraint=eq, box_constraint=box,
                                            hyperparameters=hyperparameters)
 
     model, params, train_step = build_model_and_train_step(
         rng_key=rng_key,
-        dim=A.shape[2],
+        dim=a_mat.shape[2],
         features_list=hyperparameters["features_list"],
         activation=activation,
         project=project,                # projector in the training graph
@@ -194,7 +290,7 @@ def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
         raw_train=hyperparameters.get("raw_train", False),
         raw_test=hyperparameters.get("raw_test", False),
         loss_fn=lambda preds, _b: batched_objective(preds),
-        example_x=X[:1, :, 0],
+        example_x=x_data[:1, :, 0],
         example_b=b[:1],
         jit=True,
     )
@@ -204,11 +300,11 @@ def setup_model(rng_key, hyperparameters, A, X, b, lb, ub, batched_objective):
 ### Run the end-to-end script
 To reproduce the results in the paper, you can run
 ```bash
-python -m src.benchmarks.toy_MPC.run_toy_MPC --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 0
+python -m src.benchmarks.toy_MPC.run_toy_mpc --filename toy_MPC_seed42_examples10000.npz --config toy_MPC --seed 0
 ```
 To generate the dataset, run
 ```bash
-python -m src.benchmarks.toy_MPC.generate_toy_MPC
+python -m src.benchmarks.toy_MPC.generate_toy_mpc
 ```
 
 You’ll get:

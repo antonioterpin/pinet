@@ -1,32 +1,53 @@
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
+
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.10.0
+  # Ruff: lint + autofix
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.1
     hooks:
-      - id: black
-        language_version: python3.10
+      - id: ruff
+        stages: [pre-commit, pre-push]
+        args: ["--fix"]
 
-  - repo: https://github.com/PyCQA/flake8
-    rev: 7.1.1
+      - id: ruff-format
+        stages: [pre-commit, pre-push]
+
+  # Pydoclint: docstring linting (configured in pyproject.toml)
+  - repo: local
     hooks:
-      - id: flake8
-        args: [--max-line-length=90,--extend-ignore=E203]
+      - id: pydoclint
+        name: pydoclint
+        entry: uv run pydoclint
+        language: system
+        types: [python]
+        stages: [pre-commit, pre-push]
 
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.10.1
+  # Type checking (BasedPyright)
+  - repo: local
     hooks:
-      - id: isort
-        args: ["--profile", "black", "--thirdparty=wandb"]
+      - id: basedpyright
+        name: basedpyright
+        # `--level error` treats warnings (mostly JAX untyped members and Any leaks)
+        # as non-blocking; only hard type errors fail the gate.
+        entry: uv run basedpyright --level error
+        language: system
+        types: [python]
+        # Run once on the project rather than per-file so basedpyright sees the
+        # full type graph and the pyproject include/exclude rules.
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
 
+  # Commit message linting (Conventional Commits)
+  - repo: https://github.com/jorisroovers/gitlint
+    rev: v0.19.1
+    hooks:
+      - id: gitlint
+        stages: [commit-msg]
+
+  # Generic hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-
-  - repo: https://github.com/PyCQA/pydocstyle
-    rev: 6.3.0
-    hooks:
-      - id: pydocstyle
-        additional_dependencies: [snowballstemmer]
-        args: ["--convention=google"]

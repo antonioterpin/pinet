@@ -1,0 +1,13 @@
+coverage:
+  status:
+    # Overall project coverage: pass as long as the whole codebase is >= 95%.
+    project:
+      default:
+        target: 95%
+        threshold: 0%
+    # Patch coverage: only the changed lines in a PR must be >= 95%.
+    # Default would require 100% of new/changed lines to be covered, which
+    # is too strict for refactors and typing-only changes.
+    patch:
+      default:
+        target: 95%

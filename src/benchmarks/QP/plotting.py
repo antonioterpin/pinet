@@ -1,32 +1,33 @@
 """Plotting for benchmarks."""
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 
 def plot_rs_vs_cv(
-    obj_fun_test: jnp.ndarray,
-    obj_test: jnp.ndarray,
-    eq_viol_test: jnp.ndarray,
-    ineq_viol_test: jnp.ndarray,
+    obj_fun_test: jax.Array,
+    obj_test: jax.Array,
+    eq_viol_test: jax.Array,
+    ineq_viol_test: jax.Array,
     cvthres: float,
     rsthres: float,
 ):
     """Plot the relative suboptimality against constraint violation.
 
     Args:
-        obj_fun_test (jnp.ndarray): The objective function values from the test set.
-        obj_test (jnp.ndarray): The objective values estimated.
-        eq_viol_test (jnp.ndarray): The equality constraint violations.
-        ineq_viol_test (jnp.ndarray): The inequality constraint violations.
-        cvthres (float): The threshold value for constraint violation used for plotting.
-        rsthres (float): The threshold value for relative suboptimality used for plotting.
+        obj_fun_test: The objective function values from the test set.
+        obj_test: The objective values estimated.
+        eq_viol_test: The equality constraint violations.
+        ineq_viol_test: The inequality constraint violations.
+        cvthres: The threshold value for constraint violation used for plotting.
+        rsthres: The threshold value for relative suboptimality used for plotting.
 
     Returns:
         tuple:
             fig (matplotlib.figure.Figure): The created figure.
-            rs (jnp.ndarray or float): Computed relative suboptimality.
-            cv (jnp.ndarray or float): Computed constraint violations.
+            rs (jax.Array or float): Computed relative suboptimality.
+            cv (jax.Array or float): Computed constraint violations.
     """
     fig, ax = plt.subplots()
     # Relative suboptimality
@@ -34,8 +35,14 @@ def plot_rs_vs_cv(
     cv = jnp.maximum(eq_viol_test, ineq_viol_test)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlim(jnp.minimum(1e-14, jnp.min(cv)), jnp.maximum(1e-1, jnp.max(cv)))
-    ax.set_ylim(jnp.minimum(1e-5, jnp.min(rs)), jnp.maximum(1e-1, jnp.max(rs)))
+    ax.set_xlim(
+        float(jnp.minimum(1e-14, jnp.min(cv))),
+        float(jnp.maximum(1e-1, jnp.max(cv))),
+    )
+    ax.set_ylim(
+        float(jnp.minimum(1e-5, jnp.min(rs))),
+        float(jnp.maximum(1e-1, jnp.max(rs))),
+    )
     # Plot thresholds
 
     ax.hlines(
@@ -63,14 +70,14 @@ def plot_rs_vs_cv(
 
 
 def plot_inference_boxes(
-    single_inference_times: jnp.ndarray, batch_inference_times: jnp.ndarray
+    single_inference_times: jax.Array, batch_inference_times: jax.Array
 ):
     """Plot box plots for single and batch inference.
 
     Args:
-        single_inference_times (jnp.ndarray):
+        single_inference_times:
             A sequence of inference times (in seconds) for single inference.
-        batch_inference_times (jnp.ndarray):
+        batch_inference_times:
             A sequence of inference times (in seconds) for batch inference.
 
     Returns:
@@ -102,7 +109,7 @@ def plot_inference_boxes(
         ymin, ymax = jnp.min(data), jnp.max(data)
         span = ymax - ymin
         pad = span * pad_ratio if span else 1.0
-        ax.set_ylim(ymin - pad, ymax + pad)
+        ax.set_ylim(float(ymin - pad), float(ymax + pad))
 
     pad_ylim(ax1, single_inference_times)
     pad_ylim(ax2, batch_inference_times)

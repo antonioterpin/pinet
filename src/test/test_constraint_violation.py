@@ -1,11 +1,13 @@
 """Test constraint violation functionality."""
 
 from itertools import product
+from typing import cast
 
 import cvxpy as cp
 import jax
 import jax.numpy as jnp
 import pytest
+from cvxpy.constraints.constraint import Constraint as CvxpyConstraint
 
 from pinet import (
     AffineInequalityConstraint,
@@ -48,9 +50,9 @@ def test_box_cv():
 
 
 def test_equality_cv():
-    A = jnp.array([1.0, 2.0, 0]).reshape(1, 1, 3)
+    a_mat = jnp.array([1.0, 2.0, 0]).reshape(1, 1, 3)
     b = jnp.array([3.0]).reshape(1, 1, 1)
-    eq_constraint = EqualityConstraint(A, b, method="pinv")
+    eq_constraint = EqualityConstraint(a_mat, b, method="pinv")
 
     x = jnp.concatenate(
         [
@@ -77,13 +79,13 @@ def test_equality_cv():
     batch_size = 10
     key = jax.random.PRNGKey(42)
     key = jax.random.split(key, num=3)
-    A = jax.random.normal(key[0], shape=(1, m, n))
+    a_mat = jax.random.normal(key[0], shape=(1, m, n))
     b = jax.random.normal(key[1], shape=(1, m, 1))
     x = jax.random.normal(key[2], shape=(batch_size, n, 1))
-    eq_constraint = EqualityConstraint(A, b, method="pinv")
+    eq_constraint = EqualityConstraint(a_mat, b, method="pinv")
 
     # Ground truth
-    gt_cv = jnp.max(jnp.abs(A @ x - b), axis=1, keepdims=True)
+    gt_cv = jnp.max(jnp.abs(a_mat @ x - b), axis=1, keepdims=True)
     eq_cv = eq_constraint.cv(ProjectionInstance(x=x))
     assert jnp.allclose(eq_cv, gt_cv), f"Expected {gt_cv}, but got {eq_cv}."
 
@@ -94,10 +96,10 @@ def test_equality_cv():
 
 
 def test_inequality_cv():
-    C = jnp.array([1.0, 2.0, 0]).reshape(1, 1, 3)
+    c_mat = jnp.array([1.0, 2.0, 0]).reshape(1, 1, 3)
     lb = jnp.array([0.0]).reshape(1, 1, 1)
     ub = jnp.array([2.0]).reshape(1, 1, 1)
-    ineq_constraint = AffineInequalityConstraint(C, lb, ub)
+    ineq_constraint = AffineInequalityConstraint(c_mat, lb, ub)
 
     x = jnp.concatenate(
         [
@@ -108,17 +110,17 @@ def test_inequality_cv():
         ],
         axis=0,
     )
-    yraw = ProjectionInstance(x=x)
+    y_raw = ProjectionInstance(x=x)
 
     gt_cv = jnp.array([3.0, 5.0, 1.0, 3.0]).reshape(-1, 1, 1)
-    ineq_cv = ineq_constraint.cv(yraw)
+    ineq_cv = ineq_constraint.cv(y_raw)
     assert jnp.allclose(ineq_cv, gt_cv), f"Expected {gt_cv}, but got {ineq_cv}."
 
     # Check that the projection has zero cv
     # The inequality constraint does not implement project.
     projection_layer = Project(ineq_constraint=ineq_constraint)
     x_proj = projection_layer.call(
-        yraw=yraw,
+        y_raw=y_raw,
         n_iter=100,
     )[0]
     ineq_cv_proj = ineq_constraint.cv(x_proj)
@@ -129,26 +131,26 @@ def test_inequality_cv():
     batch_size = 10
     key = jax.random.PRNGKey(42)
     key = jax.random.split(key, num=4)
-    C = jax.random.normal(key[0], shape=(1, m, n))
+    c_mat = jax.random.normal(key[0], shape=(1, m, n))
     lb = jax.random.normal(key[1], shape=(1, m, 1))
     ub = lb + jnp.abs(jax.random.normal(key[2], shape=(1, m, 1)))
     x = jax.random.normal(key[3], shape=(batch_size, n, 1))
-    yraw = ProjectionInstance(x=x)
-    ineq_constraint = AffineInequalityConstraint(C, lb, ub)
+    y_raw = ProjectionInstance(x=x)
+    ineq_constraint = AffineInequalityConstraint(c_mat, lb, ub)
 
     # Ground truth
     gt_cv = jnp.max(
-        jnp.maximum(jnp.maximum(C @ x - ub, 0), jnp.maximum(lb - C @ x, 0)),
+        jnp.maximum(jnp.maximum(c_mat @ x - ub, 0), jnp.maximum(lb - c_mat @ x, 0)),
         axis=1,
         keepdims=True,
     )
-    ineq_cv = ineq_constraint.cv(yraw)
+    ineq_cv = ineq_constraint.cv(y_raw)
     assert jnp.allclose(ineq_cv, gt_cv), f"Expected {gt_cv}, but got {ineq_cv}."
 
     # Check that the projection has zero cv
     projection_layer = Project(ineq_constraint=ineq_constraint)
     x_proj = projection_layer.call(
-        yraw=yraw,
+        y_raw=y_raw,
         n_iter=100,
     )[0]
     ineq_cv_proj = ineq_constraint.cv(x_proj)
@@ -157,10 +159,10 @@ def test_inequality_cv():
 
 def test_inequality_box_cv():
     # Define inequality constraint
-    C = jnp.array([0.5, 1.0]).reshape(1, 1, 2)
+    c_mat = jnp.array([0.5, 1.0]).reshape(1, 1, 2)
     lb = jnp.array([-jnp.inf]).reshape(1, 1, 1)
     ub = jnp.array([1.0]).reshape(1, 1, 1)
-    ineq_constraint = AffineInequalityConstraint(C, lb, ub)
+    ineq_constraint = AffineInequalityConstraint(c_mat, lb, ub)
 
     # Define box constraints
     lower_bound = jnp.array([0.0, 0.0]).reshape(1, -1, 1)
@@ -182,18 +184,49 @@ def test_inequality_box_cv():
         ],
         axis=0,
     )
-    yraw = ProjectionInstance(x=x)
+    y_raw = ProjectionInstance(x=x)
     gt_cv = jnp.array([2.0, 1.5, 0.5 * 2.5 + 1.0 * 1.0 - 1.0]).reshape(-1, 1, 1)
-    cv = projection_layer.cv(y=yraw)
+    cv = projection_layer.cv(y=y_raw)
     assert jnp.allclose(cv, gt_cv), f"Expected {gt_cv}, but got {cv}."
 
     # Check that the projection has zero cv
     x_proj = projection_layer.call(
-        yraw=yraw,
+        y_raw=y_raw,
         n_iter=100,
     )[0]
     cv_proj = projection_layer.cv(x_proj)
     assert jnp.allclose(cv_proj, 0.0), f"Expected 0.0, but got {cv_proj}."
+
+
+def test_equality_only_cv():
+    """Regression: Project.cv with equality-only constraints.
+
+    Must not raise AttributeError.
+    """
+    a_mat = jnp.array([1.0, 2.0, 0.0]).reshape(1, 1, 3)
+    b = jnp.array([3.0]).reshape(1, 1, 1)
+    eq_constraint = EqualityConstraint(a_mat, b, method="pinv")
+    projection_layer = Project(eq_constraint=eq_constraint)
+
+    x = jnp.concatenate(
+        [
+            jnp.array([1.0, 2.0, 5.0]).reshape(1, -1, 1),
+            jnp.array([1.0, 1.0, 0.0]).reshape(1, -1, 1),
+        ],
+        axis=0,
+    )
+    y = ProjectionInstance(x=x)
+
+    cv = projection_layer.cv(y=y)
+
+    expected_cv = eq_constraint.cv(y)
+    assert jnp.allclose(cv, expected_cv), f"Expected {expected_cv}, but got {cv}."
+
+    # After projection, cv must be zero.
+    # Equality-only is a single-shot projection; one iteration is sufficient.
+    x_proj = projection_layer.call(y_raw=y, n_iter=1)[0]
+    cv_proj = projection_layer.cv(x_proj)
+    assert jnp.allclose(cv_proj, 0.0, atol=1e-6), f"Expected 0.0, but got {cv_proj}."
 
 
 @pytest.mark.parametrize("method", ["pinv", None])
@@ -203,12 +236,14 @@ def test_equality_inequality_box_cv(method, seed, batch_size):
     n_eq = 50
     n_ineq = 40
     n_box = 15
+    lower_feas_bound = -2
+    upper_feas_bound = 2
     key = jax.random.PRNGKey(seed)
     key = jax.random.split(key, num=5)
     # Generate equality constraints LHS
-    A = jax.random.normal(key[0], shape=(1, n_eq, dim))
+    a_mat = jax.random.normal(key[0], shape=(1, n_eq, dim))
     # Generate inequality constraints LHS
-    C = jax.random.normal(key[1], shape=(1, n_ineq, dim))
+    c_mat = jax.random.normal(key[1], shape=(1, n_ineq, dim))
     # Randomly generate mask for box constraints
     indices = jnp.concatenate([jnp.ones(n_box), jnp.zeros(dim - n_box)])
     mask = jax.random.permutation(key[2], indices).astype(bool)
@@ -231,18 +266,21 @@ def test_equality_inequality_box_cv(method, seed, batch_size):
     ]
     for ii in range(batch_size):
         constraints += [
-            A[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
+            a_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim]
             == bfeas[ii * n_eq : (ii + 1) * n_eq],
-            lfeas <= C[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
-            C[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
+            lfeas <= c_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim],
+            c_mat[0, :, :] @ xfeas[ii * dim : (ii + 1) * dim] <= ufeas,
             lboxfeas <= xfeas[ii * dim : (ii + 1) * dim][mask],
             xfeas[ii * dim : (ii + 1) * dim][mask] <= uboxfeas,
-            -2 <= xfeas,
-            xfeas <= 2,
+            lower_feas_bound <= xfeas,
+            xfeas <= upper_feas_bound,
             ii <= bfeas[ii * n_eq : (ii + 1) * n_eq],
         ]
     objective = cp.Minimize(cp.sum(xfeas))
-    problem = cp.Problem(objective=objective, constraints=constraints)
+    problem = cp.Problem(
+        objective=objective,
+        constraints=cast(list[CvxpyConstraint], constraints),
+    )
     problem.solve(verbose=False)
     # Extract RHS parameters
     b = jnp.tile(jnp.array(bfeas.value).reshape((batch_size, n_eq, 1)), (1, 1, 1))
@@ -253,8 +291,8 @@ def test_equality_inequality_box_cv(method, seed, batch_size):
     # Point to be projected
     x = jax.random.uniform(key[3], shape=(batch_size, dim), minval=-2, maxval=2)
     # Define the projection layer
-    eq_constraint = EqualityConstraint(A=A, b=b, method=method, var_b=True)
-    ineq_constraint = AffineInequalityConstraint(C=C, lb=lb, ub=ub)
+    eq_constraint = EqualityConstraint(a_mat=a_mat, b=b, method=method, var_b=True)
+    ineq_constraint = AffineInequalityConstraint(c_mat=c_mat, lb=lb, ub=ub)
     box_constraint = BoxConstraint(
         BoxConstraintSpecification(lb=lbox, ub=ubox, mask=mask)
     )
@@ -265,10 +303,11 @@ def test_equality_inequality_box_cv(method, seed, batch_size):
     )
     # Compute constraint violation for each instance
     x_reshaped = x.reshape(batch_size, dim, 1)
-    eq_cv = jnp.linalg.norm(A @ x_reshaped - b, axis=1, ord=jnp.inf, keepdims=True)
+    eq_cv = jnp.linalg.norm(a_mat @ x_reshaped - b, axis=1, ord=jnp.inf, keepdims=True)
     ineq_cv = jnp.max(
         jnp.maximum(
-            jnp.maximum(C @ x_reshaped - ub, 0), jnp.maximum(lb - C @ x_reshaped, 0)
+            jnp.maximum(c_mat @ x_reshaped - ub, 0),
+            jnp.maximum(lb - c_mat @ x_reshaped, 0),
         ),
         axis=1,
         keepdims=True,
@@ -292,13 +331,13 @@ def test_equality_inequality_box_cv(method, seed, batch_size):
         inp = ProjectionInstance(
             x=x[..., None], eq=EqualityConstraintsSpecification(b=b[ii : ii + 1])
         )
-        x_proj = projection_layer.call(yraw=inp, n_iter=1000)[0]
+        x_proj = projection_layer.call(y_raw=inp, n_iter=1000)[0]
         cv_proj = projection_layer.cv(
             ProjectionInstance(
                 x=x_proj.x[ii : ii + 1],
                 eq=EqualityConstraintsSpecification(b=b[ii : ii + 1]),
             )
         )
-        assert jnp.allclose(
-            cv_proj, 0.0, rtol=1e-4, atol=1e-4
-        ), f"Expected 0.0, but got {cv_proj}."
+        assert jnp.allclose(cv_proj, 0.0, rtol=1e-4, atol=1e-4), (
+            f"Expected 0.0, but got {cv_proj}."
+        )

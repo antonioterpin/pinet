@@ -2,6 +2,7 @@
 
 from jax import numpy as jnp
 
+from pinet._typing import BatchedIneqBound, BatchedIneqMatrix, BatchedScalar
 from pinet.dataclasses import ProjectionInstance
 
 from .base import Constraint
@@ -11,58 +12,62 @@ class AffineInequalityConstraint(Constraint):
     """Affine inequality constraint set.
 
     The (affine) inequality constraint set is defined as:
-    lb <= C @ x <= ub
-    where the matrix C and the vectors lb and ub are the parameters.
+    lb <= c_mat @ x <= ub
+    where the constraint matrix and the vectors lb and ub are the parameters.
+
+    Attributes:
+        c_mat: Matrix in the inequality.
+        lb: Lower bound.
+        ub: Upper bound.
     """
 
-    def __init__(self, C: jnp.ndarray, lb: jnp.ndarray, ub: jnp.ndarray) -> None:
+    c_mat: BatchedIneqMatrix
+    lb: BatchedIneqBound
+    ub: BatchedIneqBound
+
+    def __init__(
+        self,
+        c_mat: BatchedIneqMatrix,
+        lb: BatchedIneqBound,
+        ub: BatchedIneqBound,
+    ) -> None:
         """Initialize the affine inequality constraint.
 
         Args:
-            C (jnp.ndarray): The matrix C in the inequality.
-                Shape (batch_size, n_constraints, dimension).
-            lb (jnp.ndarray): The lower bound in the inequality.
-                Shape (batch_size, n_constraints, 1).
-            ub (jnp.ndarray): The upper bound in the inequality.
-                Shape (batch_size, n_constraints, 1).
+            c_mat: The matrix in the inequality.
+            lb: The lower bound in the inequality.
+            ub: The upper bound in the inequality.
         """
-        self.C = C
+        # Batch broadcasting: either equal, or one side is 1.
+        assert c_mat.shape[0] == lb.shape[0] or c_mat.shape[0] == 1 or lb.shape[0] == 1, (
+            f"Batch sizes are inconsistent: c_mat{c_mat.shape}, l{lb.shape}"
+        )
+        assert c_mat.shape[0] == ub.shape[0] or c_mat.shape[0] == 1 or ub.shape[0] == 1, (
+            f"Batch sizes are inconsistent: c_mat{c_mat.shape}, ub{ub.shape}"
+        )
+        assert c_mat.shape[1] == lb.shape[1], (
+            "Number of rows in c_mat must equal size of l."
+        )
+        assert c_mat.shape[1] == ub.shape[1], (
+            "Number of rows in c_mat must equal size of u."
+        )
+
+        self.c_mat = c_mat
         self.lb = lb
         self.ub = ub
 
-        # Check if batch sizes for C and l are consistent.
-        # They should either be the same, or one of them should be 1.
-        assert (
-            self.C.shape[0] == self.lb.shape[0]
-            or self.C.shape[0] == 1
-            or self.lb.shape[0] == 1
-        ), f"Batch sizes are inconsistent: C{self.C.shape}, l{self.lb.shape}"
-
-        # Check if batch sizes for C and u are consistent.
-        # They should either be the same, or one of them should be 1.
-        assert (
-            self.C.shape[0] == self.ub.shape[0]
-            or self.C.shape[0] == 1
-            or self.ub.shape[0] == 1
-        ), f"Batch sizes are inconsistent: C{self.C.shape}, ub{self.ub.shape}"
-
-        assert (
-            self.C.shape[1] == self.lb.shape[1]
-        ), "Number of rows in C must equal size of l."
-        assert (
-            self.C.shape[1] == self.ub.shape[1]
-        ), "Number of rows in C must equal size of u."
-
-    def project(self, inp: ProjectionInstance) -> ProjectionInstance:
+    def project(self, y_raw: ProjectionInstance) -> ProjectionInstance:
         """Project x onto the affine inequality constraint set.
 
         Args:
-            inp (ProjectionInstance): ProjectionInstance to projection.
+            y_raw: ProjectionInstance to project.
                 The .x attribute is the point to project.
 
         Returns:
-            ProjectionInstance: The projected point for each point in the batch.
-                Shape (batch_size, dimension, 1).
+            The projected point for each point in the batch.
+
+        Raises:
+            NotImplementedError: Always. This method must not be called directly.
         """
         raise NotImplementedError(
             "The 'project' method is not implemented and should not be called."
@@ -71,24 +76,23 @@ class AffineInequalityConstraint(Constraint):
     @property
     def dim(self) -> int:
         """Return the dimension of the constraint set."""
-        return self.C.shape[-1]
+        return self.c_mat.shape[-1]
 
     @property
     def n_constraints(self) -> int:
         """Return the number of constraints."""
-        return self.C.shape[1]
+        return self.c_mat.shape[1]
 
-    def cv(self, inp: ProjectionInstance) -> jnp.ndarray:
+    def cv(self, y_raw: ProjectionInstance) -> BatchedScalar:
         """Compute the constraint violation.
 
         Args:
-            inp (ProjectionInstance): ProjectionInstance to evaluate.
+            y_raw: ProjectionInstance to evaluate.
 
         Returns:
-            jnp.ndarray: The constraint violation for each point in the batch.
-                Shape (batch_size, 1, 1).
+            The constraint violation for each point in the batch.
         """
-        Cx = self.C @ inp.x
-        cv_ub = jnp.maximum(Cx - self.ub, 0)
-        cv_lb = jnp.maximum(self.lb - Cx, 0)
+        c_mat_x = self.c_mat @ y_raw.x
+        cv_ub = jnp.maximum(c_mat_x - self.ub, 0)
+        cv_lb = jnp.maximum(self.lb - c_mat_x, 0)
         return jnp.max(jnp.maximum(cv_ub, cv_lb), axis=1, keepdims=True)

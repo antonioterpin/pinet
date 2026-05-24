@@ -4,22 +4,27 @@ import argparse
 import csv
 import pathlib
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def generate_bar_data(
-    id: str, config: str, filename: str, opt_obj_test: float, plotting: bool = False
+def generate_bar_plot_data(
+    id: str,
+    config: str,
+    filename: str,
+    opt_obj_test: jax.Array,
+    plotting: bool = False,
 ) -> None:
     """Generate bar plot data for RS and CV from saved results.
 
     Args:
-        id (str): Identifier for the dataset.
-        config (str): Configuration name.
-        filename (str): Name of the file to save the results.
-        opt_obj_test (float): Optimal objective value for the test set.
-        plotting (bool): Whether to plot the results or not.
+        id: Identifier for the dataset.
+        config: Configuration name.
+        filename: Name of the file to save the results.
+        opt_obj_test: Optimal objective value for the test set.
+        plotting: Whether to plot the results or not.
     """
     results_folder = pathlib.Path(__file__).parent / "results" / id / config
     subfolders = [folder for folder in results_folder.iterdir() if folder.is_dir()]
@@ -56,7 +61,7 @@ def generate_bar_data(
         rs_np = np.array(rs)[:, 0]
         cv_np = np.array(cv)[:, 0]
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
         indices = np.arange(len(ids))
         bar_width = 3.0
         ticks = [1e-4, 1e-3, 1e-2, 1e-1]
@@ -93,16 +98,20 @@ def generate_bar_data(
 
 # Generate training curves
 def generate_learning_curves(
-    id: str, config: str, filename: str, opt_obj_valid: float, plotting: bool = False
+    id: str,
+    config: str,
+    filename: str,
+    opt_obj_valid: jax.Array,
+    plotting: bool = False,
 ) -> None:
     """Parse results and saves learning curves for RS and CV.
 
     Args:
-        id (str): Identifier for the dataset.
-        config (str): Configuration name.
-        filename (str): Name of the file to save the results.
-        opt_obj_valid (float): Optimal objective value for the validation set.
-        plotting (bool): Whether to plot the results or not.
+        id: Identifier for the dataset.
+        config: Configuration name.
+        filename: Name of the file to save the results.
+        opt_obj_valid: Optimal objective value for the validation set.
+        plotting: Whether to plot the results or not.
     """
     results_folder = pathlib.Path(__file__).parent / "results" / id / config
     subfolders = [folder for folder in results_folder.iterdir() if folder.is_dir()]
@@ -197,8 +206,8 @@ def generate_time_data(id: str, config: str) -> None:
     """Parse results and save training and inference time data.
 
     Args:
-        id (str): Identifier for the dataset.
-        config (str): Configuration name.
+        id: Identifier for the dataset.
+        config: Configuration name.
     """
     single_inference_dict = {
         "ours": [],
@@ -215,20 +224,19 @@ def generate_time_data(id: str, config: str) -> None:
         if folder.is_dir()
         and folder.name not in ("learning_curves", "performances", "optimal_objectives")
     ]
+    method_name_by_subfolder = {
+        "dc3": "dc3",
+        "softMLP": "softMLP",
+        config: "ours",
+        "solver": "solver",
+        "benchmark_jaxopt_small": "jaxopt",
+        "benchmark_jaxopt_large": "jaxopt",
+    }
     for subfolder in dataset_subfolders:
-        if subfolder.name == "dc3":
-            method_name = "dc3"
-        elif subfolder.name == "softMLP":
-            method_name = "softMLP"
-        elif subfolder.name == config:
-            method_name = "ours"
-        elif subfolder.name == "solver":
-            method_name = "solver"
-        elif (
-            subfolder.name == "benchmark_jaxopt_small"
-            or subfolder.name == "benchmark_jaxopt_large"
-        ):
-            method_name = "jaxopt"
+        method_name = method_name_by_subfolder.get(subfolder.name)
+        if method_name is None:
+            # Unknown subfolder; skip it rather than silently using a stale name.
+            continue
         for nested_folder in subfolder.iterdir():
             if nested_folder.is_dir():
                 results_file = nested_folder / "results.npz"
@@ -254,12 +262,12 @@ def generate_time_data(id: str, config: str) -> None:
         inference_stats[method] = compute_box_stats(inference_dict[method])
 
     print("Single inference time statistics (median, Q1, Q3, min, max):")
-    for method in training_stats:
-        print(training_stats[method])
+    for _method, value in training_stats.items():
+        print(value)
 
     print("\nBatch Inference time statistics (median, Q1, Q3, min, max):")
-    for method in inference_stats:
-        print(inference_stats[method])
+    for _method, value in inference_stats.items():
+        print(value)
 
     methods_mapping = {
         "softMLP": ("mlpsoft", "SoftMLP"),
@@ -270,11 +278,13 @@ def generate_time_data(id: str, config: str) -> None:
     }
 
     for dict, name in zip(
-        [single_inference_dict, inference_dict], ["single_inference", "inference"]
+        [single_inference_dict, inference_dict],
+        ["single_inference", "inference"],
+        strict=True,
     ):
         all_stats = {}
         for method, (color, method_name) in methods_mapping.items():
-            if method in dict and dict[method]:
+            if dict.get(method):
                 # compute_box_stats returns (median, q1, q3, minimum, maximum)
                 stats = compute_box_stats(dict[method])
                 median, q1, q3, minimum, maximum = stats
@@ -302,8 +312,11 @@ def save_optimal_objectives(id: str, config: str):
     """Save optimal objectives for the validation and test set.
 
     Args:
-        id (str): Identifier for the dataset.
-        config (str): Configuration name.
+        id: Identifier for the dataset.
+        config: Configuration name.
+
+    Returns:
+        None
     """
     # Setup filenames and check if they exist
     optimal_objectives_folder = (
@@ -334,11 +347,11 @@ def save_optimal_objectives(id: str, config: str):
     )
 
 
-def load_optimal_objectives(id: str) -> tuple[jnp.ndarray, jnp.ndarray]:
+def load_optimal_objectives(id: str) -> tuple[jax.Array, jax.Array]:
     """Load optimal objectives for the validation and test set.
 
     Args:
-        id (str): Identifier for the dataset.
+        id: Identifier for the dataset.
 
     Returns:
         tuple: Optimal objectives for the test and validation sets.
@@ -366,7 +379,7 @@ if __name__ == "__main__":
         help="Configuration (default: pinet, options: dc3, softMLP, jaxopt, pinet)",
     )
     parser.add_argument(
-        "--generate_bar_data",
+        "--generate_bar_plot_data",
         action="store_true",
         default=False,
         help="Generate bar plot data",
@@ -383,9 +396,7 @@ if __name__ == "__main__":
         default=False,
         help="Generate training and inference time data",
     )
-    parser.add_argument(
-        "--plot", action="store_true", default=False, help="Plot results"
-    )
+    parser.add_argument("--plot", action="store_true", default=False, help="Plot results")
     args = parser.parse_args()
 
     if args.config == "dc3":
@@ -404,10 +415,10 @@ if __name__ == "__main__":
         )
 
     opt_obj_test, opt_obj_valid = load_optimal_objectives(args.id)
-    if args.generate_bar_data:
+    if args.generate_bar_plot_data:
         print("Generating bar plot data for id:", args.id, "and config:", args.config)
         # Call bar plot generation functionality here
-        generate_bar_data(
+        generate_bar_plot_data(
             args.id,
             args.config,
             filename=filename,

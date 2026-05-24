@@ -1,21 +1,21 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pinet-hcnn"
-version = "0.1.0"
+version = "0.2.0"
 description = "A differentiable orthogonal projection layer for training hard-constrained neural networks."
 readme = "README.md"
 license = { file = "LICENSE" }
+requires-python = ">=3.10"
 authors = [
     { name = "Panagiotis Grontas", email = "pgrontas@control.ee.ethz.ch" },
     { name = "Antonio Terpin", email = "aterpin@ethz.ch" },
 ]
-urls = { Homepage = "https://github.com/antonioterpin/pinet" }
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: Apache-2.0 License",
+  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
 ]
 
@@ -34,6 +34,9 @@ dependencies = [
     "cvxpylayers>=0.1.9",
     "jaxopt>=0.8.5",
     "wandb>=0.20.1",
+    "jaxtyping>=0.3.7",
+    "equinox>=0.13.7",
+    "beartype>=0.22.9",
 ]
 
 # Optional dependencies
@@ -42,13 +45,182 @@ dev = [
     "snowballstemmer==2.2.0",
     "pre_commit==4.0.1",
     "pytest-cov",
-    "tomli"
+    "tomli",
+    "basedpyright",
+    "pydoclint>=0.8.3",
+    "ruff>=0.14.14",
+    "gitlint==0.19.1",
 ]
+# GPU extras. Pick the one matching the CUDA major version of the host driver
+# (`nvidia-smi` -> "CUDA Version"). cuda13 is required for CUDA 13 drivers and
+# Blackwell-class GPUs (e.g. RTX 50-series), and needs jax>=0.7.1 (python>=3.11).
 cuda12 = [
-    "jax[cuda12_pip]>=0.6.2",
+    "jax[cuda12]>=0.6.2",
+]
+cuda13 = [
+    "jax[cuda13]>=0.7.1; python_version >= '3.11'",
+]
+
+[project.urls]
+Homepage = "https://github.com/antonioterpin/pinet"
+Repository = "https://github.com/antonioterpin/pinet"
+
+# Dependency groups
+[dependency-groups]
+dev = [
+    "snowballstemmer==2.2.0",
+    "pre_commit==4.0.1",
+    "pytest-cov",
+    "tomli",
+    "basedpyright",
+    "pydoclint>=0.8.3",
+    "ruff>=0.14.14",
+    "gitlint==0.19.1",
 ]
 
 # Build system configuration
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["pinet*"]
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "UP",  # pyupgrade
+    "I",   # isort
+    "N",   # pep8-naming
+    "B",   # flake8-bugbear
+    "PL",  # pylint
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "PLR0913", # Too many arguments
+]
+
+[tool.ruff.lint.per-file-ignores]
+# jaxtyping string-shape annotations (``Float[Array, "B m n"]``) trigger F722
+# (syntax error in forward annotation) and F821 (undefined name) because the
+# quoted axis names are not module-level symbols. Scope the ignore to the
+# directories that actually use those annotations so F722/F821 stay active
+# in tests.
+"src/pinet/**" = [
+    "F722",
+    "F821",
+]
+"src/tools/**" = [
+    "F722",
+    "F821",
+]
+"src/benchmarks/**" = [
+    "F722",
+    "F821",
+    "PLR2004", # Magic values are fine in benchmark scripts.
+]
+"src/test/**" = [
+    "PLR2004", # Magic values are fine in tests.
+]
+
+[tool.ruff.lint.pep8-naming]
+# Matrix/tensor identifiers follow math convention and are upper-case by design.
+extend-ignore-names = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "A_*",
+    "B_*",
+    "C_*",
+    "D_*",
+    "E_*",
+    "F_*",
+    "G_*",
+    "H_*",
+    "M_*",
+    "P_*",
+    "Q_*",
+    "U_*",
+    "V_*",
+    "W_*",
+    "X_*",
+    "Y_*",
+    "Z_*",
+    "*_A",
+    "*_B",
+    "*_C",
+    "*_D",
+    "*_E",
+    "*_F",
+    "*_G",
+    "*_H",
+    "*_P",
+    "*_Q",
+    "*_U",
+    "*_V",
+    "*_W",
+    "*_X",
+    "*_Y",
+    "*_Z",
+    "*_A_*",
+    "*_B_*",
+    "*_C_*",
+    "k[A-Z]*",    # JAX PRNG subkeys (kA, kC, ...).
+    "k[a-z][A-Z]*",  # JAX PRNG subkeys with a leading lowercase hint (knA, kxA, ...).
+    "n[A-Z]*",    # Shape counters coupled to a matrix (nA, nC, ...).
+    "[A-Z]x",     # Products/contractions like `Ax = A @ x`, `Cx`.
+    "[A-Z][a-z]*x",  # Compound products (`Mx`, `Px`, `Qx`).
+]
+
+[tool.ruff.lint.pylint]
+max-branches = 16
+max-statements = 120
+
+[tool.basedpyright]
+# equinox.Module sets fields via ``self.x = ...`` inside a custom ``__init__``;
+# calling ``super().__init__()`` is neither required nor supported by the
+# dataclass machinery that eqx.Module builds on.
+reportMissingSuperCall = false
+# Abstract constraint bases use eqx.Module's own abstract-method enforcement;
+# the implicit-Protocol diagnostic is spurious here.
+reportImplicitAbstractClass = false
+# Matrix-name identifiers (A, B, ``_A``, ...) are standard math notation across
+# the project; reassigning them in ``__init__`` is not a constant-redefinition.
+reportConstantRedefinition = false
+
+[tool.pydoclint]
+style = "google"
+# Docstring enforcement only targets the library API.
+# Tests, benchmarks and dev tools are excluded because their docstrings follow
+# lighter conventions and are already covered by ruff/pyright.
+exclude = '\.git|\.tox|^src/test/|^src/benchmarks/|^src/tools/'
+skip-checking-short-docstrings = false
+allow-init-docstring = true
+arg-type-hints-in-docstring = false
+check-return-types = false
+skip-checking-raises = true
